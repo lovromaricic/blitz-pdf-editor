@@ -8,6 +8,12 @@
   import PanelHeader from './PanelHeader.svelte';
   import Range from '../../components/Range.svelte';
   import { MediaQuery } from 'svelte/reactivity';
+  import type { Component } from 'svelte';
+  import ArrowUpRight from '@lucide/svelte/icons/arrow-up-right';
+  import Circle from '@lucide/svelte/icons/circle';
+  import Slash from '@lucide/svelte/icons/slash';
+  import Square from '@lucide/svelte/icons/square';
+  import { ICON } from '../tools';
 
   const viewer = useViewer();
   const actions = useActions();
@@ -41,12 +47,22 @@
     if (kind) (viewer.toolProps[kind] as Record<string, unknown>)[key] = value;
   }
 
-  const shapeKinds: { id: ShapeKind; label: string }[] = [
-    { id: 'rect', label: 'Rectangle' },
-    { id: 'ellipse', label: 'Ellipse' },
-    { id: 'line', label: 'Line' },
-    { id: 'arrow', label: 'Arrow' },
+  const shapeKinds: { id: ShapeKind; label: string; icon: Component }[] = [
+    { id: 'rect', label: 'Rectangle', icon: Square },
+    { id: 'ellipse', label: 'Ellipse', icon: Circle },
+    { id: 'line', label: 'Line', icon: Slash },
+    { id: 'arrow', label: 'Arrow', icon: ArrowUpRight },
   ];
+
+  /** Radio group keys: arrows move and choose (wrapping), like native radios. */
+  function onShapeKey(e: KeyboardEvent, i: number) {
+    const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[e.key];
+    if (!step) return;
+    e.preventDefault();
+    const next = (i + step + shapeKinds.length) % shapeKinds.length;
+    viewer.toolProps.shapes.shape = shapeKinds[next].id;
+    ((e.currentTarget as HTMLElement).parentElement?.children[next] as HTMLElement | undefined)?.focus();
+  }
   const hasFill = $derived(kind === 'shapes' && (props.shape === 'rect' || props.shape === 'ellipse'));
 </script>
 
@@ -72,14 +88,21 @@
     {#if kind === 'shapes' && !sel}
       <div class="field">
         <span class="label" id="shape-kind">Shape</span>
-        <div class="segmented" role="radiogroup" aria-labelledby="shape-kind">
-          {#each shapeKinds as s (s.id)}
+        <div class="shape-kinds" role="radiogroup" aria-labelledby="shape-kind">
+          {#each shapeKinds as k, i (k.id)}
+            {@const checked = viewer.toolProps.shapes.shape === k.id}
             <button
               type="button"
               role="radio"
-              aria-checked={viewer.toolProps.shapes.shape === s.id}
-              onclick={() => (viewer.toolProps.shapes.shape = s.id)}>{s.label}</button
+              aria-checked={checked}
+              aria-label={k.label}
+              tabindex={checked ? 0 : -1}
+              onclick={() => (viewer.toolProps.shapes.shape = k.id)}
+              onkeydown={(e) => onShapeKey(e, i)}
             >
+              <k.icon size={ICON.size} strokeWidth={ICON.strokeWidth} aria-hidden="true" />
+              <span class="kind-label" aria-hidden="true">{k.label}</span>
+            </button>
           {/each}
         </div>
       </div>
@@ -146,26 +169,39 @@
     font-weight: 400;
     color: var(--muted);
   }
-  .segmented {
+  .shape-kinds {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: var(--space-1);
   }
-  .segmented button {
-    min-height: 32px;
+  .shape-kinds button {
+    display: grid;
+    justify-items: center;
+    gap: var(--space-1);
+    padding: var(--space-2) var(--space-1);
     border: var(--border-width) solid var(--border);
     border-radius: var(--radius-sm);
     background: var(--surface);
-    font-size: var(--font-size-sm);
+    color: var(--text);
+    font-size: var(--font-size-xs);
+    transition: background var(--transition-fast);
+  }
+  .shape-kinds button:hover:not([aria-checked='true']) {
+    background: var(--surface-2);
+  }
+  /* Selected: accent icon; the small label uses the strong accent for contrast on the soft fill. */
+  .shape-kinds button[aria-checked='true'] {
+    border-color: var(--accent-soft);
+    background: var(--accent-soft);
+    color: var(--accent);
+  }
+  .shape-kinds button[aria-checked='true'] .kind-label {
+    color: var(--accent-strong);
+    font-weight: 600;
   }
   @media (max-width: 720px), (pointer: coarse) {
-    .segmented button {
+    .shape-kinds button {
       min-height: var(--touch-target);
     }
-  }
-  .segmented button[aria-checked='true'] {
-    background: var(--accent-soft);
-    border-color: var(--border);
-    font-weight: 600;
   }
 </style>
