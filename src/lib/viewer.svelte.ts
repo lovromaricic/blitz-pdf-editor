@@ -4,6 +4,7 @@ import type { EditorDocument, PageRef } from './document.svelte';
 import type { Margins } from './page-ops';
 import { HIGHLIGHT_COLORS, INK_COLORS, NOTE_COLORS, STAMPS, type FontFamily, type Rgb, type ShapeKind } from './annotations';
 import { loadFonts } from './fonts';
+import { decorationResolver } from './pdf/pdf-writer';
 import { computeLayout, indexAtY, pagesPerRow, rowAtY, rowStartOf, type ViewMode } from './layout';
 import { CSS_UNITS } from './pdf/pdfjs';
 import { Search } from './search.svelte';
@@ -17,7 +18,18 @@ export const PAGE_GAP = 16;
 
 export type FitMode = 'width' | 'page' | null;
 /** Tool panels shown in the right-hand panel (opened from menus). */
-export type ToolPanel = 'extract' | 'split' | 'merge' | 'crop';
+export type ToolPanel =
+  | 'extract'
+  | 'split'
+  | 'merge'
+  | 'crop'
+  | 'watermark'
+  | 'pageNumbers'
+  | 'protect'
+  | 'unlock'
+  | 'compress'
+  | 'imagesToPdf'
+  | 'exportImages';
 
 export interface Task {
   label: string;
@@ -94,6 +106,16 @@ export class Viewer {
   constructor(public doc: EditorDocument) {
     this.search = new Search(doc);
   }
+
+  /** Load fonts (once) when something on the pages needs them. */
+  ensureFonts() {
+    if (!this.fontsReady) void loadFonts().then(() => (this.fontsReady = true));
+  }
+
+  /** Watermark and page number per page (follows page order and settings). */
+  decorationFor = $derived.by(() => decorationResolver(this.doc));
+  /** Fonts are needed to measure watermarks and numbers before showing them. */
+  fontsReady = $state(false);
 
   /** Display scale: CSS px per PDF point. */
   scale = $derived(this.zoom * CSS_UNITS);

@@ -49,12 +49,12 @@ BASE_PATH=/tools/pdf/ npm run build
 ### Server headers
 
 - No special headers (CORS, cross-origin isolation) are needed.
-- `.mjs` files must be served as JavaScript (`text/javascript`) and `.wasm` files as `application/wasm`. Most hosts already do. On Apache, add to `.htaccess`:
+- Password protection uses pdf-lib's built-in AES-256 encryption, so no qpdf/WASM build is needed.
+- `.mjs` files must be served as JavaScript (`text/javascript`) and `.wasm` files (PDF.js image decoders) as `application/wasm`. Most hosts already do. On Apache, add to `.htaccess`:
   ```
   AddType application/wasm .wasm
   AddType text/javascript .mjs
   ```
-  This section will be updated if any library needs further headers (e.g. cross-origin isolation).
 
 ## Project structure
 
@@ -92,6 +92,10 @@ tests/                   Vitest unit tests (tests/tmp/ is a gitignored scratch a
 - **Text, stamps and form values** use embedded Noto fonts (subset to the characters used), so č, ć, đ, Greek and Cyrillic work. Form values that fit the standard fonts keep using Helvetica.
 - **Fill form** writes the typed values into the form fields; **Flatten form** turns fields into page content on save.
 - **Signatures** are pictures of a signature (drawn, typed or uploaded), not certificate-based digital signatures. They are kept only in memory for the current tab.
+- **Watermark and page numbers** are drawn into the page content when saving (they follow the page order).
+- **Protect with password** encrypts with AES-256. A file opened with a password is saved with the same password unless *Remove password* is used.
+- **Compress** re-encodes photos (JPEG and plain RGB/grey images) at lower resolution and quality in the worker, then drops unused objects. Alpha masks, CMYK and special image formats are left untouched. It's undoable: the original bytes stay in memory.
+- **Images to PDF** embeds JPEGs unchanged; other formats and rotated phone photos are normalized in the browser first.
 - **Crop** sets each page's crop box. The trimmed area is hidden, not removed (true removal is what Redact, planned for later, will do).
 - **Extract** and **Split** write fresh PDFs that contain only the chosen pages.
 - Saving a password-protected PDF produces an unprotected copy (the app warns about this). Re-protecting is the job of *Tools › Protect with password* (Phase 6).

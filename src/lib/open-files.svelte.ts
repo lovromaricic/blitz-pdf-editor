@@ -1,6 +1,6 @@
 // The one entry point for opening PDFs, used by the Home screen and File > Open.
 import { setDocument } from './app-state.svelte';
-import { readPdfFiles, type RejectedFile } from './files';
+import { readPdfFiles, type OpenFile, type RejectedFile } from './files';
 
 interface PasswordRequest {
   fileName: string;
@@ -34,13 +34,28 @@ export async function openFiles(files: Iterable<File>): Promise<RejectedFile[]> 
   if (opening.busy) return [];
   opening.busy = true;
   try {
-    const intake = await readPdfFiles(files);
+    const list = Array.from(files);
+    // Images are turned into a PDF (one per page), placed where the first image was.
+    const images = list.filter((f) => !isPdfName(f) && (f.type.startsWith('image/') || /\.(jpe?g|png|webp|gif|bmp|avif|heic)$/i.test(f.name)));
+    const intake = await readPdfFiles(list.filter((f) => !images.includes(f)));
+    let fromImages: OpenFile | null = null;
+    if (images.length) {
+      const made = await imagesAsPdf(images);
+      intake.rejected.push(...made.rejected);
+      if (made.file) {
+        fromImages = made.file;
+        const at = list.filter((f) => !images.includes(f)).findIndex((f) => list.indexOf(f) > list.indexOf(images[0]));
+        intake.accepted.splice(at < 0 ? intake.accepted.length : at, 0, made.file);
+      }
+    }
     if (intake.accepted.length === 0) return intake.rejected;
     // PDF.js is loaded on demand so the Home screen stays light.
     const { openDocument } = await loadEditorModules();
     const result = await openDocument(intake.accepted, askPassword);
     const rejected = [...intake.rejected, ...result.rejected];
     if (!result.doc) return rejected;
+    // A PDF made from images exists only in memory until saved.
+    if (fromImages) result.doc.createdUnsaved = true;
     setDocument(result.doc, rejected);
     return [];
   } finally {
@@ -51,4 +66,29 @@ export async function openFiles(files: Iterable<File>): Promise<RejectedFile[]> 
 /** Load the PDF engine. Called early (on idle) so opening a file feels instant. */
 export function loadEditorModules() {
   return import('./document.svelte');
+}
+
+function isPdfName(f: File) {
+  return f.type === 'application/pdf' || /\.pdf$/i.test(f.name);
+}
+
+async function imagesAsPdf(images: File[]): Promise<{ file: OpenFile | null; rejected: RejectedFile[] }> {
+  const [{ prepareImage }, { imagesToPdfInWorker }, { DEFAULT_IMAGE_OPTIONS }] = await Promise.all([
+    import('./image-input'),
+    import('./pdf/pdf-writer'),
+    import('./actions.svelte'),
+  ]);
+  const prepared = [];
+  const rejected: RejectedFile[] = [];
+  for (const f of images) {
+    try {
+      prepared.push(await prepareImage(f));
+    } catch (e) {
+      rejected.push({ name: f.name, reason: e instanceof Error ? e.message.replace(`${f.name}: `, '') : 'This image could not be read.' });
+    }
+  }
+  if (prepared.length === 0) return { file: null, rejected };
+  const bytes = await imagesToPdfInWorker(prepared, DEFAULT_IMAGE_OPTIONS);
+  const name = prepared.length === 1 ? prepared[0].name.replace(/\.[^.]+$/, '') + '.pdf' : 'images.pdf';
+  return { file: { id: `images-${Date.now()}`, name, size: bytes.length, bytes }, rejected };
 }

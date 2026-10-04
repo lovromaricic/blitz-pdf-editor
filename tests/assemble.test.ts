@@ -2,6 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { PDFDocument, PDFName, PDFDict, PDFArray } from '@cantoo/pdf-lib';
 import { assemble, type PagePlan, type SourceInput } from '../src/lib/pdf/assemble';
 import { blankPdf } from '../src/lib/pdf/blank';
+import { createFontProvider } from '../src/lib/pdf/font-provider';
+import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
+import { readFileSync } from 'node:fs';
 
 const latin1 = (b: Uint8Array) => Buffer.from(b).toString('latin1');
 
@@ -166,5 +169,52 @@ describe('blankPdf', () => {
     expect(doc.getPage(0).getWidth()).toBeCloseTo(595.28);
     const pages = doc.catalog.lookup(PDFName.of('Pages'), PDFDict);
     expect(pages.lookup(PDFName.of('Kids'), PDFArray).size()).toBe(1);
+  });
+});
+
+describe('assemble: protection and decorations', () => {
+  const fonts = createFontProvider(async (key) =>
+    new Uint8Array(
+      readFileSync(
+        key === 'sans-bold'
+          ? 'node_modules/@expo-google-fonts/noto-sans/700Bold/NotoSans_700Bold.ttf'
+          : 'node_modules/@expo-google-fonts/noto-sans/400Regular/NotoSans_400Regular.ttf',
+      ),
+    ),
+  );
+
+  it('encrypts with AES-256 and the chosen permissions', async () => {
+    const src = { id: 'a', bytes: await makePdf(1, 'P') };
+    const out = await assemble([src], plan('a', [0]), 'preserve', {
+      encrypt: { password: 'tajna', allowPrinting: true, allowCopying: false, allowEditing: false },
+    });
+    await expect(PDFDocument.load(out)).rejects.toThrow();
+    const opened = await PDFDocument.load(out, { password: 'tajna' });
+    expect(opened.getPageCount()).toBe(1);
+
+    const pdf = await getDocument({ data: out.slice(), password: 'tajna', isEvalSupported: false } as never).promise;
+    const perms = [...((await pdf.getPermissions()) as unknown as Iterable<number>)];
+    expect(perms).toContain(4); // print
+    expect(perms).not.toContain(16); // copy
+    await pdf.loadingTask.destroy();
+  });
+
+  it('draws watermarks and page numbers as page text', async () => {
+    const src = { id: 'a', bytes: await makePdf(2, 'W') };
+    const out = await assemble(
+      [src],
+      [
+        { sourceId: 'a', index: 0, rotation: 0, deco: { watermark: { text: 'NACRT', size: 'medium', color: [1, 0, 0], opacity: 0.2, angle: 45 }, number: { text: 'Stranica 1', size: 10, position: 'bottom-center' } } },
+        { sourceId: 'a', index: 1, rotation: 90, deco: { number: { text: 'Stranica 2', size: 10, position: 'bottom-center' } } },
+      ],
+      'preserve',
+      { fonts },
+    );
+    const pdf = await getDocument({ data: out.slice(), isEvalSupported: false } as never).promise;
+    const text = async (n: number) => (await (await pdf.getPage(n)).getTextContent()).items.map((i) => ('str' in i ? i.str : '')).join('|');
+    expect(await text(1)).toContain('NACRT');
+    expect(await text(1)).toContain('Stranica 1');
+    expect(await text(2)).toContain('Stranica 2');
+    await pdf.loadingTask.destroy();
   });
 });

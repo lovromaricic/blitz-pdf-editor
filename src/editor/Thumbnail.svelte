@@ -5,6 +5,7 @@
   import { useViewer } from '../lib/viewer.svelte';
   import type { PageViewport } from 'pdfjs-dist';
   import AnnotationPreview from './AnnotationPreview.svelte';
+  import DecorationLayer from './DecorationLayer.svelte';
 
   let {
     page,
@@ -100,6 +101,10 @@
     >
       {#if viewport && page.annots?.length}<AnnotationPreview annots={page.annots} {viewport} />{/if}
     </span>
+    {#if viewer.fontsReady}
+      {@const deco = viewer.decorationFor(page)}
+      {#if deco}<DecorationLayer {deco} {width} {height} {scale} />{/if}
+    {/if}
     {#if !rendered}<span class="placeholder" aria-hidden="true"></span>{/if}
   </span>
   <span class="num" aria-hidden="true">{index + 1}</span>

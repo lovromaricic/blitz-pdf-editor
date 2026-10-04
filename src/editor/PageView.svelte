@@ -5,6 +5,7 @@
   import { useViewer } from '../lib/viewer.svelte';
   import AnnotationLayer from './AnnotationLayer.svelte';
   import FormLayer from './FormLayer.svelte';
+  import DecorationLayer from './DecorationLayer.svelte';
 
   let {
     page,
@@ -160,6 +161,10 @@
   {#if viewport && pdfPage}<FormLayer {pdfPage} {viewport} {page} source={doc.source(page)} />{/if}
   {#if viewport}<AnnotationLayer {page} {viewport} />{/if}
   </div>
+  {#if viewer.fontsReady && !viewer.cropPreview}
+    {@const deco = viewer.decorationFor(page)}
+    {#if deco}<DecorationLayer {deco} {width} {height} scale={viewer.scale} />{/if}
+  {/if}
   {#if viewer.cropPreview?.ids.has(page.id)}
     {@const m = viewer.cropPreview.margins}
     {@const s = viewer.scale}

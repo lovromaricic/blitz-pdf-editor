@@ -10,10 +10,18 @@ import { askPassword } from './open-files.svelte';
 import { deletePages, formatPageRange, insertPages, movePages, rotatePages } from './page-ops';
 import { blankPdf } from './pdf/blank';
 import { documentText, printDocument } from './print';
-import { writePdf, writePdfs } from './pdf/pdf-writer';
+import { canvasToBlob, createRasterizer } from './rasterize';
+import { analyzeSources, compressSources, imagesToPdfInWorker, writePdf, writePdfs } from './pdf/pdf-writer';
+import type { CompressLevel } from './pdf/compress';
+import type { ImagesToPdfOptions } from './pdf/images-to-pdf';
+import { isImageFile, prepareImage } from './image-input';
+import { setDocument } from './app-state.svelte';
+import { openDocument } from './document.svelte';
 import type { Viewer } from './viewer.svelte';
 
 let blankCounter = 0;
+
+export const DEFAULT_IMAGE_OPTIONS: ImagesToPdfOptions = { pageSize: 'a4', margin: 28 };
 
 /** In-memory clipboard for annotations (never the system clipboard: nothing leaves the tab). */
 let annotClipboard: Annotation | null = null;
@@ -88,6 +96,10 @@ export class Actions {
   }
 
   async insertFromFiles(files: File[], at = this.insertionIndex()) {
+    const images = files.filter((f) => isImageFile(f) && !/\.pdf$/i.test(f.name));
+    if (images.length && images.length === files.length) return this.insertImages(images, DEFAULT_IMAGE_OPTIONS, at);
+    if (images.length) this.viewer.notify('Images and PDFs were mixed: only the PDFs were added. Add the images separately.');
+    files = files.filter((f) => !images.includes(f));
     await this.viewer.runTask('Adding pages…', async () => {
       const intake = await readPdfFiles(files);
       const { pages, rejected } = await loadFiles(this.doc, intake.accepted, askPassword);
@@ -134,9 +146,8 @@ export class Actions {
   // --- Output -----------------------------------------------------------
 
   private passwordNote() {
-    return this.doc.hasPasswordSources
-      ? ' Note: the saved file is not password-protected. Use Tools › Protect with password to add a password.'
-      : '';
+    if (this.doc.settings.protection) return ' It is protected with a password.';
+    return this.doc.hasPasswordSources ? ' It is not password-protected.' : '';
   }
 
   async save(fileName = this.doc.fileName, markSaved = true) {
@@ -213,6 +224,98 @@ export class Actions {
         ? `Saved ${fileName}, but no text was found. This looks like a scanned document; text recognition (OCR) comes in a later version.`
         : `Saved ${fileName} to your downloads.`,
     );
+  }
+
+  /** Save pages as JPG or PNG images (one file, or a .zip for several). */
+  async exportImages(pages: readonly PageRef[], format: 'jpg' | 'png', dpi: number, quality: number) {
+    if (pages.length === 0) return;
+    const base = baseName(this.doc.fileName);
+    const files = await this.viewer.runTask('Creating images…', async (progress) => {
+      const raster = await createRasterizer(this.doc);
+      const out: { name: string; bytes: Uint8Array }[] = [];
+      for (let i = 0; i < pages.length; i++) {
+        const canvas = await raster.render(pages[i], dpi);
+        const blob = await canvasToBlob(canvas, format === 'jpg' ? 'image/jpeg' : 'image/png', quality);
+        canvas.width = canvas.height = 0;
+        const n = this.doc.pages.indexOf(pages[i]) + 1;
+        out.push({ name: `${base}-page-${String(n).padStart(String(this.doc.pages.length).length, '0')}.${format}`, bytes: new Uint8Array(await blob.arrayBuffer()) });
+        progress((i + 1) / pages.length);
+      }
+      return out;
+    });
+    if (!files) return;
+    if (files.length === 1) downloadBytes(files[0].bytes, files[0].name, format === 'jpg' ? 'image/jpeg' : 'image/png');
+    else downloadZip(files, `${base} (images).zip`);
+    this.viewer.notify(`Saved ${this.plural(files.length, 'image')}${files.length > 1 ? ' as a .zip' : ''} to your downloads.`);
+  }
+
+  // --- Compress -------------------------------------------------------------
+
+  /** Ids of the files the current pages come from. */
+  private usedFileIds() {
+    return [...new Set(this.doc.pages.map((p) => p.sourceId))].filter((id) => this.doc.sources.get(id)?.kind === 'file');
+  }
+
+  analyzeCompression() {
+    return analyzeSources(this.doc, this.usedFileIds());
+  }
+
+  /** Compress the document's files (undoable). Returns sizes before and after. */
+  async compress(level: CompressLevel) {
+    const ids = this.usedFileIds();
+    const before = ids.reduce((n, id) => n + this.doc.sources.get(id)!.size, 0);
+    return this.viewer.runTask('Compressing…', async (progress) => {
+      const files = await compressSources(this.doc, ids, level, (done, total) => progress(done / total));
+      const remap = new Map<string, string>();
+      let after = 0;
+      for (let i = 0; i < ids.length; i++) {
+        const old = this.doc.sources.get(ids[i])!;
+        // Keep the original where compression didn't help.
+        if (files[i].length >= old.size) {
+          after += old.size;
+          continue;
+        }
+        remap.set(old.id, await this.doc.addReplacementSource(old, files[i], 'compressed'));
+        after += files[i].length;
+      }
+      if (remap.size > 0) {
+        this.doc.edit('Compress', this.doc.pages.map((p) => (remap.has(p.sourceId) ? { ...p, sourceId: remap.get(p.sourceId)! } : p)));
+      }
+      return { before, after };
+    });
+  }
+
+  // --- Images to PDF -------------------------------------------------------
+
+  private async imagesToPdfBytes(files: File[], options: ImagesToPdfOptions, progress: (p: number) => void) {
+    const images = [];
+    for (let i = 0; i < files.length; i++) {
+      images.push(await prepareImage(files[i]));
+      progress(((i + 1) / files.length) * 0.5);
+    }
+    return imagesToPdfInWorker(images, options, (done, total) => progress(0.5 + (done / total) * 0.5));
+  }
+
+  /** Make a new document from images (replaces the open one, after asking about unsaved changes). */
+  async createFromImages(files: File[], options: ImagesToPdfOptions) {
+    if (files.length === 0 || !(await this.confirmLeave('create a new PDF'))) return;
+    const bytes = await this.viewer.runTask('Creating PDF…', (progress) => this.imagesToPdfBytes(files, options, progress));
+    if (!bytes) return;
+    const name = files.length === 1 ? files[0].name.replace(/\.[^.]+$/, '') + '.pdf' : 'images.pdf';
+    const { doc } = await openDocument([{ id: `images-${Date.now()}`, name, size: bytes.length, bytes }], async () => null);
+    if (!doc) return;
+    doc.createdUnsaved = true;
+    setDocument(doc);
+  }
+
+  /** Insert images as new pages after the current page. */
+  async insertImages(files: File[], options: ImagesToPdfOptions, at = this.insertionIndex()) {
+    const bytes = await this.viewer.runTask('Adding images…', (progress) => this.imagesToPdfBytes(files, options, progress));
+    if (!bytes) return;
+    const file: OpenFile = { id: `images-${Date.now()}`, name: files.length === 1 ? files[0].name : 'Images', size: bytes.length, bytes };
+    const pages = await this.doc.addSource(file, askPassword);
+    this.doc.edit(`Insert ${this.plural(pages.length, 'image')}`, insertPages(this.doc.pages, at, pages));
+    this.viewer.goToPage(at);
   }
 
   // --- Forms ----------------------------------------------------------------

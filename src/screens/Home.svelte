@@ -74,6 +74,7 @@
     ondrop={onDrop}
   >
     <p class="drop-hint" aria-hidden="true">Drop PDF files here</p>
+    <p class="drop-sub" aria-hidden="true">Images work too: they become a PDF.</p>
     <p class="drop-or" aria-hidden="true">or</p>
 
     <button class="btn btn-primary choose" type="button" onclick={() => input.click()} disabled={busy}>
@@ -89,7 +90,7 @@
       bind:this={input}
       class="visually-hidden"
       type="file"
-      accept="application/pdf,.pdf"
+      accept="application/pdf,.pdf,image/*"
       multiple
       tabindex="-1"
       aria-hidden="true"
@@ -180,7 +181,8 @@
     font-weight: 600;
   }
 
-  .drop-or {
+  .drop-or,
+  .drop-sub {
     color: var(--color-text-muted);
     font-size: var(--font-size-sm);
   }
@@ -230,7 +232,8 @@
   /* Phones and touch-first devices: no drag-and-drop wording, one big button. */
   @media (max-width: 640px), (pointer: coarse) {
     .drop-hint,
-    .drop-or {
+    .drop-or,
+    .drop-sub {
       display: none;
     }
     .label-desktop {

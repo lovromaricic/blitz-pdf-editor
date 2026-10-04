@@ -3,6 +3,7 @@
   import { app, closeDocument } from '../lib/app-state.svelte';
   import { Actions, provideActions } from '../lib/actions.svelte';
   import { describe } from '../lib/annotations';
+  import { IMAGE_ACCEPT } from '../lib/image-input';
   import { CommandRegistry } from '../lib/commands';
   import type { EditorDocument } from '../lib/document.svelte';
   import { openFiles } from '../lib/open-files.svelte';
@@ -76,6 +77,8 @@
     'file.save': { run: () => void actions.save(), enabled: idle },
     'file.saveCopy': { run: () => void actions.saveCopy(), enabled: idle },
     'file.exportText': { run: () => void actions.exportText(), enabled: idle },
+    'file.exportImages': { run: () => openPanel('exportImages'), enabled: idle },
+    'file.createFromImages': { run: () => openPanel('imagesToPdf'), enabled: idle },
     'file.print': { run: () => void actions.print(), enabled: idle },
     'file.close': {
       run: async () => {
@@ -138,12 +141,17 @@
     'page.insertBlank': { run: () => void actions.insertBlank() },
     'page.insertFromFile': { run: () => insertInput.click(), enabled: idle },
     'page.crop': { run: () => openPanel('crop'), enabled: idle },
+    'page.numbers': { run: () => openPanel('pageNumbers') },
     'page.goTo': { run: () => focusById('page-number-input') },
 
     // Tools
     'tools.merge': { run: () => openPanel('merge'), enabled: idle },
+    'tools.compress': { run: () => openPanel('compress'), enabled: idle },
     'tools.split': { run: () => openPanel('split'), enabled: () => idle() && doc.pages.length > 1 },
     'tools.flatten': { run: () => actions.flattenForms(), enabled: () => actions.canFlatten() },
+    'tools.watermark': { run: () => openPanel('watermark') },
+    'tools.protect': { run: () => openPanel('protect') },
+    'tools.unlock': { run: () => openPanel('unlock'), enabled: () => !!doc.settings.protection },
 
     // Help
     'help.guide': { run: () => (help = 'guide') },
@@ -190,6 +198,11 @@
       else if (viewer.tool !== 'select') viewer.setTool('select');
     }
   }
+
+  // Watermarks and page numbers are measured with the embedded fonts.
+  $effect(() => {
+    if (doc.settings.watermark || doc.settings.pageNumbers) viewer.ensureFonts();
+  });
 
   function onBeforeUnload(e: BeforeUnloadEvent) {
     if (!doc.dirty) return;
@@ -242,7 +255,7 @@
     bind:this={insertInput}
     class="visually-hidden"
     type="file"
-    accept="application/pdf,.pdf"
+    accept="application/pdf,.pdf,{IMAGE_ACCEPT}"
     multiple
     tabindex="-1"
     aria-hidden="true"

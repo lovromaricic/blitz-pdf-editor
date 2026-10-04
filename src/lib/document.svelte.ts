@@ -5,6 +5,7 @@ import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { SvelteMap } from 'svelte/reactivity';
 import type { OpenFile, RejectedFile } from './files';
 import { History } from './history.svelte';
+import type { DocSettings } from './settings';
 import type { Annotation } from './annotations';
 import { marginsToDisplayed, NO_MARGINS, type Margins } from './page-ops';
 import { hasFormFields } from './forms';
@@ -55,6 +56,11 @@ export interface PageRef {
   readonly flattenForm?: boolean;
 }
 
+interface Snapshot {
+  pages: readonly PageRef[];
+  settings: DocSettings;
+}
+
 export interface DocInfo {
   title?: string;
   author?: string;
@@ -76,13 +82,18 @@ export class EditorDocument {
   pages = $state.raw<readonly PageRef[]>([]);
   info = $state<DocInfo>({});
   readonly sources = new SvelteMap<string, Source>();
-  readonly history = new History<readonly PageRef[]>();
+  /** Watermark, page numbers, password: applied when saving. */
+  settings = $state.raw<DocSettings>({});
+  readonly history = new History<Snapshot>();
   /** Form fields were filled in since opening or the last save. */
   formDirty = $state(false);
+  /** Made in the app (e.g. from images) and never saved. */
+  createdUnsaved = $state(false);
 
-  /** Files the user opened or inserted (not generated blank pages). */
+  /** Files in use: opened or inserted by the user (not generated blank pages). */
   get files(): Source[] {
-    return [...this.sources.values()].filter((s) => s.kind === 'file');
+    const used = new Set(this.pages.map((p) => p.sourceId));
+    return [...this.sources.values()].filter((s) => s.kind === 'file' && used.has(s.id));
   }
 
   get totalSize() {
@@ -95,7 +106,7 @@ export class EditorDocument {
 
   /** Unsaved changes since opening or the last save. */
   get dirty() {
-    return this.history.dirty || this.formDirty;
+    return this.history.dirty || this.formDirty || this.createdUnsaved;
   }
 
   get hasForms() {
@@ -131,25 +142,41 @@ export class EditorDocument {
   }
 
   /** Apply an undoable edit to the page list. */
+  private snapshot(): Snapshot {
+    return { pages: this.pages, settings: this.settings };
+  }
+
+  private restore(s: Snapshot) {
+    this.pages = s.pages;
+    this.settings = s.settings;
+  }
+
+  /** Apply an undoable change to the document settings. */
+  editSettings(label: string, next: DocSettings, coalesceKey?: string) {
+    this.history.push(label, this.snapshot(), coalesceKey);
+    this.settings = next;
+  }
+
   edit(label: string, next: readonly PageRef[], coalesceKey?: string) {
     if (next === this.pages) return;
-    this.history.push(label, this.pages, coalesceKey);
+    this.history.push(label, this.snapshot(), coalesceKey);
     this.pages = next;
   }
 
   undo() {
-    const prev = this.history.undo(this.pages);
-    if (prev) this.pages = prev;
+    const prev = this.history.undo(this.snapshot());
+    if (prev) this.restore(prev);
   }
 
   redo() {
-    const next = this.history.redo(this.pages);
-    if (next) this.pages = next;
+    const next = this.history.redo(this.snapshot());
+    if (next) this.restore(next);
   }
 
   markSaved() {
     this.history.markSaved();
     this.formDirty = false;
+    this.createdUnsaved = false;
     // Re-arm change tracking: PDF.js only reports the first change after a reset.
     for (const s of this.sources.values()) s.pdf.annotationStorage.resetModified();
   }
@@ -179,6 +206,24 @@ export class EditorDocument {
       sourceIndex: i,
       rotation: 0,
     }));
+  }
+
+  /**
+   * Load new bytes for an existing file (e.g. compressed) as a new source with
+   * the same pages. Returns the new source id; pages are re-pointed by the caller.
+   */
+  async addReplacementSource(old: Source, bytes: Uint8Array, suffix: string): Promise<string> {
+    const pdf = await loadPdf(bytes);
+    const id = `${old.id}-${suffix}-${Date.now().toString(36)}`;
+    const source = new Source(id, old.name, bytes.length, bytes, pdf, undefined, old.kind);
+    source.sizes = old.sizes;
+    source.rotations = old.rotations;
+    source.hasForm = old.hasForm;
+    (pdf.annotationStorage as unknown as { onSetModified: () => void }).onSetModified = () => {
+      this.formDirty = true;
+    };
+    this.sources.set(id, source);
+    return id;
   }
 
   async loadInfo() {
@@ -289,6 +334,14 @@ export async function openDocument(files: OpenFile[], askPassword: AskPassword):
   doc.name = opened.length === 1 ? opened[0].name : `${opened[0].name} + ${opened.length - 1} more`;
   doc.fileName = opened.length === 1 ? opened[0].name : `${baseName(opened[0].name)}-merged.pdf`;
   doc.pages = pages;
+  // A file opened with a password is saved with the same password unless the
+  // user removes it (Tools > Remove password).
+  const protectedFile = doc.files.find((s) => s.password);
+  if (protectedFile) {
+    doc.settings = {
+      protection: { password: protectedFile.password!, allowPrinting: true, allowCopying: true, allowEditing: true },
+    };
+  }
   void doc.loadInfo();
   return { doc, rejected };
 }

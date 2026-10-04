@@ -4,7 +4,14 @@
   import type { CommandRegistry } from '../lib/commands';
   import { formatBytes } from '../lib/files';
   import { useViewer } from '../lib/viewer.svelte';
+  import CompressPanel from './panels/CompressPanel.svelte';
   import CropPanel from './panels/CropPanel.svelte';
+  import ImagesToPdfPanel from './panels/ImagesToPdfPanel.svelte';
+  import ExportImagesPanel from './panels/ExportImagesPanel.svelte';
+  import PageNumbersPanel from './panels/PageNumbersPanel.svelte';
+  import ProtectPanel from './panels/ProtectPanel.svelte';
+  import UnlockPanel from './panels/UnlockPanel.svelte';
+  import WatermarkPanel from './panels/WatermarkPanel.svelte';
   import ExtractPanel from './panels/ExtractPanel.svelte';
   import CommentPanel from './panels/CommentPanel.svelte';
   import FormPanel from './panels/FormPanel.svelte';
@@ -43,6 +50,20 @@
     <MergePanel {actions} />
   {:else if viewer.panel === 'crop'}
     <CropPanel />
+  {:else if viewer.panel === 'watermark'}
+    <WatermarkPanel />
+  {:else if viewer.panel === 'pageNumbers'}
+    <PageNumbersPanel />
+  {:else if viewer.panel === 'protect'}
+    <ProtectPanel />
+  {:else if viewer.panel === 'unlock'}
+    <UnlockPanel />
+  {:else if viewer.panel === 'exportImages'}
+    <ExportImagesPanel />
+  {:else if viewer.panel === 'compress'}
+    <CompressPanel />
+  {:else if viewer.panel === 'imagesToPdf'}
+    <ImagesToPdfPanel />
   {:else if markup === 'vector'}
     <MarkupPanel />
   {:else if markup === 'text'}

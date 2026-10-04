@@ -20,7 +20,10 @@ import {
 } from '@cantoo/pdf-lib';
 import type { Annotation } from '../annotations';
 import type { FieldValue } from '../forms';
+import type { PageDecoration } from '../decorations';
 import { addAnnotations, type FontProvider } from './write-annotations';
+import { drawDecoration } from './write-decorations';
+import { analyze, recompressImages, type Analysis, type CompressLevel } from './compress';
 
 export interface SourceInput {
   id: string;
@@ -38,6 +41,15 @@ export interface PagePlan {
   crop?: { top: number; right: number; bottom: number; left: number };
   /** Markup added in the editor, written as PDF annotations. */
   annots?: readonly Annotation[];
+  /** Watermark and page number for this page. */
+  deco?: PageDecoration;
+}
+
+export interface Encryption {
+  password: string;
+  allowPrinting: boolean;
+  allowCopying: boolean;
+  allowEditing: boolean;
 }
 
 /**
@@ -57,6 +69,8 @@ export interface AssembleOptions {
   forms?: Record<string, FieldValue[]>;
   /** Source ids whose form fields are flattened into page content. */
   flatten?: string[];
+  /** Password-protect the output (AES-256). */
+  encrypt?: Encryption;
 }
 
 export async function assemble(
@@ -137,6 +151,8 @@ export async function assemble(
       const height = Math.max(1, box.height - crop.top - crop.bottom);
       page.setCropBox(box.x + crop.left, box.y + crop.bottom, width, height);
     }
+    // After rotation and crop, so placement matches what the user sees.
+    if (plan[pos].deco) await drawDecoration(out, page, plan[pos].deco!, options.fonts ?? noFonts);
   }
 
   if (baseId) {
@@ -148,8 +164,31 @@ export async function assemble(
     for (const p of finalPages) out.addPage(p);
   }
 
+  if (options.encrypt) {
+    const e = options.encrypt;
+    out.encrypt({
+      userPassword: e.password,
+      // A random owner password: the restrictions can't be lifted by anyone who only knows the open password.
+      ownerPassword: randomPassword(),
+      permissions: {
+        printing: e.allowPrinting ? 'highResolution' : false,
+        copying: e.allowCopying,
+        modifying: e.allowEditing,
+        annotating: e.allowEditing,
+        fillingForms: e.allowEditing,
+        documentAssembly: e.allowEditing,
+        contentAccessibility: true,
+      },
+    });
+  }
+
   // Don't regenerate form field appearances: keep them exactly as the file had them.
   return out.save({ useObjectStreams: true, updateFieldAppearances: false });
+}
+
+function randomPassword() {
+  const bytes = crypto.getRandomValues(new Uint8Array(24));
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
 }
 
 const noFonts: FontProvider = () => Promise.reject(new Error('No fonts available.'));
@@ -316,4 +355,23 @@ function collectGarbage(doc: PDFDocument) {
   for (const [ref] of context.enumerateIndirectObjects()) {
     if (!reachable.has(ref.toString())) context.delete(ref);
   }
+}
+
+/** Compress one source file: re-encode images, keep typed form values, drop unused objects. */
+export async function compressSource(
+  src: SourceInput,
+  level: CompressLevel,
+  values: FieldValue[],
+  fonts: FontProvider,
+  onProgress?: (done: number, total: number) => void,
+): Promise<Uint8Array> {
+  const doc = await openSource(src);
+  await applyForm(doc, values, false, fonts);
+  await recompressImages(doc, level, onProgress);
+  collectGarbage(doc);
+  return doc.save({ useObjectStreams: true, updateFieldAppearances: false });
+}
+
+export async function analyzeSource(src: SourceInput): Promise<Analysis> {
+  return analyze(await openSource(src), src.bytes.length);
 }

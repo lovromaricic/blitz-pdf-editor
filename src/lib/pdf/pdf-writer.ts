@@ -1,9 +1,14 @@
 // Main-thread client for the PDF worker.
 import type { EditorDocument, PageRef } from '../document.svelte';
 import type { AssembleMode, PagePlan } from './assemble';
-import type { AssembleRequest, WorkerResponse } from './pdf-worker';
+import type { Job, JobRequest, WorkerResponse } from './pdf-worker';
+import type { Analysis, CompressLevel } from './compress';
+import type { ImageInput, ImagesToPdfOptions } from './images-to-pdf';
 import { FONT_URLS } from '../fonts';
 import { changedFieldValues, type FieldValue } from '../forms';
+import type { Rgb } from '../annotations';
+import type { PageDecoration } from '../decorations';
+import { pageNumberLabels, watermarkApplies } from '../settings';
 
 let worker: Worker | null = null;
 let nextId = 0;
@@ -13,8 +18,25 @@ function getWorker() {
   return worker;
 }
 
-export function planFor(pages: readonly PageRef[]): PagePlan[] {
+/** Watermark and page number for each page, from the document settings. */
+export function decorationResolver(doc: EditorDocument) {
+  const { watermark, pageNumbers } = doc.settings;
+  const labels = pageNumbers ? pageNumberLabels(doc.pages.map((p) => p.id), pageNumbers) : new Map<string, string>();
+  return (page: PageRef): PageDecoration | undefined => {
+    const deco: PageDecoration = {};
+    if (watermark && watermarkApplies(watermark, page.id)) {
+      const { text, size, color, opacity, angle } = watermark;
+      deco.watermark = { text, size, color: [...color] as Rgb, opacity, angle };
+    }
+    const label = labels.get(page.id);
+    if (label && pageNumbers) deco.number = { text: label, size: pageNumbers.size, position: pageNumbers.position };
+    return deco.watermark || deco.number ? deco : undefined;
+  };
+}
+
+export function planFor(pages: readonly PageRef[], decoFor: (p: PageRef) => PageDecoration | undefined = () => undefined): PagePlan[] {
   return pages.map((p) => ({
+    deco: decoFor(p),
     sourceId: p.sourceId,
     index: p.sourceIndex,
     rotation: p.rotation,
@@ -33,18 +55,31 @@ export async function writePdfs(
 ): Promise<Uint8Array[]> {
   const used = new Set(outputs.flatMap((pages) => pages.map((p) => p.sourceId)));
   // Form values typed in the editor, and which files have their forms flattened.
-  const forms: Record<string, FieldValue[]> = {};
-  for (const id of used) {
-    const values = await changedFieldValues(doc.sources.get(id)!.pdf);
-    if (values.length) forms[id] = values;
-  }
+  const forms = await formValues(doc, used);
   const flatten = [...new Set(outputs.flat().filter((p) => p.flattenForm).map((p) => p.sourceId))];
 
-  const sources = [...doc.sources.values()]
-    .filter((s) => used.has(s.id))
-    // Structured clone copies the bytes, so the originals stay with us.
-    .map((s) => ({ id: s.id, bytes: s.bytes, password: s.password }));
+  // Structured clone copies the bytes, so the originals stay with us.
+  const sources = sourceInputs(doc, used);
 
+  const decoFor = decorationResolver(doc);
+  const protection = doc.settings.protection;
+  const result = await runJob(
+    {
+      kind: 'assemble',
+      sources,
+      outputs: outputs.map((pages) => planFor(pages, decoFor)),
+      mode,
+      forms,
+      flatten,
+      encrypt: protection && { ...protection },
+    },
+    onProgress,
+  );
+  return result.files;
+}
+
+/** Run a job in the PDF worker. */
+function runJob(job: Job, onProgress?: (done: number, total: number) => void): Promise<{ files: Uint8Array[]; analyses?: Analysis[] }> {
   const id = ++nextId;
   const w = getWorker();
   return new Promise((resolve, reject) => {
@@ -57,7 +92,7 @@ export async function writePdfs(
       }
       w.removeEventListener('message', onMessage);
       w.removeEventListener('error', onError);
-      if (msg.type === 'done') resolve(msg.files);
+      if (msg.type === 'done') resolve({ files: msg.files, analyses: msg.analyses });
       else reject(new Error(msg.message));
     };
     const onError = (e: ErrorEvent) => {
@@ -65,13 +100,41 @@ export async function writePdfs(
       w.removeEventListener('error', onError);
       worker?.terminate();
       worker = null;
-      reject(new Error(e.message || 'The PDF writer stopped unexpectedly (the file may be too large for this device).'));
+      reject(new Error(e.message || 'The PDF engine stopped unexpectedly (the file may be too large for this device).'));
     };
     w.addEventListener('message', onMessage);
     w.addEventListener('error', onError);
-    const req: AssembleRequest = { id, sources, outputs: outputs.map(planFor), mode, fontUrls: FONT_URLS, forms, flatten };
+    const req = { ...job, id, fontUrls: FONT_URLS } as JobRequest;
     w.postMessage(req);
   });
+}
+
+/** Form values typed in each source (plain data). */
+async function formValues(doc: EditorDocument, ids: Iterable<string>) {
+  const forms: Record<string, FieldValue[]> = {};
+  for (const id of ids) {
+    const values = await changedFieldValues(doc.sources.get(id)!.pdf);
+    if (values.length) forms[id] = values;
+  }
+  return forms;
+}
+
+function sourceInputs(doc: EditorDocument, ids: Iterable<string>) {
+  const want = new Set(ids);
+  return [...doc.sources.values()].filter((s) => want.has(s.id)).map((s) => ({ id: s.id, bytes: s.bytes, password: s.password }));
+}
+
+export async function imagesToPdfInWorker(images: ImageInput[], options: ImagesToPdfOptions, onProgress?: (done: number, total: number) => void) {
+  return (await runJob({ kind: 'images', images, options }, onProgress)).files[0];
+}
+
+export async function analyzeSources(doc: EditorDocument, ids: string[]) {
+  return (await runJob({ kind: 'analyze', sources: sourceInputs(doc, ids) })).analyses!;
+}
+
+export async function compressSources(doc: EditorDocument, ids: string[], level: CompressLevel, onProgress?: (done: number, total: number) => void) {
+  const forms = await formValues(doc, ids);
+  return (await runJob({ kind: 'compress', sources: sourceInputs(doc, ids), level, forms }, onProgress)).files;
 }
 
 export function writePdf(doc: EditorDocument, pages: readonly PageRef[], mode: AssembleMode): Promise<Uint8Array> {

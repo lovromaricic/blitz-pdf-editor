@@ -2,46 +2,20 @@
 // Works the same in every browser, and prints exactly what the editor shows
 // (order, rotation, crop), without saving first.
 import type { EditorDocument } from './document.svelte';
-import { AnnotationMode, type PageViewport } from 'pdfjs-dist';
-import { isBoxed, type Annotation, type Point } from './annotations';
-import { drawBoxed } from './boxed-canvas';
-import { primitivesToSvg, toPrimitives } from './annotation-view';
-import { viewportFor } from './pdf/render';
+import { canvasToBlob, createRasterizer } from './rasterize';
 
 const PRINT_DPI = 150;
 
 export async function printDocument(doc: EditorDocument, onProgress: (p: number) => void) {
-  const scale = PRINT_DPI / 72;
   const urls: string[] = [];
   const cleanup = () => urls.forEach((u) => URL.revokeObjectURL(u));
+  const raster = await createRasterizer(doc);
 
   try {
     for (let i = 0; i < doc.pages.length; i++) {
-      const page = doc.pages[i];
-      const pdfPage = await doc.source(page).pdf.getPage(page.sourceIndex + 1);
-      const viewport = viewportFor(pdfPage, scale, page.rotation);
-      const full = document.createElement('canvas');
-      full.width = Math.floor(viewport.width);
-      full.height = Math.floor(viewport.height);
-      // Form fields print with the values typed in.
-      await pdfPage.render({ canvas: full, viewport, intent: 'print', annotationMode: AnnotationMode.ENABLE_STORAGE }).promise;
-      if (page.annots?.length) await drawAnnotations(full, page.annots, viewport);
-
-      // Apply the crop by copying only the kept area.
-      const m = doc.displayedCrop(page);
-      const out = document.createElement('canvas');
-      out.width = Math.max(1, Math.floor(full.width - (m.left + m.right) * scale));
-      out.height = Math.max(1, Math.floor(full.height - (m.top + m.bottom) * scale));
-      const ctx = out.getContext('2d')!;
-      ctx.fillStyle = '#fff';
-      ctx.fillRect(0, 0, out.width, out.height);
-      ctx.drawImage(full, -m.left * scale, -m.top * scale);
-      full.width = full.height = 0;
-
-      const blob = await new Promise<Blob>((resolve, reject) =>
-        out.toBlob((b) => (b ? resolve(b) : reject(new Error('Could not prepare a page for printing.'))), 'image/jpeg', 0.92),
-      );
-      out.width = out.height = 0;
+      const canvas = await raster.render(doc.pages[i], PRINT_DPI, 'print');
+      const blob = await canvasToBlob(canvas, 'image/jpeg', 0.92);
+      canvas.width = canvas.height = 0;
       urls.push(URL.createObjectURL(blob));
       onProgress((i + 1) / doc.pages.length);
     }
@@ -80,27 +54,6 @@ export async function printDocument(doc: EditorDocument, onProgress: (p: number)
   setTimeout(remove, 5 * 60_000);
   frame.contentWindow!.focus();
   frame.contentWindow!.print();
-}
-
-/** Draw editor markup onto a rendered page (highlights multiply, like on screen). */
-async function drawAnnotations(canvas: HTMLCanvasElement, annots: readonly Annotation[], viewport: PageViewport) {
-  const ctx = canvas.getContext('2d')!;
-  const toScreen = (p: Point) => viewport.convertToViewportPoint(p[0], p[1]) as Point;
-  const groups: [GlobalCompositeOperation, readonly Annotation[]][] = [
-    ['multiply', annots.filter((a) => a.type === 'highlight')],
-    ['source-over', annots.filter((a) => a.type !== 'highlight')],
-  ];
-  for (const [op, list] of groups) {
-    if (!list.length) continue;
-    const svg = primitivesToSvg(list.flatMap((a) => toPrimitives(a, toScreen, viewport.scale)), canvas.width, canvas.height);
-    const img = new Image();
-    img.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
-    await img.decode();
-    ctx.globalCompositeOperation = op;
-    ctx.drawImage(img, 0, 0);
-  }
-  ctx.globalCompositeOperation = 'source-over';
-  await drawBoxed(ctx, annots.filter(isBoxed), toScreen, viewport.scale, viewport.rotation);
 }
 
 function escapeHtml(s: string) {
