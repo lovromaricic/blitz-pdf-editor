@@ -6,9 +6,11 @@
   import { useViewer } from '../../lib/viewer.svelte';
   import Swatches from '../../components/Swatches.svelte';
   import PanelHeader from './PanelHeader.svelte';
+  import { MediaQuery } from 'svelte/reactivity';
 
   const viewer = useViewer();
   const actions = useActions();
+  const coarse = new MediaQuery('(pointer: coarse)');
 
   const sel = $derived(actions.selectedAnnot);
   /** Which tool's settings we're showing. */
@@ -57,7 +59,7 @@
     {#if !sel}
       <p class="hint">
         {#if kind === 'highlight'}
-          Select text to highlight it. On scanned pages, drag a box instead.
+          {coarse.current ? 'Drag your finger across text to highlight it.' : 'Select text to highlight it. On scanned pages, drag a box instead.'}
         {:else if kind === 'draw'}
           Drag on the page to draw. Each stroke can be moved or deleted with the Select tool.
         {:else}
@@ -168,6 +170,11 @@
     border-radius: var(--radius-sm);
     background: var(--color-bg);
     font-size: var(--font-size-sm);
+  }
+  @media (max-width: 640px), (pointer: coarse) {
+    .segmented button {
+      min-height: var(--touch-target);
+    }
   }
   .segmented button[aria-checked='true'] {
     background: var(--color-active-bg);

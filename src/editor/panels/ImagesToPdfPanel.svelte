@@ -128,6 +128,12 @@
     border-radius: var(--radius-sm);
     background: var(--color-bg);
   }
+  @media (max-width: 640px), (pointer: coarse) {
+    .mini {
+      width: var(--touch-target);
+      height: var(--touch-target);
+    }
+  }
   .mini:disabled {
     opacity: 0.35;
   }

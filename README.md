@@ -77,7 +77,8 @@ src/
     pdf/                 PDF.js setup and rendering; assemble.ts + pdf-worker.ts write PDFs (pdf-lib)
   screens/               Home.svelte, Editor.svelte
   editor/                Editor parts: title bar, menu bar, toolbar, thumbnails, canvas, panel
-  editor/panels/         Right-panel content: page actions, Extract, Split, Merge
+  editor/panels/         Right-panel content (desktop) / bottom-sheet content (phones)
+  editor/mobile/         Phone layout (< 640px): top bar, accordion menu, tool strip, Pages sheet
   components/            Shared UI (dialogs, context menu)
   styles/tokens.css      Design tokens (colors, spacing, radii). Restyle here.
 build-tools/             Vite plugins: PDF.js runtime assets, third-party license file
@@ -99,3 +100,13 @@ tests/                   Vitest unit tests (tests/tmp/ is a gitignored scratch a
 - **Crop** sets each page's crop box. The trimmed area is hidden, not removed (true removal is what Redact, planned for later, will do).
 - **Extract** and **Split** write fresh PDFs that contain only the chosen pages.
 - Saving a password-protected PDF produces an unprotected copy (the app warns about this). Re-protecting is the job of *Tools › Protect with password* (Phase 6).
+
+## Testing on a phone
+
+Run the dev server on your network and open the printed address on the phone (same Wi-Fi):
+
+```bash
+npm run dev -- --host
+```
+
+Under 640px wide the editor switches to the phone layout. Two fingers pinch-zoom and pan in every tool; one finger scrolls with Select and Fill form, and draws or highlights with the markup tools.

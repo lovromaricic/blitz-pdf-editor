@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { CommandId, CommandRegistry } from '../lib/commands';
-  import { useViewer, type Tool } from '../lib/viewer.svelte';
+  import { useViewer } from '../lib/viewer.svelte';
+  import { MARKUP_TOOLS as tools } from './tools';
 
   let { commands }: { commands: CommandRegistry } = $props();
   const viewer = useViewer();
@@ -10,17 +11,6 @@
     { id: 'edit.redo', label: 'Redo' },
   ];
 
-  const tools: { id: Tool; label: string }[] = [
-    { id: 'select', label: 'Select' },
-    { id: 'text', label: 'Text' },
-    { id: 'highlight', label: 'Highlight' },
-    { id: 'draw', label: 'Draw' },
-    { id: 'shapes', label: 'Shapes' },
-    { id: 'stamp', label: 'Stamp' },
-    { id: 'comment', label: 'Comment' },
-    { id: 'sign', label: 'Sign' },
-    { id: 'form', label: 'Fill form' },
-  ];
 </script>
 
 <div class="toolbar" role="toolbar" aria-label="Editing tools">

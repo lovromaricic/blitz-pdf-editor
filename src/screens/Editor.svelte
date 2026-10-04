@@ -14,6 +14,12 @@
   import CanvasView from '../editor/CanvasView.svelte';
   import HelpDialog, { type HelpTopic } from '../editor/HelpDialog.svelte';
   import SignatureDialog from '../editor/SignatureDialog.svelte';
+  import MobileMenu from '../editor/mobile/MobileMenu.svelte';
+  import MobileTopBar from '../editor/mobile/MobileTopBar.svelte';
+  import PagesSheet from '../editor/mobile/PagesSheet.svelte';
+  import Sheet from '../editor/mobile/Sheet.svelte';
+  import ToolStrip from '../editor/mobile/ToolStrip.svelte';
+  import { MediaQuery } from 'svelte/reactivity';
   import MenuBar from '../editor/MenuBar.svelte';
   import SidePanel from '../editor/SidePanel.svelte';
   import ThumbnailRail from '../editor/ThumbnailRail.svelte';
@@ -28,6 +34,9 @@
   // svelte-ignore state_referenced_locally
   const actions = new Actions(doc, viewer);
   provideActions(actions);
+  // Handy for debugging in the browser console during development only.
+  // svelte-ignore state_referenced_locally
+  if (import.meta.env.DEV) Object.assign(window, { __viewer: viewer, __doc: doc });
 
   let openInput: HTMLInputElement;
   let insertInput: HTMLInputElement;
@@ -69,6 +78,13 @@
   }
 
   const idle = () => !viewer.task;
+
+  // Phones get their own layout: same features, different chrome.
+  const phone = new MediaQuery('(max-width: 640px)');
+  let menuOpen = $state(false);
+  let pagesOpen = $state(false);
+  /** The properties sheet shows only when there's something to set. */
+  const sheetVisible = $derived(!!viewer.panel || !!viewer.selectedAnnot || viewer.tool !== 'select');
   let help = $state<HelpTopic | null>(null);
 
   const commands = new CommandRegistry({
@@ -215,10 +231,19 @@
 <svelte:window onkeydown={onKeyDown} onbeforeunload={onBeforeUnload} />
 <svelte:document onfullscreenchange={() => (isFullscreen = !!document.fullscreenElement)} />
 
-<div class="editor" class:no-rail={!viewer.showThumbnails} class:no-panel={!viewer.showPanel}>
-  <TitleBar onReveal={revealMatch} />
-  <MenuBar {commands} />
-  <Toolbar {commands} />
+<div
+  class="editor"
+  class:mobile={phone.current}
+  class:no-rail={!viewer.showThumbnails}
+  class:no-panel={!viewer.showPanel}
+>
+  {#if phone.current}
+    <MobileTopBar {commands} onMenu={() => (menuOpen = true)} onReveal={revealMatch} />
+  {:else}
+    <TitleBar onReveal={revealMatch} />
+    <MenuBar {commands} />
+    <Toolbar {commands} />
+  {/if}
 
   {#if app.openWarnings.length}
     <div class="warning" role="alert">
@@ -232,11 +257,21 @@
     </div>
   {/if}
 
-  <div class="main">
-    {#if viewer.showThumbnails}<ThumbnailRail {commands} {actions} />{/if}
-    <CanvasView />
-    {#if viewer.showPanel}<SidePanel {commands} {actions} />{/if}
-  </div>
+  {#if phone.current}
+    <div class="m-canvas"><CanvasView mobile /></div>
+    {#if sheetVisible}
+      <Sheet label="Properties" tall={!!viewer.panel}><SidePanel {commands} {actions} inSheet /></Sheet>
+    {/if}
+    <ToolStrip onPages={() => (pagesOpen = true)} />
+    <MobileMenu {commands} open={menuOpen} onClose={() => (menuOpen = false)} />
+    <PagesSheet {commands} {actions} open={pagesOpen} onClose={() => (pagesOpen = false)} />
+  {:else}
+    <div class="main">
+      {#if viewer.showThumbnails}<ThumbnailRail {commands} {actions} />{/if}
+      <CanvasView />
+      {#if viewer.showPanel}<SidePanel {commands} {actions} />{/if}
+    </div>
+  {/if}
 
   <HelpDialog topic={help} onClose={() => (help = null)} />
   <SignatureDialog />
@@ -304,7 +339,20 @@
     font-size: var(--font-size-lg);
   }
 
-  /* Interim narrow-screen behaviour; the real phone layout comes in Phase 7. */
+  .editor.mobile {
+    display: flex;
+    flex-direction: column;
+    /* Our canvas handles pinch zoom; the page itself must not zoom. */
+    touch-action: pan-x pan-y;
+  }
+  .m-canvas {
+    position: relative;
+    display: grid;
+    flex: 1;
+    min-height: 0;
+  }
+
+  /* Tablets and small windows: drop the side panel, then the rail. */
   @media (max-width: 900px) {
     .main,
     .no-rail .main,
@@ -316,16 +364,6 @@
     }
     .no-rail .main {
       grid-template-columns: minmax(0, 1fr);
-    }
-  }
-  @media (max-width: 640px) {
-    .main,
-    .no-rail .main,
-    .no-panel .main {
-      grid-template-columns: minmax(0, 1fr);
-    }
-    .main > :global(nav) {
-      display: none;
     }
   }
 </style>

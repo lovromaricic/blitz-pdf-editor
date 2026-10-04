@@ -24,7 +24,7 @@
   import PanelHeader from './panels/PanelHeader.svelte';
   import SplitPanel from './panels/SplitPanel.svelte';
 
-  let { commands, actions }: { commands: CommandRegistry; actions: Actions } = $props();
+  let { commands, actions, inSheet = false }: { commands: CommandRegistry; actions: Actions; inSheet?: boolean } = $props();
 
   const viewer = useViewer();
   const doc = viewer.doc;
@@ -41,7 +41,7 @@
   });
 </script>
 
-<aside class="panel" aria-label="Properties">
+<aside class="panel" class:in-sheet={inSheet} aria-label="Properties">
   {#if viewer.panel === 'extract'}
     <ExtractPanel {actions} />
   {:else if viewer.panel === 'split'}
@@ -124,6 +124,11 @@
     padding: var(--space-4);
     border-left: var(--border-width) solid var(--color-border);
     background: var(--color-bg);
+  }
+  .panel.in-sheet {
+    padding: 0;
+    border: 0;
+    overflow: visible;
   }
   dl {
     display: grid;

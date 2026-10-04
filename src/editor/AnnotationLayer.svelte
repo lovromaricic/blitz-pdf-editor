@@ -71,7 +71,19 @@
 
   let drawing: { pointerId: number; start: Point; raw: Point[] } | null = null;
 
+  /** Touch points on this page: a second finger means pinch/pan, not drawing. */
+  const touches = new Set<number>();
+
+  function cancelDrawing() {
+    drawing = null;
+    draft = null;
+  }
+
   function onCaptureDown(e: PointerEvent) {
+    if (e.pointerType === 'touch') {
+      touches.add(e.pointerId);
+      if (touches.size > 1) return cancelDrawing();
+    }
     if (e.button !== 0) return;
     e.preventDefault();
     if (placing) {
@@ -104,6 +116,7 @@
   }
 
   function onCaptureUp(e: PointerEvent) {
+    touches.delete(e.pointerId);
     if (!drawing || e.pointerId !== drawing.pointerId) return;
     const done = draft;
     drawing = null;
@@ -265,9 +278,18 @@
     let area: { pointerId: number; start: Point } | null = null;
 
     const onDown = (e: PointerEvent) => {
+      if (e.pointerType === 'touch') {
+        touches.add(e.pointerId);
+        if (touches.size > 1) {
+          area = null;
+          draft = null;
+          return;
+        }
+      }
       if (e.button !== 0) return;
       const target = e.target as Element;
-      if (target.closest('.textLayer span')) return; // native text selection
+      // Mouse on text: normal text selection. Touch always drags (and snaps to text).
+      if (e.pointerType !== 'touch' && target.closest('.textLayer span')) return;
       e.preventDefault();
       capturePointer(host, e.pointerId);
       const start = clientToPdf(e.clientX, e.clientY);
@@ -279,27 +301,71 @@
       draft = { ...draft, rects: [normRect(area.start, clientToPdf(e.clientX, e.clientY))] };
     };
     const onUp = (e: PointerEvent) => {
+      touches.delete(e.pointerId);
       if (area && e.pointerId === area.pointerId) {
         const done = draft;
+        const start = area.start;
         area = null;
         draft = null;
         if (done?.type === 'highlight') {
-          const r = done.rects[0];
-          if (r[2] - r[0] > 3 && r[3] - r[1] > 3) actions.addAnnotation(page.id, done);
+          const end = clientToPdf(e.clientX, e.clientY);
+          // Over text: highlight the text lines between start and end. Elsewhere (scans): the box.
+          const snapped = snapToText(host, start, end);
+          if (snapped) actions.addAnnotation(page.id, newHighlight(snapped));
+          else {
+            const r = done.rects[0];
+            if (r[2] - r[0] > 3 && r[3] - r[1] > 3) actions.addAnnotation(page.id, done);
+          }
         }
         return;
       }
       highlightSelection(host);
     };
+    // Touch: one finger highlights instead of scrolling (two fingers still pan and zoom).
+    const previousTouchAction = host.style.touchAction;
+    host.style.touchAction = 'none';
     host.addEventListener('pointerdown', onDown);
     host.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
     return () => {
+      host.style.touchAction = previousTouchAction;
       host.removeEventListener('pointerdown', onDown);
       host.removeEventListener('pointermove', onMove);
       window.removeEventListener('pointerup', onUp);
     };
   });
+
+  /**
+   * Text lines covered by a drag from `start` to `end` (PDF space), like a text
+   * selection: the first line from the start point, the last up to the end
+   * point, full lines between. Null if the drag doesn't touch any text.
+   */
+  function snapToText(host: HTMLElement, start: Point, end: Point): Rect[] | null {
+    const textLayer = host.querySelector('.textLayer');
+    if (!textLayer) return null;
+    const lines = mergeLineRects(
+      Array.from(textLayer.querySelectorAll('span'))
+        .map((s) => s.getBoundingClientRect())
+        .filter((r) => r.width > 0 && r.height > 0)
+        .map((r) => normRect(clientToPdf(r.left, r.top), clientToPdf(r.right, r.bottom))),
+    ).sort((a, b) => b[3] - a[3]); // top to bottom
+    const [top, bottom] = start[1] >= end[1] ? [start, end] : [end, start];
+    const hit = lines.filter((l) => l[3] >= bottom[1] && l[1] <= top[1]);
+    if (hit.length === 0) return null;
+    if (hit.length === 1) {
+      const [x1, x2] = [Math.min(start[0], end[0]), Math.max(start[0], end[0])];
+      const l = hit[0];
+      const r: Rect = [Math.max(l[0], x1), l[1], Math.min(l[2], x2), l[3]];
+      return r[2] - r[0] > 2 ? [r] : null;
+    }
+    return hit
+      .map((l, i): Rect => {
+        if (i === 0) return [Math.max(l[0], top[0]), l[1], l[2], l[3]];
+        if (i === hit.length - 1) return [l[0], l[1], Math.min(l[2], bottom[0]), l[3]];
+        return l;
+      })
+      .filter((r) => r[2] - r[0] > 2);
+  }
 
   function newHighlight(rects: Rect[]): Annotation {
     const t = $state.snapshot(viewer.toolProps.highlight);

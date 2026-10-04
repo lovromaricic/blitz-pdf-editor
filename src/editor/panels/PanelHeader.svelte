@@ -32,6 +32,12 @@
     font-size: var(--font-size-lg);
     line-height: 1;
   }
+  @media (max-width: 640px), (pointer: coarse) {
+    .close {
+      width: var(--touch-target);
+      height: var(--touch-target);
+    }
+  }
   .close:hover {
     background: var(--color-surface-strong);
   }

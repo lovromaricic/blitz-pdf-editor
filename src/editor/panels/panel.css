@@ -68,3 +68,22 @@
 .panel-form .row-buttons .btn {
   padding: 0 var(--space-2);
 }
+
+/* Phones: everything in panels is comfortably tappable. */
+@media (max-width: 640px) {
+  .panel-form input[type='text'],
+  .panel-form input[type='number'],
+  .panel-form input[type='password'],
+  .panel-form select,
+  .panel-form .btn {
+    min-height: var(--touch-target);
+  }
+  .panel-form .option {
+    min-height: var(--touch-target);
+  }
+  .panel-form input[type='checkbox'],
+  .panel-form input[type='radio'] {
+    width: 22px;
+    height: 22px;
+  }
+}

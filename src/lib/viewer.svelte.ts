@@ -259,6 +259,8 @@ export class Viewer {
       // With no offset, show the top of the page's row (two-page rows can mix heights).
       const rowTop = this.layout.rows[rowAtY(this.layout, box.top)]?.top ?? box.top;
       this.scrollEl.scrollTop = offsetInPage ? box.top - PAGE_GAP + offsetInPage : rowTop - PAGE_GAP;
+      // Don't wait for the scroll event (browsers delay it in background tabs).
+      this.scrollTop = this.scrollEl.scrollTop;
       // Scroll events fire before animation frame callbacks, so this clears the lock after them.
       requestAnimationFrame(() => (this.lockedIndex = null));
     }
@@ -356,11 +358,11 @@ export class Viewer {
   }
 
   fitWidth() {
-    void this.setZoom(this.fitWidthZoom(), 'width');
+    return this.setZoom(this.fitWidthZoom(), 'width');
   }
 
   fitPage() {
-    void this.setZoom(this.fitPageZoom(), 'page');
+    return this.setZoom(this.fitPageZoom(), 'page');
   }
 
   /** Re-apply the active fit mode (after a resize or page size change). */

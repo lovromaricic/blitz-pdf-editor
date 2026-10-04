@@ -1,22 +1,34 @@
 <script lang="ts">
-  import { untrack } from 'svelte';
-  import { useViewer } from '../lib/viewer.svelte';
+  import { tick, untrack } from 'svelte';
+  import { MAX_ZOOM, MIN_ZOOM, useViewer } from '../lib/viewer.svelte';
   import BottomBar from './BottomBar.svelte';
   import PageView from './PageView.svelte';
+
+  let { mobile = false }: { mobile?: boolean } = $props();
 
   const viewer = useViewer();
   const doc = viewer.doc;
 
   let scroller: HTMLDivElement;
+  let pagesEl: HTMLDivElement;
 
   $effect(() => {
     viewer.scrollEl = scroller;
     untrack(() => {
+      // This view may replace another (phone <-> desktop layout): start from its real
+      // scroll position, then return to the page the user was on.
+      const page = viewer.currentIndex;
+      viewer.scrollTop = scroller.scrollTop;
       viewer.viewHeight = scroller.clientHeight;
       viewer.viewWidth = scroller.clientWidth;
-      // Open at fit width, but not absurdly large on wide screens.
-      viewer.fitWidth();
-      if (viewer.zoom > 1.25) void viewer.setZoom(1.25, null);
+      // Open at fit width, but not absurdly large on wide screens. The zoom
+      // adjusts the scroll position when it finishes, so return to the page after.
+      void (async () => {
+        await viewer.fitWidth();
+        if (viewer.zoom > 1.25) await viewer.setZoom(1.25, null);
+        await tick();
+        viewer.goToPage(page);
+      })();
     });
 
     let lastWidth = scroller.clientWidth;
@@ -55,9 +67,54 @@
     };
     scroller.addEventListener('wheel', onWheel, { passive: false });
 
+    // Two fingers: pinch to zoom and pan together, in any tool. The page is
+    // transformed live, then re-rendered at the new zoom when the fingers lift.
+    let pinch: { d0: number; zoom0: number; mx0: number; my0: number; f: number; dx: number; dy: number } | null = null;
+    const local = (t: Touch) => {
+      const r = scroller.getBoundingClientRect();
+      return [t.clientX - r.left, t.clientY - r.top];
+    };
+    const geometry = (e: TouchEvent) => {
+      const [a, b] = [local(e.touches[0]), local(e.touches[1])];
+      return { d: Math.hypot(a[0] - b[0], a[1] - b[1]), mx: (a[0] + b[0]) / 2, my: (a[1] + b[1]) / 2 };
+    };
+    const onTouchStart = (e: TouchEvent) => {
+      if (e.touches.length !== 2) return;
+      const g = geometry(e);
+      pinch = { d0: g.d || 1, zoom0: viewer.zoom, mx0: g.mx, my0: g.my, f: 1, dx: 0, dy: 0 };
+      pagesEl.style.transformOrigin = `${scroller.scrollLeft + g.mx}px ${scroller.scrollTop + g.my}px`;
+    };
+    const onTouchMove = (e: TouchEvent) => {
+      if (!pinch || e.touches.length !== 2) return;
+      e.preventDefault();
+      const g = geometry(e);
+      pinch.f = Math.min(MAX_ZOOM / pinch.zoom0, Math.max(MIN_ZOOM / pinch.zoom0, g.d / pinch.d0));
+      pinch.dx = g.mx - pinch.mx0;
+      pinch.dy = g.my - pinch.my0;
+      pagesEl.style.transform = `translate(${pinch.dx}px, ${pinch.dy}px) scale(${pinch.f})`;
+    };
+    const onTouchEnd = async (e: TouchEvent) => {
+      if (!pinch || e.touches.length >= 2) return;
+      const p = pinch;
+      pinch = null;
+      pagesEl.style.transform = '';
+      pagesEl.style.transformOrigin = '';
+      if (Math.abs(p.f - 1) > 0.01) await viewer.setZoom(p.zoom0 * p.f, null, { x: p.mx0, y: p.my0 });
+      scroller.scrollLeft -= p.dx;
+      scroller.scrollTop -= p.dy;
+    };
+    scroller.addEventListener('touchstart', onTouchStart, { passive: true });
+    scroller.addEventListener('touchmove', onTouchMove, { passive: false });
+    scroller.addEventListener('touchend', onTouchEnd);
+    scroller.addEventListener('touchcancel', onTouchEnd);
+
     return () => {
       ro.disconnect();
       scroller.removeEventListener('wheel', onWheel);
+      scroller.removeEventListener('touchstart', onTouchStart);
+      scroller.removeEventListener('touchmove', onTouchMove);
+      scroller.removeEventListener('touchend', onTouchEnd);
+      scroller.removeEventListener('touchcancel', onTouchEnd);
       viewer.scrollEl = null;
     };
   });
@@ -108,6 +165,7 @@
   >
     <div
       class="pages"
+      bind:this={pagesEl}
       style:height="{viewer.layout.totalHeight}px"
       style:min-width="{viewer.layout.contentWidth}px"
     >
@@ -132,7 +190,11 @@
       {/key}
     {/if}
   </div>
-  <BottomBar />
+  {#if mobile}
+    <div class="page-pill" aria-live="polite">{viewer.currentIndex + 1} / {viewer.pageCount}</div>
+  {:else}
+    <BottomBar />
+  {/if}
 </div>
 
 <style>
@@ -178,11 +240,27 @@
   .scroller {
     position: relative;
     overflow: auto;
+    /* One finger scrolls natively; two-finger pinch is handled above. */
+    touch-action: pan-x pan-y;
     background: var(--color-canvas-bg);
     scrollbar-gutter: stable;
     outline: none;
   }
   .pages {
     position: relative;
+    will-change: auto;
+  }
+  .page-pill {
+    position: absolute;
+    left: var(--space-3);
+    bottom: var(--space-3);
+    z-index: 10;
+    padding: var(--space-1) var(--space-3);
+    border-radius: 999px;
+    background: rgb(0 0 0 / 0.65);
+    color: #fff;
+    font-size: var(--font-size-sm);
+    font-variant-numeric: tabular-nums;
+    pointer-events: none;
   }
 </style>

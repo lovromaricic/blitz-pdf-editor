@@ -60,6 +60,12 @@
     border-radius: 50%;
     box-shadow: 0 0 0 1px var(--color-border-strong);
   }
+  @media (max-width: 640px), (pointer: coarse) {
+    .swatch {
+      width: var(--touch-target);
+      height: var(--touch-target);
+    }
+  }
   .swatch[aria-checked='true'] {
     box-shadow: 0 0 0 2px var(--color-accent);
   }
