@@ -8,7 +8,18 @@
     value,
     onInput,
     label,
-  }: { id: string; min: number; max: number; step: number; value: number; onInput: (v: number) => void; label?: string } = $props();
+    valueText,
+  }: {
+    id: string;
+    min: number;
+    max: number;
+    step: number;
+    value: number;
+    onInput: (v: number) => void;
+    label?: string;
+    /** Read out instead of the raw number, e.g. "70%". */
+    valueText?: string;
+  } = $props();
 
   const fill = $derived(`${((value - min) / (max - min || 1)) * 100}%`);
 </script>
@@ -22,6 +33,7 @@
   {step}
   {value}
   aria-label={label}
+  aria-valuetext={valueText}
   style:--fill={fill}
   oninput={(e) => onInput(+e.currentTarget.value)}
 />

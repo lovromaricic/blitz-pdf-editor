@@ -11,12 +11,12 @@ import { deletePages, formatPageRange, insertPages, movePages, rotatePages } fro
 import { blankPdf } from './pdf/blank';
 import { documentText, printDocument } from './print';
 import { canvasToBlob, createRasterizer } from './rasterize';
-import { addOcrText, analyzeSources, compressSources, imagesToPdfInWorker, redactInWorker, writePdf, writePdfs } from './pdf/pdf-writer';
+import { addOcrText, analyzeSources, compressSources, estimateCompression, imagesToPdfInWorker, redactInWorker, writePdf, writePdfs } from './pdf/pdf-writer';
 import type { Rect } from './annotations';
 import { findMatchRects } from './search.svelte';
 import { groupMarks, padTextRect } from './redact-marks';
 import type { OcrLanguage } from './ocr';
-import type { CompressLevel } from './pdf/compress';
+import { isWorthwhile, type CompressSettings } from './pdf/compress';
 import type { ImagesToPdfOptions } from './pdf/images-to-pdf';
 import { isImageFile, prepareImage } from './image-input';
 import { setDocument } from './app-state.svelte';
@@ -265,29 +265,37 @@ export class Actions {
     return analyzeSources(this.doc, this.usedFileIds());
   }
 
-  /** Compress the document's files (undoable). Returns sizes before and after. */
-  async compress(level: CompressLevel) {
+  /** Estimated sizes for each settings, computed in the worker. */
+  estimateCompression(settings: CompressSettings[], onProgress: (p: number) => void, signal: AbortSignal) {
+    return estimateCompression(this.doc, this.usedFileIds(), settings, (done, total) => onProgress(done / total), signal);
+  }
+
+  /**
+   * Compress the document's files (undoable). Returns sizes before and after;
+   * `applied` is false when the result wasn't worth it and the document was left unchanged.
+   */
+  async compress(settings: CompressSettings) {
     const ids = this.usedFileIds();
     const before = ids.reduce((n, id) => n + this.doc.sources.get(id)!.size, 0);
-    return this.viewer.runTask('Compressing…', async (progress) => {
-      const files = await compressSources(this.doc, ids, level, (done, total) => progress(done / total));
-      const remap = new Map<string, string>();
-      let after = 0;
-      for (let i = 0; i < ids.length; i++) {
-        const old = this.doc.sources.get(ids[i])!;
-        // Keep the original where compression didn't help.
-        if (files[i].length >= old.size) {
-          after += old.size;
-          continue;
+    return this.viewer.runTask(
+      'Compressing…',
+      async (progress, signal) => {
+        const files = await compressSources(this.doc, ids, settings, (done, total) => progress(done / total), signal);
+        // Per file, keep the original where compression didn't help.
+        const better = ids.map((id, i) => files[i].length < this.doc.sources.get(id)!.size);
+        const after = ids.reduce((n, id, i) => n + (better[i] ? files[i].length : this.doc.sources.get(id)!.size), 0);
+        if (!isWorthwhile(before, after)) return { before, after, applied: false };
+        const remap = new Map<string, string>();
+        for (let i = 0; i < ids.length; i++) {
+          if (!better[i]) continue;
+          const old = this.doc.sources.get(ids[i])!;
+          remap.set(old.id, await this.doc.addReplacementSource(old, files[i], 'compressed'));
         }
-        remap.set(old.id, await this.doc.addReplacementSource(old, files[i], 'compressed'));
-        after += files[i].length;
-      }
-      if (remap.size > 0) {
         this.doc.edit('Compress', this.doc.pages.map((p) => (remap.has(p.sourceId) ? { ...p, sourceId: remap.get(p.sourceId)! } : p)));
-      }
-      return { before, after };
-    });
+        return { before, after, applied: true };
+      },
+      { cancellable: true },
+    );
   }
 
   // --- OCR ------------------------------------------------------------------

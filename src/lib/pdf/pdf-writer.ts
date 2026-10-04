@@ -1,8 +1,8 @@
 // Main-thread client for the PDF worker.
 import type { EditorDocument, PageRef } from '../document.svelte';
 import type { AssembleMode, PagePlan, RedactedPage } from './assemble';
-import type { Job, JobRequest, WorkerResponse } from './pdf-worker';
-import type { Analysis, CompressLevel } from './compress';
+import type { CancelRequest, Job, JobRequest, WorkerResponse } from './pdf-worker';
+import type { Analysis, CompressSettings } from './compress';
 import type { ImageInput, ImagesToPdfOptions } from './images-to-pdf';
 import type { OcrWord } from './ocr-text';
 import { FONT_URLS } from '../fonts';
@@ -79,11 +79,23 @@ export async function writePdfs(
   return result.files;
 }
 
-/** Run a job in the PDF worker. */
-function runJob(job: Job, onProgress?: (done: number, total: number) => void): Promise<{ files: Uint8Array[]; analyses?: Analysis[] }> {
+/** Run a job in the PDF worker. Aborting `signal` asks the worker to stop and rejects with its reason. */
+function runJob(
+  job: Job,
+  onProgress?: (done: number, total: number) => void,
+  signal?: AbortSignal,
+): Promise<{ files: Uint8Array[]; analyses?: Analysis[]; sizes?: number[] }> {
   const id = ++nextId;
   const w = getWorker();
   return new Promise((resolve, reject) => {
+    if (signal?.aborted) return reject(signal.reason);
+    const onAbort = () => {
+      w.removeEventListener('message', onMessage);
+      w.removeEventListener('error', onError);
+      w.postMessage({ kind: 'cancel', id } satisfies CancelRequest);
+      reject(signal!.reason);
+    };
+    signal?.addEventListener('abort', onAbort, { once: true });
     const onMessage = (e: MessageEvent<WorkerResponse>) => {
       const msg = e.data;
       if (msg.id !== id) return;
@@ -93,12 +105,14 @@ function runJob(job: Job, onProgress?: (done: number, total: number) => void): P
       }
       w.removeEventListener('message', onMessage);
       w.removeEventListener('error', onError);
-      if (msg.type === 'done') resolve({ files: msg.files, analyses: msg.analyses });
+      signal?.removeEventListener('abort', onAbort);
+      if (msg.type === 'done') resolve({ files: msg.files, analyses: msg.analyses, sizes: msg.sizes });
       else reject(new Error(msg.message));
     };
     const onError = (e: ErrorEvent) => {
       w.removeEventListener('message', onMessage);
       w.removeEventListener('error', onError);
+      signal?.removeEventListener('abort', onAbort);
       worker?.terminate();
       worker = null;
       reject(new Error(e.message || 'The PDF engine stopped unexpectedly (the file may be too large for this device).'));
@@ -145,9 +159,27 @@ export async function analyzeSources(doc: EditorDocument, ids: string[]) {
   return (await runJob({ kind: 'analyze', sources: sourceInputs(doc, ids) })).analyses!;
 }
 
-export async function compressSources(doc: EditorDocument, ids: string[], level: CompressLevel, onProgress?: (done: number, total: number) => void) {
+export async function compressSources(
+  doc: EditorDocument,
+  ids: string[],
+  settings: CompressSettings,
+  onProgress?: (done: number, total: number) => void,
+  signal?: AbortSignal,
+) {
   const forms = await formValues(doc, ids);
-  return (await runJob({ kind: 'compress', sources: sourceInputs(doc, ids), level, forms }, onProgress)).files;
+  return (await runJob({ kind: 'compress', sources: sourceInputs(doc, ids), settings: { ...settings }, forms }, onProgress, signal)).files;
+}
+
+/** Estimated total size of the files for each settings (re-encodes images in the worker). */
+export async function estimateCompression(
+  doc: EditorDocument,
+  ids: string[],
+  settings: CompressSettings[],
+  onProgress?: (done: number, total: number) => void,
+  signal?: AbortSignal,
+) {
+  const plain = settings.map((s) => ({ quality: s.quality, dpi: s.dpi }));
+  return (await runJob({ kind: 'estimate', sources: sourceInputs(doc, ids), settings: plain }, onProgress, signal)).sizes!;
 }
 
 export function writePdf(doc: EditorDocument, pages: readonly PageRef[], mode: AssembleMode): Promise<Uint8Array> {

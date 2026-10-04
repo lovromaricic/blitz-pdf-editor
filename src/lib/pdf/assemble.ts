@@ -23,7 +23,7 @@ import type { FieldValue } from '../forms';
 import type { PageDecoration } from '../decorations';
 import { addAnnotations, type FontProvider } from './write-annotations';
 import { drawDecoration } from './write-decorations';
-import { analyze, recompressImages, type Analysis, type CompressLevel } from './compress';
+import { analyze, estimateSizes, recompressImages, type Analysis, type CompressSettings, type RunOptions } from './compress';
 import { addInvisibleText, type OcrWord } from './ocr-text';
 
 export interface SourceInput {
@@ -369,16 +369,25 @@ function collectGarbage(doc: PDFDocument) {
 /** Compress one source file: re-encode images, keep typed form values, drop unused objects. */
 export async function compressSource(
   src: SourceInput,
-  level: CompressLevel,
+  settings: CompressSettings,
   values: FieldValue[],
   fonts: FontProvider,
-  onProgress?: (done: number, total: number) => void,
+  options: RunOptions = {},
 ): Promise<Uint8Array> {
   const doc = await openSource(src);
   await applyForm(doc, values, false, fonts);
-  await recompressImages(doc, level, onProgress);
+  await recompressImages(doc, settings, options);
   collectGarbage(doc);
   return doc.save({ useObjectStreams: true, updateFieldAppearances: false });
+}
+
+/** Estimated compressed size of one source file for each settings (see estimateSizes). */
+export async function estimateSource(src: SourceInput, settingsList: readonly CompressSettings[], options: RunOptions = {}): Promise<number[]> {
+  const doc = await openSource(src);
+  collectGarbage(doc);
+  // The file rebuilt with no image changes: everything that isn't an image, as it will be written.
+  const base = (await doc.save({ useObjectStreams: true, updateFieldAppearances: false })).length;
+  return estimateSizes(doc, base, settingsList, options);
 }
 
 export async function analyzeSource(src: SourceInput): Promise<Analysis> {

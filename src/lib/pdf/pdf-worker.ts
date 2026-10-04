@@ -5,6 +5,7 @@ import {
   analyzeSource,
   assemble,
   compressSource,
+  estimateSource,
   redactSource,
   UserError,
   type RedactedPage,
@@ -13,7 +14,7 @@ import {
   type PagePlan,
   type SourceInput,
 } from './assemble';
-import type { Analysis, CompressLevel } from './compress';
+import { CompressCancelled, type Analysis, type CompressSettings } from './compress';
 import type { OcrWord } from './ocr-text';
 import { createFontProvider } from './font-provider';
 import { imagesToPdf, type ImageInput, type ImagesToPdfOptions } from './images-to-pdf';
@@ -31,16 +32,23 @@ export type Job =
       encrypt?: Encryption;
     }
   | { kind: 'images'; images: ImageInput[]; options: ImagesToPdfOptions }
-  | { kind: 'compress'; sources: SourceInput[]; level: CompressLevel; forms: Record<string, FieldValue[]> }
+  | { kind: 'compress'; sources: SourceInput[]; settings: CompressSettings; forms: Record<string, FieldValue[]> }
+  | { kind: 'estimate'; sources: SourceInput[]; settings: CompressSettings[] }
   | { kind: 'analyze'; sources: SourceInput[] }
   | { kind: 'ocrText'; source: SourceInput; words: Record<number, OcrWord[]>; forms: FieldValue[] }
   | { kind: 'redact'; source: SourceInput; pages: RedactedPage[]; forms: FieldValue[]; removeInfo: boolean };
 
 export type JobRequest = Job & { id: number; fontUrls: Record<FontKey, string> };
 
+/** Stop a running job (compress and estimate check between images). */
+export interface CancelRequest {
+  kind: 'cancel';
+  id: number;
+}
+
 export type WorkerResponse =
   | { id: number; type: 'progress'; done: number; total: number }
-  | { id: number; type: 'done'; files: Uint8Array[]; analyses?: Analysis[] }
+  | { id: number; type: 'done'; files: Uint8Array[]; analyses?: Analysis[]; sizes?: number[] }
   | { id: number; type: 'error'; message: string };
 
 let fontUrls: Record<FontKey, string> | null = null;
@@ -57,7 +65,13 @@ const fonts = createFontProvider(async (key) => {
 
 const post = (msg: WorkerResponse, transfer: Transferable[] = []) => (self as unknown as Worker).postMessage(msg, transfer);
 
-async function run(job: JobRequest, progress: (done: number, total: number) => void): Promise<{ files: Uint8Array[]; analyses?: Analysis[] }> {
+const cancelled = new Set<number>();
+
+async function run(
+  job: JobRequest,
+  progress: (done: number, total: number) => void,
+): Promise<{ files: Uint8Array[]; analyses?: Analysis[]; sizes?: number[] }> {
+  const stopped = () => cancelled.has(job.id);
   switch (job.kind) {
     case 'assemble': {
       const files: Uint8Array[] = [];
@@ -77,12 +91,25 @@ async function run(job: JobRequest, progress: (done: number, total: number) => v
       for (let i = 0; i < job.sources.length; i++) {
         const src = job.sources[i];
         files.push(
-          await compressSource(src, job.level, job.forms[src.id] ?? [], fonts, (done, total) =>
-            progress(i + done / Math.max(1, total), job.sources.length),
-          ),
+          await compressSource(src, job.settings, job.forms[src.id] ?? [], fonts, {
+            stopped,
+            onProgress: (done, total) => progress(i + done / Math.max(1, total), job.sources.length),
+          }),
         );
       }
       return { files };
+    }
+    case 'estimate': {
+      // Summed over all files, one size per settings.
+      const sizes = job.settings.map(() => 0);
+      for (let i = 0; i < job.sources.length; i++) {
+        const each = await estimateSource(job.sources[i], job.settings, {
+          stopped,
+          onProgress: (done, total) => progress(i + done / Math.max(1, total), job.sources.length),
+        });
+        each.forEach((n, k) => (sizes[k] += n));
+      }
+      return { files: [], sizes };
     }
     case 'analyze':
       return { files: [], analyses: await Promise.all(job.sources.map(analyzeSource)) };
@@ -93,7 +120,11 @@ async function run(job: JobRequest, progress: (done: number, total: number) => v
   }
 }
 
-self.onmessage = async (e: MessageEvent<JobRequest>) => {
+self.onmessage = async (e: MessageEvent<JobRequest | CancelRequest>) => {
+  if (e.data.kind === 'cancel') {
+    cancelled.add(e.data.id);
+    return;
+  }
   const job = e.data;
   fontUrls = job.fontUrls;
   try {
@@ -102,12 +133,16 @@ self.onmessage = async (e: MessageEvent<JobRequest>) => {
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
     // Our own errors are written for people; anything from the PDF libraries is not.
-    const message = err instanceof UserError
+    const message = err instanceof CompressCancelled
+      ? 'Cancelled.'
+      : err instanceof UserError
       ? detail
       : err instanceof RangeError
         ? 'This device ran out of memory while writing the PDF. Close other tabs, or try with fewer pages.'
         : `This PDF couldn't be written: part of the file is damaged in a way this app can't repair. ` +
           `Tip: use File › Print and choose "Save as PDF" to get a clean copy. (Details: ${detail})`;
     post({ id: job.id, type: 'error', message });
+  } finally {
+    cancelled.delete(job.id);
   }
 };
