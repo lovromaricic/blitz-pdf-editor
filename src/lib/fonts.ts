@@ -21,7 +21,8 @@ export interface TextStyle {
   italic?: boolean;
 }
 
-const absolute = (u: string) => new URL(u, document.baseURI).href;
+// Outside a browser (server-rendered tests) there is no document: keep the URL as is.
+const absolute = (u: string) => (typeof document === 'undefined' ? u : new URL(u, document.baseURI).href);
 
 // File URLs only (no fetching): the files are emitted as separate assets.
 const catalogFiles = import.meta.glob(

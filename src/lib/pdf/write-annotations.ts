@@ -259,7 +259,8 @@ async function boxedAppearance(doc: PDFDocument, a: BoxedAnnotation, fonts: Font
           `${roundedRect(inset / 2, inset / 2, w - inset, h - inset, h * 0.15)} S\n` +
           `BT /F0 ${n(size)} Tf ${n(x)} ${n(y)} Td ${font.encodeText(a.label).toString()} Tj ET`,
         fonts: { F0: font.ref },
-        entries: { Subtype: 'Stamp', Name: 'Draft' },
+        // No extra border from the viewer: the appearance is the whole design.
+        entries: { Subtype: 'Stamp', Name: 'Draft', Border: [0, 0, 0] },
       };
     }
     case 'note': {
@@ -283,7 +284,7 @@ async function boxedAppearance(doc: PDFDocument, a: BoxedAnnotation, fonts: Font
         ...base,
         content: `/GS0 gs q ${n(w)} 0 0 ${n(h)} 0 0 cm /Im0 Do Q`,
         images: { Im0: image.ref },
-        entries: { Subtype: 'Stamp', Name: a.role === 'signature' ? 'Signature' : 'Image' },
+        entries: { Subtype: 'Stamp', Name: a.role === 'signature' ? 'Signature' : 'Image', Border: [0, 0, 0] },
       };
     }
   }

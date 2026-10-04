@@ -225,3 +225,21 @@ describe('comment icon', () => {
     await pdf.loadingTask.destroy();
   });
 });
+
+describe('stamps in the saved PDF', () => {
+  it('draw only their own border: no viewer border, one stroke in the stamp color', async () => {
+    const stamp: Annotation = { id: 's', type: 'stamp', label: 'VOID', color: [0.8, 0.1, 0.1], opacity: 0.6, rect: [100, 100, 200, 130], rotate: 0 };
+    const out = await assemble([{ id: 'a', bytes: await onePage() }], [{ sourceId: 'a', index: 0, rotation: 0, annots: [stamp] }], 'preserve', { fonts });
+    const doc = await PDFDocument.load(out);
+    const { decodePDFRawStream, PDFDict, PDFRawStream } = await import('@cantoo/pdf-lib');
+    const annot = doc.context.lookup(doc.getPage(0).node.Annots()!.get(0), PDFDict);
+    expect(annot.get(PDFName.of('Subtype'))?.toString()).toBe('/Stamp');
+    expect(annot.get(PDFName.of('Border'))?.toString().replace(/\s+/g, ' ').trim()).toBe('[ 0 0 0 ]');
+    const ap = annot.lookupMaybe(PDFName.of('AP'), PDFDict)!.lookup(PDFName.of('N'));
+    if (!(ap instanceof PDFRawStream)) throw new Error('no appearance');
+    const ops = new TextDecoder().decode(decodePDFRawStream(ap).decode());
+    // One stroked shape, and the only stroke color is the stamp's own.
+    expect(ops.match(/\bS\b/g)).toHaveLength(1);
+    expect([...ops.matchAll(/([\d.]+ [\d.]+ [\d.]+) RG/g)].map((m) => m[1])).toEqual(['0.8 0.1 0.1']);
+  });
+});

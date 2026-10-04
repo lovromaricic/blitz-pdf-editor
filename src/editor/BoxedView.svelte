@@ -21,8 +21,11 @@
   const LINES_SVG = toSvgPath(NOTE_LINES.flatMap(([x1, y, x2]): Segment[] => [['M', x1, y], ['L', x2, y]]));
 </script>
 
+<!-- The kind goes in data-kind, not a class: a "stamp" or "text" class here would also
+     pick up the inner element's styles below (that gave every stamp an extra dark border). -->
 <div
-  class="boxed {a.type}"
+  class="boxed"
+  data-kind={a.type}
   style:left="{box.cx}px"
   style:top="{box.cy}px"
   style:width="{box.w}px"
