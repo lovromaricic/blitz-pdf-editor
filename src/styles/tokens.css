@@ -8,11 +8,11 @@
   --color-surface: #f4f4f4;
   --color-surface-strong: #e6e6e6;
   --color-canvas-bg: #d9d9d9;
-  --color-placeholder: #cfcfcf;
+  --color-placeholder: #e2e2e2;
 
   /* Color: text */
   --color-text: #1a1a1a;
-  --color-text-muted: #666666;
+  --color-text-muted: #595959;
   --color-text-inverse: #ffffff;
 
   /* Color: lines and states */

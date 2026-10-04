@@ -25,3 +25,21 @@ describe('menus', () => {
     for (const id of MENUS.flatMap((m) => walk(m.items))) expect(COMMANDS).toHaveProperty(id);
   });
 });
+
+describe('shortcuts', () => {
+  it('never assign the same key to two commands', () => {
+    const seen = new Map<string, string>();
+    for (const [id, meta] of Object.entries(COMMANDS) as [string, { keys?: readonly string[] }][]) {
+      for (const k of meta.keys ?? []) {
+        expect(seen.get(k), `${k} used by ${seen.get(k)} and ${id}`).toBeUndefined();
+        seen.set(k, id);
+      }
+    }
+  });
+
+  it('single-key shortcuts never fire while typing', () => {
+    for (const meta of Object.values(COMMANDS) as { keys?: readonly string[]; nativeInFields?: boolean }[]) {
+      if (meta.keys?.some((k) => !k.includes('mod+') && k.length <= 7 && k !== 'f11')) expect(meta.nativeInFields).toBe(true);
+    }
+  });
+});

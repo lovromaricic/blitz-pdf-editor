@@ -8,6 +8,7 @@ import { decorationResolver } from './pdf/pdf-writer';
 import { computeLayout, indexAtY, pagesPerRow, rowAtY, rowStartOf, type ViewMode } from './layout';
 import { CSS_UNITS } from './pdf/pdfjs';
 import { Search } from './search.svelte';
+import { friendlyError } from './friendly-error';
 
 export const ZOOM_STEPS = [0.1, 0.25, 0.33, 0.5, 0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3, 4, 5];
 export const MIN_ZOOM = ZOOM_STEPS[0];
@@ -93,7 +94,7 @@ export class Viewer {
   task = $state<Task | null>(null);
   /** While the crop panel is open: pages show uncropped, with these margins (on-screen orientation, points) shaded. */
   cropPreview = $state.raw<{ ids: ReadonlySet<string>; margins: Margins } | null>(null);
-  notice = $state<{ text: string; id: number } | null>(null);
+  notice = $state<{ text: string; id: number; error: boolean } | null>(null);
 
   /** Mirrors of the scroll container's geometry, for virtualized rendering. */
   scrollTop = $state(0);
@@ -226,10 +227,11 @@ export class Viewer {
 
   private noticeTimer: ReturnType<typeof setTimeout> | undefined;
 
-  notify(text: string) {
+  /** Show a short message. Errors stay until dismissed. */
+  notify(text: string, { error = false } = {}) {
     clearTimeout(this.noticeTimer);
-    this.notice = { text, id: Date.now() };
-    this.noticeTimer = setTimeout(() => (this.notice = null), 6000);
+    this.notice = { text, id: Date.now(), error };
+    if (!error) this.noticeTimer = setTimeout(() => (this.notice = null), 6000);
   }
 
   /** Run a slow job with a progress indicator; errors become a notice. */
@@ -238,7 +240,7 @@ export class Viewer {
     try {
       return await job((p) => this.task && (this.task.progress = p));
     } catch (e) {
-      this.notify(e instanceof Error ? e.message : String(e));
+      this.notify(friendlyError(e), { error: true });
       return undefined;
     } finally {
       this.task = null;

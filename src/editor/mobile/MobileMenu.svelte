@@ -55,7 +55,7 @@
           <ul id="mm-{menu.label}">
             {#each rows(menu.items) as row, i (i)}
               {#if row === '-'}
-                <li class="sep" role="separator"></li>
+                <li class="sep" aria-hidden="true"></li>
               {:else}
                 {@const enabled = commands.isEnabled(row.id)}
                 {@const checked = commands.isChecked(row.id)}

@@ -46,6 +46,35 @@
     };
   }
 
+  interface FieldInfo {
+    id: string;
+    fieldName?: string;
+    alternativeText?: string;
+    buttonValue?: string;
+    radioButton?: boolean;
+  }
+
+  /**
+   * Give every field an accessible name. PDFs often lack field descriptions
+   * (/TU); then we fall back to a readable version of the field's name.
+   */
+  function labelFields(annotations: FieldInfo[]) {
+    for (const a of annotations) {
+      if (!a.fieldName) continue;
+      for (const el of host.querySelectorAll<HTMLElement>(`[data-element-id="${a.id}"]`)) {
+        if (el.getAttribute('aria-label') || (el as HTMLInputElement).labels?.length) continue;
+        const base = a.alternativeText || humanize(a.fieldName);
+        el.setAttribute('aria-label', a.radioButton && a.buttonValue ? `${base}: ${humanize(a.buttonValue)}` : base);
+      }
+    }
+  }
+
+  function humanize(name: string) {
+    const last = name.split('.').pop() ?? name;
+    const words = last.replace(/[_-]+/g, ' ').replace(/([a-z])([A-Z])/g, '$1 $2').trim();
+    return words.charAt(0).toUpperCase() + words.slice(1);
+  }
+
   let fieldsPromise: Promise<Map<string, object[]>> | null = null;
   function fields() {
     fieldsPromise ??= fieldObjects(source.pdf).then((list) => new Map(list as [string, object[]][]));
@@ -86,6 +115,7 @@
         hasJSActions: false,
         imageResourcesPath: '',
       });
+      labelFields(annotations as FieldInfo[]);
     })().catch(() => {
       // A broken annotation shouldn't stop the page from showing.
     });

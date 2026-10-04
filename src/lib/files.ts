@@ -52,8 +52,9 @@ export async function readPdfFiles(files: Iterable<File>): Promise<FileIntake> {
     let bytes: Uint8Array;
     try {
       bytes = new Uint8Array(await file.arrayBuffer());
-    } catch {
-      rejected.push({ name: file.name, reason: 'The file could not be read.' });
+    } catch (e) {
+      const tooBig = e instanceof RangeError || (e instanceof Error && /memory|allocation/i.test(e.message));
+      rejected.push({ name: file.name, reason: tooBig ? 'The file is too large to open on this device.' : 'The file could not be read.' });
       continue;
     }
     if (!hasPdfHeader(bytes)) {
@@ -76,4 +77,33 @@ export function formatBytes(n: number): string {
     unit++;
   }
   return `${value.toFixed(value < 10 ? 1 : 0)} ${units[unit]}`;
+}
+
+/**
+ * Size above which we ask before opening. Lower on phones and low-memory
+ * devices, where the browser may run out of memory.
+ */
+export function largeFileThreshold(): number {
+  const memory = (navigator as Navigator & { deviceMemory?: number }).deviceMemory;
+  const phone = typeof matchMedia === 'function' && matchMedia('(max-width: 640px), (pointer: coarse)').matches;
+  if ((memory !== undefined && memory <= 2) || phone) return 120 * 1024 * 1024;
+  if (memory !== undefined && memory <= 4) return 250 * 1024 * 1024;
+  return 500 * 1024 * 1024;
+}
+
+/** Whether `bytes` contains the ASCII text `needle` (fast byte scan). */
+export function containsAscii(bytes: Uint8Array, needle: string): boolean {
+  const n = Array.from(needle, (c) => c.charCodeAt(0));
+  const first = n[0];
+  for (let i = bytes.indexOf(first); i !== -1 && i <= bytes.length - n.length; i = bytes.indexOf(first, i + 1)) {
+    let k = 1;
+    while (k < n.length && bytes[i + k] === n[k]) k++;
+    if (k === n.length) return true;
+  }
+  return false;
+}
+
+/** Signed PDFs store /ByteRange uncompressed (it's patched in place when signing). */
+export function looksDigitallySigned(bytes: Uint8Array) {
+  return containsAscii(bytes, '/ByteRange');
 }

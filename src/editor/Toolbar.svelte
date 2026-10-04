@@ -6,6 +6,16 @@
   let { commands }: { commands: CommandRegistry } = $props();
   const viewer = useViewer();
 
+  function onKey(e: KeyboardEvent) {
+    const keys: Record<string, number> = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 };
+    if (!(e.key in keys) && e.key !== 'Home' && e.key !== 'End') return;
+    const buttons = Array.from((e.currentTarget as HTMLElement).querySelectorAll<HTMLButtonElement>('button:not(:disabled)'));
+    const i = buttons.indexOf(document.activeElement as HTMLButtonElement);
+    const next = e.key === 'Home' ? 0 : e.key === 'End' ? buttons.length - 1 : (i + keys[e.key] + buttons.length) % buttons.length;
+    buttons[next]?.focus();
+    e.preventDefault();
+  }
+
   const history: { id: CommandId; label: string }[] = [
     { id: 'edit.undo', label: 'Undo' },
     { id: 'edit.redo', label: 'Redo' },
@@ -13,12 +23,13 @@
 
 </script>
 
-<div class="toolbar" role="toolbar" aria-label="Editing tools">
+<!-- One Tab stop (the active tool); arrow keys move between buttons, per the ARIA toolbar pattern. -->
+<div class="toolbar" role="toolbar" aria-label="Editing tools" tabindex="-1" onkeydown={onKey}>
   <div class="group" role="group" aria-labelledby="tb-history">
     <span class="group-label" id="tb-history">History</span>
     <div class="buttons">
       {#each history as h (h.id)}
-        <button type="button" class="tool" disabled={!commands.isEnabled(h.id)} onclick={() => commands.run(h.id)}>
+        <button type="button" class="tool" tabindex="-1" disabled={!commands.isEnabled(h.id)} onclick={() => commands.run(h.id)}>
           <span class="icon" aria-hidden="true"></span>
           <span>{h.label}</span>
         </button>
@@ -35,6 +46,7 @@
           class="tool"
           class:active={viewer.tool === t.id}
           aria-pressed={viewer.tool === t.id}
+          tabindex={viewer.tool === t.id ? 0 : -1}
           onclick={() => viewer.setTool(t.id)}
         >
           <span class="icon" aria-hidden="true"></span>

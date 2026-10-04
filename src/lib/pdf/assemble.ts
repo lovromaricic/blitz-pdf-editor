@@ -62,6 +62,9 @@ export type AssembleMode = 'preserve' | 'fresh';
 
 export class SourceOpenError extends Error {}
 
+/** An error whose message is written for the person using the app. */
+export class UserError extends Error {}
+
 export interface AssembleOptions {
   /** Needed when the plan contains text, stamps or form values that need embedded fonts. */
   fonts?: FontProvider;
@@ -79,7 +82,7 @@ export async function assemble(
   mode: AssembleMode,
   options: AssembleOptions = {},
 ): Promise<Uint8Array> {
-  if (plan.length === 0) throw new Error('A PDF needs at least one page.');
+  if (plan.length === 0) throw new UserError('A PDF needs at least one page.');
   const byId = new Map(sources.map((s) => [s.id, s]));
   const cache = new Map<string, Promise<PDFDocument>>();
   const open = (id: string) => {
@@ -129,7 +132,7 @@ export async function assemble(
   }
 
   const finalPages = slots.map((p, pos) => {
-    if (!p) throw new Error(`Page ${plan[pos].index + 1} not found in its file.`);
+    if (!p) throw new UserError(`Page ${plan[pos].index + 1} was not found in its file.`);
     return p;
   });
 
@@ -141,7 +144,7 @@ export async function assemble(
     }
     if (plan[pos].annots?.length) {
       if (!options.fonts && plan[pos].annots!.some((a) => a.type === 'text' || a.type === 'stamp')) {
-        throw new Error('Fonts are required to save text and stamps.');
+        throw new UserError('Fonts are required to save text and stamps.');
       }
       await addAnnotations(out, page, plan[pos].annots!, options.fonts ?? noFonts);
     }
@@ -240,14 +243,19 @@ async function applyForm(doc: PDFDocument, values: FieldValue[], flatten: boolea
 
 async function openSource(src: SourceInput): Promise<PDFDocument> {
   const options = { updateMetadata: false, password: src.password };
+  // pdf-lib sometimes "loads" a broken file and only fails later: check the basics now.
+  const checked = (doc: PDFDocument) => {
+    if (doc.getPageCount() < 1) throw new Error('no pages found');
+    return doc;
+  };
   try {
-    return await PDFDocument.load(src.bytes, options);
+    return checked(await PDFDocument.load(src.bytes, options));
   } catch (e) {
     // Files with only an owner password (restrictions, no open password)
     // decrypt with the empty user password.
     if (src.password === undefined) {
       try {
-        return await PDFDocument.load(src.bytes, { ...options, password: '' });
+        return checked(await PDFDocument.load(src.bytes, { ...options, password: '' }));
       } catch {
         // Fall through to the original error.
       }

@@ -110,3 +110,19 @@ npm run dev -- --host
 ```
 
 Under 640px wide the editor switches to the phone layout. Two fingers pinch-zoom and pan in every tool; one finger scrolls with Select and Fill form, and draws or highlights with the markup tools.
+
+## Keyboard and accessibility
+
+- Every action is reachable by keyboard. The full list is in *Help › Keyboard shortcuts* (generated from the command registry). Single-key tool shortcuts: V Select, T Text, H Highlight, D Draw, R Shapes, K Stamp, N Comment, S Sign, F Fill form; `?` shows all shortcuts.
+- Landmarks, a "Skip to document" link, labelled controls, ARIA menu/toolbar patterns with arrow-key navigation, focus moves into tool panels when they open, and page changes are announced politely.
+- PDF form fields get an accessible name from the PDF's description, or from the field name when the PDF has none.
+- Respects *reduce motion* and Windows High Contrast (forced colors).
+- Checked with axe-core on Home, the editor, every tool panel and dialog, and the phone layout.
+
+## Errors and limits
+
+- Not a PDF, empty, damaged and password-protected files are explained when opening; partial damage shows per page.
+- Very large files (over ~500 MB, or ~120 MB on phones and low-memory devices) ask before opening.
+- XFA forms and digitally signed PDFs show a warning (editing invalidates a signature).
+- Failures while saving say what happened in plain language and stay on screen until dismissed. Unexpected errors anywhere are shown, never silently swallowed.
+- Ctrl/⌘+W is reserved by browsers and closes the tab; the unsaved-changes prompt still protects your work.

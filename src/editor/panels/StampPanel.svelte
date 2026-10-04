@@ -10,7 +10,7 @@
 
   const sel = $derived(actions.selectedAnnot?.annot.type === 'stamp' ? actions.selectedAnnot : null);
   const STAMP_COLORS: { name: string; rgb: Rgb }[] = [
-    { name: 'Green', rgb: [0.1, 0.55, 0.2] },
+    { name: 'Green', rgb: [0.08, 0.45, 0.16] },
     { name: 'Blue', rgb: [0.1, 0.35, 0.8] },
     { name: 'Red', rgb: [0.8, 0.1, 0.1] },
     { name: 'Gray', rgb: [0.35, 0.35, 0.35] },

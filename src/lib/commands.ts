@@ -38,7 +38,7 @@ export const COMMANDS = {
   'edit.cut': { label: 'Cut', keys: ['mod+x'], nativeInFields: true },
   'edit.copy': { label: 'Copy', keys: ['mod+c'], nativeInFields: true },
   'edit.paste': { label: 'Paste', keys: ['mod+v'], nativeInFields: true },
-  'edit.delete': { label: 'Delete', keys: ['delete'], nativeInFields: true },
+  'edit.delete': { label: 'Delete', keys: ['delete', 'backspace'], nativeInFields: true },
   'edit.selectAll': { label: 'Select all', keys: ['mod+a'], nativeInFields: true },
   'edit.find': { label: 'Find…', keys: ['mod+f'] },
   'edit.preferences': { label: 'Preferences…' },
@@ -81,9 +81,20 @@ export const COMMANDS = {
 
   // Help
   'help.guide': { label: 'Quick guide' },
-  'help.shortcuts': { label: 'Keyboard shortcuts' },
+  'help.shortcuts': { label: 'Keyboard shortcuts', keys: ['shift+?', '?'], nativeInFields: true },
   'help.report': { label: 'Report a problem' },
   'help.about': { label: 'About' },
+
+  // Markup tools (toolbar, not menus). Single keys, ignored while typing.
+  'tool.select': { label: 'Select', keys: ['v'], nativeInFields: true },
+  'tool.text': { label: 'Text', keys: ['t'], nativeInFields: true },
+  'tool.highlight': { label: 'Highlight', keys: ['h'], nativeInFields: true },
+  'tool.draw': { label: 'Draw', keys: ['d'], nativeInFields: true },
+  'tool.shapes': { label: 'Shapes', keys: ['r'], nativeInFields: true },
+  'tool.stamp': { label: 'Stamp', keys: ['k'], nativeInFields: true },
+  'tool.comment': { label: 'Comment', keys: ['n'], nativeInFields: true },
+  'tool.sign': { label: 'Sign', keys: ['s'], nativeInFields: true },
+  'tool.form': { label: 'Fill form', keys: ['f'], nativeInFields: true },
 } as const satisfies Record<string, CommandMeta>;
 
 export type CommandId = keyof typeof COMMANDS;

@@ -82,3 +82,29 @@ button {
   white-space: nowrap;
   border: 0;
 }
+
+/* Respect the system's reduced-motion setting. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Windows High Contrast: shadows and backgrounds vanish, so state needs outlines. */
+@media (forced-colors: active) {
+  .tool.active,
+  .thumb.current .frame,
+  .thumb.selected,
+  [aria-checked='true'],
+  [aria-pressed='true'] {
+    outline: 3px solid Highlight;
+    outline-offset: 1px;
+  }
+  .page {
+    outline: 1px solid CanvasText;
+  }
+}

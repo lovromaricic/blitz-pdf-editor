@@ -1,6 +1,7 @@
 // The one entry point for opening PDFs, used by the Home screen and File > Open.
 import { setDocument } from './app-state.svelte';
-import { readPdfFiles, type OpenFile, type RejectedFile } from './files';
+import { formatBytes, largeFileThreshold, readPdfFiles, type OpenFile, type RejectedFile } from './files';
+import { showDialog } from './dialogs.svelte';
 
 interface PasswordRequest {
   fileName: string;
@@ -35,6 +36,19 @@ export async function openFiles(files: Iterable<File>): Promise<RejectedFile[]> 
   opening.busy = true;
   try {
     const list = Array.from(files);
+    const total = list.reduce((n, f) => n + f.size, 0);
+    if (total > largeFileThreshold()) {
+      const r = await showDialog({
+        title: 'Very large file',
+        message: `${list.length === 1 ? 'This file is' : 'These files are'} ${formatBytes(total)}. Opening may be slow, and this device could run out of memory. Everything stays on your device either way.`,
+        buttons: [
+          { value: 'cancel', label: 'Cancel' },
+          { value: 'open', label: 'Open anyway', primary: true },
+        ],
+        cancelValue: 'cancel',
+      });
+      if (r.button !== 'open') return [];
+    }
     // Images are turned into a PDF (one per page), placed where the first image was.
     const images = list.filter((f) => !isPdfName(f) && (f.type.startsWith('image/') || /\.(jpe?g|png|webp|gif|bmp|avif|heic)$/i.test(f.name)));
     const intake = await readPdfFiles(list.filter((f) => !images.includes(f)));

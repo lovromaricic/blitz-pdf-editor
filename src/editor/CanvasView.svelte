@@ -139,6 +139,13 @@
     e.preventDefault();
   }
 
+  let announced = $state('');
+  $effect(() => {
+    const text = `Page ${viewer.currentIndex + 1} of ${viewer.pageCount}`;
+    const t = setTimeout(() => (announced = text), 700);
+    return () => clearTimeout(t);
+  });
+
   const visible = $derived.by(() => {
     const { start, end } = viewer.visibleRange;
     const out: number[] = [];
@@ -148,7 +155,8 @@
 </script>
 
 <div class="canvas-column">
-  <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions -->
+  <!-- Focusable so keyboard users can scroll the document (WCAG scrollable-region). -->
+  <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions, a11y_no_noninteractive_tabindex -->
   <div
     class="scroller"
     bind:this={scroller}
@@ -159,9 +167,11 @@
       // A pointer convenience only: Escape in the thumbnail rail does the same.
       if (e.target === e.currentTarget || (e.target as HTMLElement).classList.contains('pages')) viewer.clearSelection();
     }}
-    tabindex="-1"
+    id="document-view"
+    tabindex="0"
     role="document"
     aria-label="Document"
+    aria-describedby="page-announcer"
   >
     <div
       class="pages"
@@ -183,15 +193,17 @@
       </div>
     {:else if viewer.notice}
       {#key viewer.notice.id}
-        <div class="toast" role="status">
+        <div class="toast" class:error={viewer.notice.error} role={viewer.notice.error ? 'alert' : 'status'}>
           <span>{viewer.notice.text}</span>
           <button type="button" class="dismiss" aria-label="Dismiss" onclick={() => (viewer.notice = null)}>×</button>
         </div>
       {/key}
     {/if}
   </div>
+  <!-- Announces the page once scrolling settles, not on every scroll step. -->
+  <div class="visually-hidden" id="page-announcer" aria-live="polite">{announced}</div>
   {#if mobile}
-    <div class="page-pill" aria-live="polite">{viewer.currentIndex + 1} / {viewer.pageCount}</div>
+    <div class="page-pill" aria-hidden="true">{viewer.currentIndex + 1} / {viewer.pageCount}</div>
   {:else}
     <BottomBar />
   {/if}
@@ -227,6 +239,10 @@
     box-shadow: 0 4px 16px rgb(0 0 0 / 0.2);
     pointer-events: auto;
   }
+  .toast.error {
+    max-width: 480px;
+    border: 2px solid var(--color-error-bg);
+  }
   .toast progress {
     width: 120px;
   }
@@ -245,6 +261,10 @@
     background: var(--color-canvas-bg);
     scrollbar-gutter: stable;
     outline: none;
+  }
+  .scroller:focus-visible {
+    outline: var(--focus-ring);
+    outline-offset: -3px;
   }
   .pages {
     position: relative;

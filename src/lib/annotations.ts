@@ -320,8 +320,8 @@ export function describe(a: Annotation): string {
 // --- Stamps ------------------------------------------------------------------
 
 export const STAMPS: { label: string; color: Rgb }[] = [
-  { label: 'APPROVED', color: [0.1, 0.55, 0.2] },
-  { label: 'COMPLETED', color: [0.1, 0.55, 0.2] },
+  { label: 'APPROVED', color: [0.08, 0.45, 0.16] },
+  { label: 'COMPLETED', color: [0.08, 0.45, 0.16] },
   { label: 'FOR REVIEW', color: [0.1, 0.35, 0.8] },
   { label: 'DRAFT', color: [0.35, 0.35, 0.35] },
   { label: 'CONFIDENTIAL', color: [0.8, 0.1, 0.1] },

@@ -4,7 +4,7 @@ import {
   analyzeSource,
   assemble,
   compressSource,
-  SourceOpenError,
+  UserError,
   type AssembleMode,
   type Encryption,
   type PagePlan,
@@ -39,8 +39,13 @@ export type WorkerResponse =
 
 let fontUrls: Record<FontKey, string> | null = null;
 const fonts = createFontProvider(async (key) => {
-  const res = await fetch(fontUrls![key]);
-  if (!res.ok) throw new Error(`Could not load the font for text (${res.status}).`);
+  let res: Response;
+  try {
+    res = await fetch(fontUrls![key]);
+  } catch {
+    throw new UserError('Could not load the font needed for text. Check your connection and try again.');
+  }
+  if (!res.ok) throw new UserError(`Could not load the font needed for text (error ${res.status}). Check your connection and try again.`);
   return new Uint8Array(await res.arrayBuffer());
 });
 
@@ -85,12 +90,14 @@ self.onmessage = async (e: MessageEvent<JobRequest>) => {
     const result = await run(job, (done, total) => post({ id: job.id, type: 'progress', done, total }));
     post({ id: job.id, type: 'done', ...result }, result.files.map((f) => f.buffer as ArrayBuffer));
   } catch (err) {
-    const message =
-      err instanceof SourceOpenError
-        ? `A source file could not be read (${err.message}).`
-        : err instanceof Error
-          ? err.message
-          : String(err);
+    const detail = err instanceof Error ? err.message : String(err);
+    // Our own errors are written for people; anything from the PDF libraries is not.
+    const message = err instanceof UserError
+      ? detail
+      : err instanceof RangeError
+        ? 'This device ran out of memory while writing the PDF. Close other tabs, or try with fewer pages.'
+        : `This PDF couldn't be written: part of the file is damaged in a way this app can't repair. ` +
+          `Tip: use File › Print and choose "Save as PDF" to get a clean copy. (Details: ${detail})`;
     post({ id: job.id, type: 'error', message });
   }
 };

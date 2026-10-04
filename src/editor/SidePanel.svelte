@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tick } from 'svelte';
   // Contextual panel: a tool panel if one is open, else the selected pages, else document info.
   import type { Actions } from '../lib/actions.svelte';
   import type { CommandRegistry } from '../lib/commands';
@@ -29,6 +30,16 @@
   const viewer = useViewer();
   const doc = viewer.doc;
 
+  // Opening a tool (Merge, Compress…) moves focus to its panel, so keyboard and
+  // screen-reader users land where the work is.
+  let panelEl: HTMLElement;
+  let lastPanel: typeof viewer.panel = null;
+  $effect(() => {
+    const p = viewer.panel;
+    if (p && p !== lastPanel) void tick().then(() => panelEl?.focus());
+    lastPanel = p;
+  });
+
   /** Which markup panel to show: the selected annotation's kind, else the active tool's. */
   const markup = $derived.by(() => {
     const key = actions.selectedAnnot?.annot.type ?? viewer.tool;
@@ -41,7 +52,8 @@
   });
 </script>
 
-<aside class="panel" class:in-sheet={inSheet} aria-label="Properties">
+<!-- In a phone sheet (itself a labelled region) this is a plain container, not a second landmark. -->
+<svelte:element this={inSheet ? 'div' : 'aside'} class="panel" class:in-sheet={inSheet} aria-label={inSheet ? undefined : 'Properties'} tabindex="-1" bind:this={panelEl}>
   {#if viewer.panel === 'extract'}
     <ExtractPanel {actions} />
   {:else if viewer.panel === 'split'}
@@ -113,7 +125,7 @@
       <dd>{doc.dirty ? 'Not saved yet' : 'None'}</dd>
     </dl>
   {/if}
-</aside>
+</svelte:element>
 
 <style>
   .panel {
@@ -124,6 +136,13 @@
     padding: var(--space-4);
     border-left: var(--border-width) solid var(--color-border);
     background: var(--color-bg);
+  }
+  .panel:focus {
+    outline: none;
+  }
+  .panel:focus-visible {
+    outline: var(--focus-ring);
+    outline-offset: -2px;
   }
   .panel.in-sheet {
     padding: 0;

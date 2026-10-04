@@ -3,7 +3,7 @@
 // actual PDF bytes are produced on save.
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { SvelteMap } from 'svelte/reactivity';
-import type { OpenFile, RejectedFile } from './files';
+import { looksDigitallySigned, type OpenFile, type RejectedFile } from './files';
 import { History } from './history.svelte';
 import type { DocSettings } from './settings';
 import type { Annotation } from './annotations';
@@ -89,6 +89,8 @@ export class EditorDocument {
   formDirty = $state(false);
   /** Made in the app (e.g. from images) and never saved. */
   createdUnsaved = $state(false);
+  /** Things worth knowing about the opened files (shown as a dismissible banner). */
+  warnings = $state<string[]>([]);
 
   /** Files in use: opened or inserted by the user (not generated blank pages). */
   get files(): Source[] {
@@ -341,6 +343,14 @@ export async function openDocument(files: OpenFile[], askPassword: AskPassword):
     doc.settings = {
       protection: { password: protectedFile.password!, allowPrinting: true, allowCopying: true, allowEditing: true },
     };
+  }
+  for (const f of doc.files) {
+    if (f.pdf.isPureXfa) {
+      doc.warnings.push(`${f.name} uses an XFA form, which only Adobe Acrobat can display. You may only see a placeholder page.`);
+    }
+    if (looksDigitallySigned(f.bytes)) {
+      doc.warnings.push(`${f.name} is digitally signed. Saving any change will make the signature invalid.`);
+    }
   }
   void doc.loadInfo();
   return { doc, rejected };

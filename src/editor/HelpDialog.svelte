@@ -38,6 +38,12 @@
 
   const otherShortcuts = [
     {
+      menu: 'Tools',
+      rows: (Object.keys(COMMANDS) as CommandId[])
+        .filter((id) => id.startsWith('tool.'))
+        .map((id) => ({ label: COMMANDS[id].label, keys: (COMMANDS[id] as CommandMeta).keys!.map(formatKeys) })),
+    },
+    {
       menu: 'Page thumbnails',
       rows: [
         { label: 'Select several pages', keys: ['Shift+click', `${mod}+click`] },
@@ -66,7 +72,9 @@
       <button type="button" class="close" aria-label="Close" onclick={onClose}>×</button>
     </header>
 
-    <div class="body">
+    <!-- Focusable so the content can be scrolled with the keyboard. -->
+    <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+    <div class="body" tabindex="0" role="region" aria-labelledby="help-title">
       {#if topic === 'guide'}
         <ul class="guide">
           <li><strong>Your files stay on this device.</strong> Nothing is uploaded or stored. Closing the tab clears everything, so save before you leave.</li>

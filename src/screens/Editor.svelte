@@ -10,7 +10,7 @@
   import { viewportFor } from '../lib/pdf/render';
   import type { SearchMatch } from '../lib/search.svelte';
   import { PAGE_GAP, provideViewer, Viewer } from '../lib/viewer.svelte';
-  import { REPORT_PROBLEM_URL } from '../config';
+  import { APP_NAME, REPORT_PROBLEM_URL } from '../config';
   import CanvasView from '../editor/CanvasView.svelte';
   import HelpDialog, { type HelpTopic } from '../editor/HelpDialog.svelte';
   import SignatureDialog from '../editor/SignatureDialog.svelte';
@@ -19,6 +19,7 @@
   import PagesSheet from '../editor/mobile/PagesSheet.svelte';
   import Sheet from '../editor/mobile/Sheet.svelte';
   import ToolStrip from '../editor/mobile/ToolStrip.svelte';
+  import { MARKUP_TOOLS } from '../editor/tools';
   import { MediaQuery } from 'svelte/reactivity';
   import MenuBar from '../editor/MenuBar.svelte';
   import SidePanel from '../editor/SidePanel.svelte';
@@ -174,6 +175,11 @@
     'help.shortcuts': { run: () => (help = 'shortcuts') },
     'help.report': { run: () => window.open(REPORT_PROBLEM_URL, '_blank', 'noopener'), enabled: () => !!REPORT_PROBLEM_URL },
     'help.about': { run: () => (help = 'about') },
+
+    // Tool shortcuts (same tools as the toolbar).
+    ...Object.fromEntries(
+      MARKUP_TOOLS.map((t) => [`tool.${t.id}`, { run: () => viewer.setTool(t.id), checked: () => viewer.tool === t.id }]),
+    ),
   });
 
   function lowerFirst(s: string) {
@@ -205,7 +211,10 @@
   });
 
   function onKeyDown(e: KeyboardEvent) {
-    if (commands.handleKey(e)) return;
+    const plain = !e.ctrlKey && !e.metaKey && !e.altKey;
+    // Single-key shortcuts don't apply inside dialogs or menus.
+    const inOverlay = !!document.querySelector('dialog[open]') || !!(e.target as HTMLElement).closest?.('[role="menu"], [role="menubar"]');
+    if (!(plain && inOverlay) && commands.handleKey(e)) return;
     // Esc steps back: deselect the annotation, then return to the Select tool.
     if (e.key === 'Escape' && !e.defaultPrevented && !document.querySelector('dialog[open]')) {
       const target = e.target as HTMLElement;
@@ -214,6 +223,12 @@
       else if (viewer.tool !== 'select') viewer.setTool('select');
     }
   }
+
+  // The tab title names the document and shows unsaved changes.
+  $effect(() => {
+    document.title = `${doc.dirty ? '• ' : ''}${doc.name} – ${APP_NAME}`;
+    return () => (document.title = APP_NAME);
+  });
 
   // Watermarks and page numbers are measured with the embedded fonts.
   $effect(() => {
@@ -237,6 +252,7 @@
   class:no-rail={!viewer.showThumbnails}
   class:no-panel={!viewer.showPanel}
 >
+  <a class="skip-link" href="#document-view" onclick={(e) => { e.preventDefault(); document.getElementById('document-view')?.focus(); }}>Skip to document</a>
   {#if phone.current}
     <MobileTopBar {commands} onMenu={() => (menuOpen = true)} onReveal={revealMatch} />
   {:else}
@@ -244,6 +260,13 @@
     <MenuBar {commands} />
     <Toolbar {commands} />
   {/if}
+
+  {#each doc.warnings as w, i (w)}
+    <div class="warning" role="status">
+      <span>{w}</span>
+      <button type="button" class="dismiss" aria-label="Dismiss" onclick={() => doc.warnings.splice(i, 1)}>×</button>
+    </div>
+  {/each}
 
   {#if app.openWarnings.length}
     <div class="warning" role="alert">
@@ -258,7 +281,7 @@
   {/if}
 
   {#if phone.current}
-    <div class="m-canvas"><CanvasView mobile /></div>
+    <main class="m-canvas"><CanvasView mobile /></main>
     {#if sheetVisible}
       <Sheet label="Properties" tall={!!viewer.panel}><SidePanel {commands} {actions} inSheet /></Sheet>
     {/if}
@@ -266,11 +289,11 @@
     <MobileMenu {commands} open={menuOpen} onClose={() => (menuOpen = false)} />
     <PagesSheet {commands} {actions} open={pagesOpen} onClose={() => (pagesOpen = false)} />
   {:else}
-    <div class="main">
+    <main class="main">
       {#if viewer.showThumbnails}<ThumbnailRail {commands} {actions} />{/if}
       <CanvasView />
       {#if viewer.showPanel}<SidePanel {commands} {actions} />{/if}
-    </div>
+    </main>
   {/if}
 
   <HelpDialog topic={help} onClose={() => (help = null)} />
@@ -339,6 +362,19 @@
     font-size: var(--font-size-lg);
   }
 
+  .skip-link {
+    position: absolute;
+    left: var(--space-2);
+    top: -100px;
+    z-index: 1000;
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius-sm);
+    background: var(--color-accent);
+    color: var(--color-text-inverse);
+  }
+  .skip-link:focus {
+    top: var(--space-2);
+  }
   .editor.mobile {
     display: flex;
     flex-direction: column;
