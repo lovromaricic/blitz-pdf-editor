@@ -5,6 +5,7 @@
   import PasswordDialog from './components/PasswordDialog.svelte';
   import DialogHost from './components/DialogHost.svelte';
   import { appError, installGlobalErrorHandlers } from './lib/errors.svelte';
+  import X from '@lucide/svelte/icons/x';
 
   installGlobalErrorHandlers();
 
@@ -37,8 +38,11 @@
 
 {#if appError.message}
   <div class="app-error" role="alert">
+    <strong>Something went wrong.</strong>
     <span>{appError.message}</span>
-    <button type="button" aria-label="Dismiss" onclick={() => (appError.message = null)}>×</button>
+    <button type="button" aria-label="Dismiss" onclick={() => (appError.message = null)}>
+      <X size={16} strokeWidth={1.7} aria-hidden="true" />
+    </button>
   </div>
 {/if}
 
@@ -60,18 +64,26 @@
     max-width: min(560px, calc(100vw - 2 * var(--space-4)));
     padding: var(--space-2) var(--space-3);
     transform: translateX(-50%);
-    border: var(--border-width) solid var(--color-border-strong);
-    border-radius: var(--radius-md);
-    background: var(--color-error-bg);
-    color: var(--color-error);
+    border: var(--border-width) solid var(--border);
+    border-left: 4px solid var(--danger);
+    border-radius: var(--radius-lg);
+    background: var(--danger-soft);
+    color: var(--text);
     font-size: var(--font-size-sm);
-    box-shadow: 0 4px 16px rgb(0 0 0 / 0.15);
+    box-shadow: var(--shadow-overlay);
+  }
+  .app-error strong {
+    color: var(--danger);
+    white-space: nowrap;
   }
   .app-error button {
+    display: grid;
+    place-items: center;
     min-width: 32px;
     min-height: 32px;
     border: 0;
+    border-radius: var(--radius-sm);
     background: none;
-    font-size: var(--font-size-lg);
+    color: var(--muted);
   }
 </style>

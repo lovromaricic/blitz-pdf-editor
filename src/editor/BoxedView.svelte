@@ -1,7 +1,7 @@
 <script lang="ts">
   // Draws a text box, stamp, comment icon or image upright inside its box.
   // The box follows the page; content made for another page rotation turns with it.
-  import { rgbToCss, type BoxedAnnotation, type Point } from '../lib/annotations';
+  import { NOTE_OUTLINE, rgbToCss, type BoxedAnnotation, type Point } from '../lib/annotations';
   import { boxedGeometry } from '../lib/annotation-view';
   import { CSS_FAMILY, LINE_HEIGHT, TEXT_PADDING } from '../lib/fonts';
   import { STAMP_TEXT_RATIO } from '../lib/annotations';
@@ -54,9 +54,9 @@
     <svg viewBox="0 0 22 22" width="100%" height="100%" aria-hidden="true">
       <!-- Same drawing as the saved appearance (PDF y-up flipped to screen y-down). -->
       <g transform="translate(0 22) scale(1 -1)">
-        <rect x="1" y="6.16" width="20" height="15.4" rx="2.64" fill={rgbToCss(a.color)} stroke="#404040" />
+        <rect x="1" y="6.16" width="20" height="15.4" rx="2.64" fill={rgbToCss(a.color)} stroke={rgbToCss(NOTE_OUTLINE)} />
         <path d="M5.5 6.16 L4.4 1 L9.9 6.16 Z" fill={rgbToCss(a.color)} />
-        <path d="M4.4 17.6 H17.6 M4.4 13.86 H17.6 M4.4 10.12 H13.2" stroke="#404040" />
+        <path d="M4.4 17.6 H17.6 M4.4 13.86 H17.6 M4.4 10.12 H13.2" stroke={rgbToCss(NOTE_OUTLINE)} />
       </g>
     </svg>
   {:else}

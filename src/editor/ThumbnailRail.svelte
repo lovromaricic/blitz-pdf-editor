@@ -11,10 +11,10 @@
   const viewer = useViewer();
   const doc = viewer.doc;
 
-  const MAX_W = 120;
-  const MAX_H = 150;
-  /** Padding (8) + label (16) + gap (2) + spacing between items (10). */
-  const CHROME = 36;
+  const MAX_W = 104;
+  const MAX_H = 134;
+  /** Padding (8 + 4) + gap (6) + label (16) + spacing between items (6). */
+  const CHROME = 40;
   const TOP_PAD = 8;
   const DRAG_THRESHOLD = 6;
   const EDGE = 48;
@@ -339,8 +339,8 @@
     display: grid;
     grid-template-rows: 1fr auto;
     min-height: 0;
-    border-right: var(--border-width) solid var(--color-border);
-    background: var(--color-surface);
+    border-right: var(--border-width) solid var(--border);
+    background: var(--surface);
   }
   .scroller {
     overflow-y: auto;
@@ -362,16 +362,23 @@
   }
   .drop-indicator {
     height: 3px;
-    border-radius: 2px;
-    background: var(--color-accent);
+    border-radius: var(--radius-pill);
+    background: var(--accent);
     pointer-events: none;
   }
+  /* Pinned at the bottom of the rail. */
   .footer {
-    padding: var(--space-2);
-    border-top: var(--border-width) solid var(--color-border);
+    padding: var(--space-3);
+    border-top: var(--border-width) solid var(--border);
+    background: var(--surface);
   }
   .add {
     width: 100%;
+    border-style: dashed;
+    color: var(--muted);
     font-size: var(--font-size-sm);
+  }
+  .add:hover {
+    color: var(--text);
   }
 </style>

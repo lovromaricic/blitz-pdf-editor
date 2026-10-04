@@ -57,7 +57,7 @@
       {/if}
       <div class="actions">
         {#each req.buttons as b (b.value)}
-          <button class="btn" class:btn-primary={b.primary} type={b.primary ? 'submit' : 'button'} onclick={b.primary ? undefined : () => choose(b.value)}>
+          <button class="btn" class:btn-primary={b.primary} class:btn-danger={b.danger} type={b.primary ? 'submit' : 'button'} onclick={b.primary ? undefined : () => choose(b.value)}>
             {b.label}
           </button>
         {/each}
@@ -70,13 +70,13 @@
   dialog {
     width: min(440px, calc(100vw - 2 * var(--space-4)));
     padding: var(--space-5);
-    border: var(--border-width) solid var(--color-border-strong);
+    border: var(--border-width) solid var(--border);
     border-radius: var(--radius-lg);
-    background: var(--color-bg);
-    color: var(--color-text);
+    background: var(--surface);
+    color: var(--text);
   }
   dialog::backdrop {
-    background: rgb(0 0 0 / 0.4);
+    background: var(--backdrop);
   }
   form {
     display: grid;
@@ -92,7 +92,7 @@
   input {
     min-height: var(--touch-target);
     padding: 0 var(--space-3);
-    border: var(--border-width) solid var(--color-border-strong);
+    border: var(--border-width) solid var(--border);
     border-radius: var(--radius-sm);
   }
   .actions {

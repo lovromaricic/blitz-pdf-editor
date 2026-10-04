@@ -4,6 +4,8 @@ export interface DialogButton {
   value: string;
   label: string;
   primary?: boolean;
+  /** Destructive (e.g. discard changes). */
+  danger?: boolean;
 }
 
 export interface DialogRequest {
@@ -38,7 +40,7 @@ export async function confirmDiscard(action: string): Promise<'save' | 'discard'
     message: `This document has changes that haven't been saved. Save a copy before you ${action}?`,
     buttons: [
       { value: 'cancel', label: 'Cancel' },
-      { value: 'discard', label: "Don't save" },
+      { value: 'discard', label: "Don't save", danger: true },
       { value: 'save', label: 'Save', primary: true },
     ],
     cancelValue: 'cancel',

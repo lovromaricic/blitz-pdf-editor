@@ -90,6 +90,9 @@ export function isBoxed(a: Annotation): a is BoxedAnnotation {
   return a.type === 'text' || a.type === 'stamp' || a.type === 'note' || a.type === 'image';
 }
 
+/** Outline of the comment icon (content, matches the saved PDF appearance). */
+export const NOTE_OUTLINE: Rgb = [0.25, 0.25, 0.25];
+
 /** Size of a note icon, in points. */
 export const NOTE_SIZE = 22;
 
@@ -149,12 +152,17 @@ export const NOTE_COLORS: { name: string; rgb: Rgb }[] = [
 ];
 
 export const HIGHLIGHT_COLORS: { name: string; rgb: Rgb }[] = [
-  { name: 'Yellow', rgb: [1, 0.92, 0.23] },
-  { name: 'Green', rgb: [0.55, 0.85, 0.35] },
-  { name: 'Blue', rgb: [0.4, 0.75, 1] },
-  { name: 'Pink', rgb: [1, 0.55, 0.75] },
-  { name: 'Orange', rgb: [1, 0.65, 0.2] },
+  { name: 'Yellow', rgb: hex('#FFD60A') },
+  { name: 'Green', rgb: hex('#7BDB8F') },
+  { name: 'Blue', rgb: hex('#79B8FF') },
+  { name: 'Pink', rgb: hex('#FF9ECF') },
 ];
+
+/** Content colours are written as hex for readability, stored as 0..1 RGB. */
+function hex(h: string): Rgb {
+  const n = parseInt(h.slice(1), 16);
+  return [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255].map((v) => Math.round(v * 1000) / 1000) as Rgb;
+}
 
 export const INK_COLORS: { name: string; rgb: Rgb }[] = [
   { name: 'Black', rgb: [0, 0, 0] },

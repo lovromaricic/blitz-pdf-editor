@@ -133,9 +133,9 @@
     min-height: 0;
     overflow-x: hidden;
     overflow-y: auto;
-    padding: var(--space-4);
-    border-left: var(--border-width) solid var(--color-border);
-    background: var(--color-bg);
+    padding: var(--space-5);
+    border-left: var(--border-width) solid var(--border);
+    background: var(--surface);
   }
   .panel:focus {
     outline: none;
@@ -152,16 +152,17 @@
   dl {
     display: grid;
     grid-template-columns: auto 1fr;
-    gap: var(--space-2) var(--space-3);
+    gap: var(--space-3) var(--space-4);
     margin: 0;
     font-size: var(--font-size-sm);
   }
   dt {
-    color: var(--color-text-muted);
+    color: var(--muted);
   }
   dd {
     margin: 0;
     min-width: 0;
+    font-weight: 600;
   }
   .wrap {
     overflow-wrap: anywhere;

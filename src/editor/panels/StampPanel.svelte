@@ -67,7 +67,7 @@
   </div>
   {#if sel}
     <div class="actions">
-      <button type="button" class="btn" onclick={() => actions.deleteAnnotation(sel.page.id, sel.annot.id)}>Delete</button>
+      <button type="button" class="btn btn-danger" onclick={() => actions.deleteAnnotation(sel.page.id, sel.annot.id)}>Delete</button>
     </div>
     <p class="hint">Drag to move, drag a corner to resize.</p>
   {/if}
@@ -85,12 +85,12 @@
     min-height: 34px;
     border: 2px solid;
     border-radius: var(--radius-md);
-    background: var(--color-bg);
+    background: var(--surface);
     font-weight: 700;
     letter-spacing: 0.04em;
   }
   .stamp[aria-checked='true'] {
-    box-shadow: 0 0 0 2px var(--color-accent);
+    box-shadow: 0 0 0 2px var(--accent);
   }
   .row {
     display: flex;

@@ -95,10 +95,10 @@
     margin: 0;
     padding: var(--space-1);
     list-style: none;
-    background: var(--color-bg);
-    border: var(--border-width) solid var(--color-border-strong);
+    background: var(--surface);
+    border: var(--border-width) solid var(--border);
     border-radius: var(--radius-md);
-    box-shadow: 0 4px 16px rgb(0 0 0 / 0.15);
+    box-shadow: var(--shadow-overlay);
   }
   button {
     display: block;
@@ -112,7 +112,7 @@
   }
   button:hover:not(.disabled),
   button:focus-visible {
-    background: var(--color-surface-strong);
+    background: var(--surface-2);
   }
   button:focus-visible {
     outline-offset: -2px;
@@ -124,6 +124,6 @@
   .sep {
     height: var(--border-width);
     margin: var(--space-1) 0;
-    background: var(--color-border);
+    background: var(--border);
   }
 </style>

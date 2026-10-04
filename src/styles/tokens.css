@@ -1,64 +1,79 @@
 /*
- * Design tokens. Wireframe stage: grayscale only.
- * Restyling the app should mostly mean editing this file.
+ * Design tokens: "Mist". Every color, radius, shadow and font in the app comes
+ * from here. A dark theme only needs to redefine these (e.g. under
+ * [data-theme="dark"]); components must never hard-code their own values.
  */
 :root {
-  /* Color: surfaces */
-  --color-bg: #ffffff;
-  --color-surface: #f4f4f4;
-  --color-surface-strong: #e6e6e6;
-  --color-canvas-bg: #d9d9d9;
-  --color-placeholder: #e2e2e2;
+  /* Color */
+  --bg: #f5f7fa; /* app background */
+  --surface: #ffffff; /* bars, panels, rail, pill, cards */
+  --surface-2: #eef1f6; /* inputs, hover fills, secondary buttons, slider track */
+  --border: #e1e6ee; /* dividers and outlines */
+  --text: #1f2733; /* primary text and icons */
+  --muted: #5f687c; /* secondary text and labels. Brief: #667085, darkened one step to stay 4.5:1 on --surface-2 too (4.9:1; 5.6:1 on white) */
+  --accent: #3f6fe0; /* active tool icon, selection, slider, links, primary button */
+  --accent-strong: #2f5bc4; /* hover/pressed solid accent; small accent text on --accent-soft (5.2:1) */
+  --accent-soft: #e6edfd; /* active tool background */
+  --on-accent: #ffffff; /* text/icons on solid accent (and on --text) */
+  --canvas: #e9edf3; /* behind the PDF pages */
+  --page: #ffffff; /* paper */
+  --danger: #d92d20; /* errors, destructive actions */
+  --danger-soft: #feeceb; /* error backgrounds */
 
-  /* Color: text */
-  --color-text: #1a1a1a;
-  --color-text-muted: #595959;
-  --color-text-inverse: #ffffff;
+  /* Overlays */
+  --backdrop: rgb(31 39 51 / 0.4); /* behind modal dialogs */
+  --shade: rgb(31 39 51 / 0.35); /* cropped-away area in the crop preview */
+  --search-hit: rgb(63 111 224 / 0.22); /* search results on the page */
+  --search-hit-active: rgb(63 111 224 / 0.45);
+  --editing-fill: rgb(255 255 255 / 0.85); /* behind a text box being typed in */
 
-  /* Color: lines and states */
-  --color-border: #c4c4c4;
-  --color-border-strong: #8a8a8a;
-  --color-accent: #333333;          /* primary buttons, active tool */
-  --color-accent-hover: #000000;
-  --color-active-bg: #dcdcdc;
-  --color-focus: #000000;
-  --color-error: #333333;
-  --color-error-bg: #ececec;
-
-  /* Typography */
-  --font-sans: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-  --font-size-xs: 0.75rem;
-  --font-size-sm: 0.875rem;
-  --font-size-md: 1rem;
-  --font-size-lg: 1.25rem;
+  /* Typography (Manrope is bundled with the app; never loaded from a CDN) */
+  --font-sans: 'Manrope', system-ui, sans-serif;
+  --font-size-xs: 0.75rem; /* 12 */
+  --font-size-label: 0.6875rem; /* 11: section labels */
+  --font-size-sm: 0.8125rem; /* 13 */
+  --font-size-md: 0.875rem; /* 14 */
+  --font-size-base: 0.9375rem; /* 15 */
+  --font-size-lg: 1.1875rem; /* 19: panel headings */
   --font-size-xl: 1.75rem;
   --font-size-2xl: 2.25rem;
   --line-height: 1.5;
+  --tracking-label: 0.08em;
 
   /* Spacing (4px scale) */
   --space-1: 0.25rem;
   --space-2: 0.5rem;
   --space-3: 0.75rem;
   --space-4: 1rem;
-  --space-5: 1.5rem;
+  --space-5: 1.375rem; /* 22: panel padding and gaps */
   --space-6: 2rem;
   --space-7: 3rem;
   --space-8: 4rem;
 
   /* Shape */
-  --radius-sm: 4px;
-  --radius-md: 8px;
-  --radius-lg: 12px;
+  --radius-page: 4px; /* pages and thumbnails */
+  --radius-sm: 8px; /* menu items, small controls */
+  --radius-md: 10px; /* controls and buttons */
+  --radius-lg: 14px; /* dialogs, sheets, cards */
+  --radius-pill: 999px;
   --border-width: 1px;
-  --focus-ring: 2px solid var(--color-focus);
+  --focus-ring: 2px solid var(--accent);
   --focus-offset: 2px;
 
-  /* Sizing */
+  /* Shadows: only the floating pill and the page cast one; overlays get a soft lift. */
+  --shadow-pill: 0 1px 2px rgb(31 39 51 / 0.08), 0 6px 18px rgb(31 39 51 / 0.1);
+  --shadow-page: 0 1px 3px rgb(0 0 0 / 0.14);
+  --shadow-overlay: 0 4px 16px rgb(31 39 51 / 0.12);
+
+  /* Sizes */
   --touch-target: 44px;
   --content-max: 960px;
-  --panel-width: 270px;
-  --rail-width: 180px;
+  --titlebar-height: 54px;
+  --menubar-height: 40px;
+  --bottombar-height: 54px;
+  --rail-width: 176px;
+  --panel-width: 288px;
 
   /* Motion */
-  --transition-fast: 120ms ease;
+  --transition-fast: 130ms ease;
 }

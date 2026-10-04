@@ -34,7 +34,7 @@
       <span class="hint">Height follows: {Math.round(size[1] / MM)} mm. Drag to move; arrow keys nudge.</span>
     </div>
     <div class="actions">
-      <button type="button" class="btn" onclick={() => actions.deleteAnnotation(sel.page.id, sel.annot.id)}>Delete</button>
+      <button type="button" class="btn btn-danger" onclick={() => actions.deleteAnnotation(sel.page.id, sel.annot.id)}>Delete</button>
     </div>
   {:else if viewer.signature}
     <div class="preview"><img src={viewer.signature.dataUrl} alt="Your signature" /></div>
@@ -57,9 +57,9 @@
 <style>
   .preview {
     padding: var(--space-3);
-    border: var(--border-width) dashed var(--color-border-strong);
+    border: var(--border-width) dashed var(--border);
     border-radius: var(--radius-md);
-    background: #fff;
+    background: var(--page);
   }
   .preview img {
     display: block;

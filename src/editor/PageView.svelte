@@ -187,8 +187,8 @@
 <style>
   .page {
     position: absolute;
-    background: #fff;
-    box-shadow: 0 1px 3px rgb(0 0 0 / 0.25);
+    background: var(--page);
+    box-shadow: var(--shadow-page);
   }
   .page {
     overflow: hidden;
@@ -213,12 +213,12 @@
   }
   .hit {
     position: absolute;
-    background: rgb(0 0 0 / 0.18);
+    background: var(--search-hit);
     border-radius: 2px;
   }
   .hit.active {
-    background: rgb(0 0 0 / 0.38);
-    outline: 2px solid var(--color-accent);
+    background: var(--search-hit-active);
+    outline: 2px solid var(--accent);
   }
   .textLayer {
     z-index: 2;
@@ -226,9 +226,9 @@
   .crop-keep {
     position: absolute;
     z-index: 3;
-    outline: 2px dashed var(--color-accent);
+    outline: 2px dashed var(--accent);
     /* Shade everything outside the kept area. */
-    box-shadow: 0 0 0 9999px rgb(0 0 0 / 0.35);
+    box-shadow: 0 0 0 9999px var(--shade);
     pointer-events: none;
   }
   .placeholder,
@@ -238,7 +238,7 @@
     display: grid;
     place-items: center;
     margin: 0;
-    color: var(--color-text-muted);
+    color: var(--muted);
     font-size: var(--font-size-sm);
   }
   .placeholder {

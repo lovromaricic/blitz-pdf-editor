@@ -1,5 +1,10 @@
 <script lang="ts">
   import { MAX_ZOOM, MIN_ZOOM, useViewer } from '../lib/viewer.svelte';
+  import ChevronLeft from '@lucide/svelte/icons/chevron-left';
+  import ChevronRight from '@lucide/svelte/icons/chevron-right';
+  import Minus from '@lucide/svelte/icons/minus';
+  import Plus from '@lucide/svelte/icons/plus';
+  import { ICON } from './tools';
 
   const viewer = useViewer();
 
@@ -16,7 +21,9 @@
 
 <div class="bottombar" role="toolbar" aria-label="Page navigation and zoom">
   <div class="cluster">
-    <button type="button" class="icon-btn" aria-label="Previous page" disabled={viewer.isFirstRow} onclick={() => viewer.previousPage()}>‹</button>
+    <button type="button" class="icon-btn" aria-label="Previous page" disabled={viewer.isFirstRow} onclick={() => viewer.previousPage()}>
+      <ChevronLeft size={ICON.size} strokeWidth={ICON.strokeWidth} aria-hidden="true" />
+    </button>
     <label class="page-field">
       <span class="visually-hidden">Current page</span>
       <input
@@ -44,26 +51,34 @@
       />
       <span class="of">/ {viewer.pageCount}</span>
     </label>
-    <button type="button" class="icon-btn" aria-label="Next page" disabled={viewer.isLastRow} onclick={() => viewer.nextPage()}>›</button>
+    <button type="button" class="icon-btn" aria-label="Next page" disabled={viewer.isLastRow} onclick={() => viewer.nextPage()}>
+      <ChevronRight size={ICON.size} strokeWidth={ICON.strokeWidth} aria-hidden="true" />
+    </button>
   </div>
 
   <div class="cluster">
-    <button type="button" class="icon-btn" aria-label="Zoom out" disabled={viewer.zoom <= MIN_ZOOM} onclick={() => viewer.zoomOut()}>−</button>
+    <button type="button" class="icon-btn" aria-label="Zoom out" disabled={viewer.zoom <= MIN_ZOOM} onclick={() => viewer.zoomOut()}>
+      <Minus size={ICON.size} strokeWidth={ICON.strokeWidth} aria-hidden="true" />
+    </button>
     <output class="zoom" aria-label="Zoom level">{Math.round(viewer.zoom * 100)}%</output>
-    <button type="button" class="icon-btn" aria-label="Zoom in" disabled={viewer.zoom >= MAX_ZOOM} onclick={() => viewer.zoomIn()}>+</button>
-    <button type="button" class="text-btn" class:active={viewer.fit === 'width'} aria-pressed={viewer.fit === 'width'} onclick={() => viewer.fitWidth()}>Fit width</button>
+    <button type="button" class="icon-btn" aria-label="Zoom in" disabled={viewer.zoom >= MAX_ZOOM} onclick={() => viewer.zoomIn()}>
+      <Plus size={ICON.size} strokeWidth={ICON.strokeWidth} aria-hidden="true" />
+    </button>
+    <button type="button" class="btn btn-soft fit" class:active={viewer.fit === 'width'} aria-pressed={viewer.fit === 'width'} onclick={() => viewer.fitWidth()}>Fit width</button>
   </div>
 </div>
 
 <style>
   .bottombar {
     display: flex;
+    flex-shrink: 0;
     justify-content: center;
     align-items: center;
     gap: var(--space-6);
-    padding: var(--space-1) var(--space-3);
-    border-top: var(--border-width) solid var(--color-border);
-    background: var(--color-bg);
+    height: var(--bottombar-height);
+    padding: 0 var(--space-3);
+    border-top: var(--border-width) solid var(--border);
+    background: var(--surface);
     font-size: var(--font-size-sm);
   }
   .cluster {
@@ -71,53 +86,58 @@
     align-items: center;
     gap: var(--space-1);
   }
-  .icon-btn,
-  .text-btn {
-    min-width: 32px;
-    height: 32px;
-    border: var(--border-width) solid var(--color-border);
-    border-radius: var(--radius-sm);
-    background: var(--color-bg);
-  }
   .icon-btn {
-    font-size: var(--font-size-lg);
-    line-height: 1;
+    display: grid;
+    place-items: center;
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    border: 0;
+    border-radius: var(--radius-md);
+    background: transparent;
+    color: var(--text);
+    transition: background var(--transition-fast);
   }
-  .text-btn {
+  .icon-btn:hover:not(:disabled) {
+    background: var(--surface-2);
+  }
+  .icon-btn:disabled {
+    opacity: 0.45;
+    cursor: default;
+  }
+  .fit {
+    min-height: 36px;
+    margin-left: var(--space-2);
     padding: 0 var(--space-3);
     font-size: var(--font-size-sm);
   }
-  .text-btn.active {
-    background: var(--color-active-bg);
-    border-color: var(--color-border-strong);
-  }
-  button:disabled {
-    opacity: 0.4;
-    cursor: default;
-  }
-  button:hover:not(:disabled) {
-    background: var(--color-surface);
+  .fit.active {
+    background: var(--accent-soft);
+    border-color: var(--accent-soft);
+    color: var(--accent-strong);
   }
   .page-field {
     display: flex;
     align-items: center;
     gap: var(--space-1);
+    font-size: var(--font-size-sm);
   }
   .page-field input {
     height: 32px;
     padding: 0 var(--space-1);
-    border: var(--border-width) solid var(--color-border-strong);
     border-radius: var(--radius-sm);
     text-align: center;
     font-size: var(--font-size-sm);
+    font-weight: 600;
   }
   .of {
-    color: var(--color-text-muted);
+    color: var(--muted);
     white-space: nowrap;
   }
   .zoom {
-    min-width: 3.5rem;
+    min-width: 3.25rem;
     text-align: center;
+    font-size: var(--font-size-sm);
     font-variant-numeric: tabular-nums;
   }
 </style>

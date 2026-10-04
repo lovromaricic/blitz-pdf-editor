@@ -1,16 +1,26 @@
-/* Shared form styles for right-hand panels. */
+/* Shared form styles for the properties panel (desktop) and bottom sheet (phones). */
 .panel-form {
   display: grid;
-  gap: var(--space-4);
+  gap: var(--space-5);
   font-size: var(--font-size-sm);
+}
+.panel-form > p {
+  line-height: 1.5;
 }
 .panel-form .field {
   display: grid;
-  gap: var(--space-1);
+  gap: var(--space-2);
 }
 .panel-form label,
-.panel-form legend {
+.panel-form legend,
+.panel-form .label {
+  font-size: var(--font-size-sm);
   font-weight: 600;
+}
+.panel-form .value {
+  float: right;
+  color: var(--muted);
+  font-weight: 400;
 }
 .panel-form fieldset {
   display: grid;
@@ -18,6 +28,9 @@
   margin: 0;
   padding: 0;
   border: 0;
+}
+.panel-form legend {
+  margin-bottom: var(--space-2);
 }
 .panel-form .option {
   display: flex;
@@ -30,22 +43,34 @@
   width: 5rem;
 }
 .panel-form input[type='text'],
-.panel-form input[type='number'] {
-  min-height: 36px;
-  padding: 0 var(--space-2);
-  border: var(--border-width) solid var(--color-border-strong);
-  border-radius: var(--radius-sm);
-  background: var(--color-bg);
+.panel-form input[type='number'],
+.panel-form input[type='password'],
+.panel-form select,
+.panel-form textarea {
+  min-height: 38px;
+  padding: 0 var(--space-3);
+  font-size: var(--font-size-md);
+}
+.panel-form textarea {
+  padding: var(--space-2) var(--space-3);
+}
+.panel-form input[type='checkbox'],
+.panel-form input[type='radio'] {
+  width: 16px;
+  height: 16px;
+  margin: 0;
 }
 .panel-form input[aria-invalid='true'] {
-  border-color: var(--color-accent);
-  border-width: 2px;
+  border-color: var(--danger);
 }
 .panel-form .hint {
-  color: var(--color-text-muted);
+  color: var(--muted);
   font-size: var(--font-size-xs);
+  font-weight: 400;
+  line-height: 1.5;
 }
 .panel-form .error {
+  color: var(--danger);
   font-size: var(--font-size-xs);
   font-weight: 600;
 }
@@ -55,10 +80,6 @@
 }
 .panel-form .btn {
   width: 100%;
-}
-.panel-form .btn:disabled {
-  opacity: 0.5;
-  cursor: default;
 }
 .panel-form .row-buttons {
   display: grid;
@@ -70,7 +91,10 @@
 }
 
 /* Phones: everything in panels is comfortably tappable. */
-@media (max-width: 640px) {
+@media (max-width: 720px) {
+  .panel-form {
+    gap: var(--space-4);
+  }
   .panel-form input[type='text'],
   .panel-form input[type='number'],
   .panel-form input[type='password'],

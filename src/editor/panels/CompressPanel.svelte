@@ -100,7 +100,7 @@
     gap: var(--space-2);
     align-items: flex-start;
     padding: var(--space-2);
-    border: var(--border-width) solid var(--color-border);
+    border: var(--border-width) solid var(--border);
     border-radius: var(--radius-sm);
     font-weight: 400;
   }

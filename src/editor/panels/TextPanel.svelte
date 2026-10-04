@@ -6,6 +6,7 @@
   import { useViewer } from '../../lib/viewer.svelte';
   import Swatches from '../../components/Swatches.svelte';
   import PanelHeader from './PanelHeader.svelte';
+  import Range from '../../components/Range.svelte';
 
   const viewer = useViewer();
   const actions = useActions();
@@ -59,11 +60,11 @@
   </div>
   <div class="field">
     <label for="tx-opacity">Opacity <span class="value">{Math.round(props.opacity * 100)}%</span></label>
-    <input id="tx-opacity" type="range" min="0.1" max="1" step="0.05" value={props.opacity} oninput={(e) => set('opacity', +e.currentTarget.value, 'opacity')} />
+    <Range id="tx-opacity" min={0.1} max={1} step={0.05} value={props.opacity} onInput={(v) => set('opacity', v, 'opacity')} />
   </div>
   {#if sel}
     <div class="actions">
-      <button type="button" class="btn" onclick={() => actions.deleteAnnotation(sel.page.id, sel.annot.id)}>Delete</button>
+      <button type="button" class="btn btn-danger" onclick={() => actions.deleteAnnotation(sel.page.id, sel.annot.id)}>Delete</button>
     </div>
     <p class="hint">Double-click (or press Enter) to edit the text. Drag a corner to change the width.</p>
   {/if}
@@ -76,15 +77,12 @@
   .value {
     float: right;
     font-weight: 400;
-    color: var(--color-text-muted);
+    color: var(--muted);
   }
   select {
     min-height: 36px;
-    border: var(--border-width) solid var(--color-border-strong);
+    border: var(--border-width) solid var(--border);
     border-radius: var(--radius-sm);
-    background: var(--color-bg);
-  }
-  input[type='range'] {
-    width: 100%;
+    background: var(--surface);
   }
 </style>

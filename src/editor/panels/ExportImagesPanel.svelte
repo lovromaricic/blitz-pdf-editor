@@ -3,6 +3,7 @@
   import { formatPageRange, parsePageRange } from '../../lib/page-ops';
   import { useViewer } from '../../lib/viewer.svelte';
   import PanelHeader from './PanelHeader.svelte';
+  import Range from '../../components/Range.svelte';
 
   const viewer = useViewer();
   const actions = useActions();
@@ -45,7 +46,7 @@
   {#if format === 'jpg'}
     <div class="field">
       <label for="img-quality">Quality <span class="value">{Math.round(quality * 100)}%</span></label>
-      <input id="img-quality" type="range" min="0.5" max="1" step="0.05" bind:value={quality} />
+      <Range id="img-quality" min={0.5} max={1} step={0.05} value={quality} onInput={(v) => (quality = v)} />
     </div>
   {/if}
   <div class="field">
@@ -62,15 +63,12 @@
   .value {
     float: right;
     font-weight: 400;
-    color: var(--color-text-muted);
+    color: var(--muted);
   }
   select {
     min-height: 36px;
-    border: var(--border-width) solid var(--color-border-strong);
+    border: var(--border-width) solid var(--border);
     border-radius: var(--radius-sm);
-    background: var(--color-bg);
-  }
-  input[type='range'] {
-    width: 100%;
+    background: var(--surface);
   }
 </style>

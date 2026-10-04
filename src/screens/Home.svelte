@@ -1,4 +1,6 @@
 <script lang="ts">
+  import CircleAlert from '@lucide/svelte/icons/circle-alert';
+  import FileUp from '@lucide/svelte/icons/file-up';
   import { COPY } from '../config';
   import type { RejectedFile } from '../lib/files';
   import { openFiles, opening } from '../lib/open-files.svelte';
@@ -73,6 +75,7 @@
     ondragover={onDragOver}
     ondrop={onDrop}
   >
+    <span class="drop-icon" aria-hidden="true"><FileUp size={28} strokeWidth={1.7} /></span>
     <p class="drop-hint" aria-hidden="true">Drop PDF files here</p>
     <p class="drop-sub" aria-hidden="true">Images work too: they become a PDF.</p>
     <p class="drop-or" aria-hidden="true">or</p>
@@ -101,8 +104,11 @@
   </section>
 
   {#if rejected.length > 0}
-    <div class="errors" role="alert">
-      <p><strong>{rejected.length === 1 ? 'This file could not be opened:' : 'These files could not be opened:'}</strong></p>
+    <div class="errors card card-error" role="alert">
+      <p class="card-title">
+        <CircleAlert size={18} strokeWidth={1.7} aria-hidden="true" />
+        {rejected.length === 1 ? 'This file could not be opened' : 'These files could not be opened'}
+      </p>
       <ul>
         {#each rejected as r (r.name)}
           <li><span class="filename">{r.name}</span>: {r.reason}</li>
@@ -130,29 +136,32 @@
     width: 100%;
     aspect-ratio: 16 / 5;
     min-height: 160px;
-    background: var(--color-placeholder);
-    border: var(--border-width) dashed var(--color-border-strong);
+    border: var(--border-width) solid var(--border);
     border-radius: var(--radius-lg);
-    color: var(--color-text-muted);
+    background: var(--surface-2);
+    color: var(--muted);
     font-size: var(--font-size-sm);
+    font-weight: 600;
+    letter-spacing: var(--tracking-label);
     text-transform: uppercase;
-    letter-spacing: 0.05em;
   }
 
   .intro {
-    text-align: center;
     display: grid;
     gap: var(--space-2);
+    text-align: center;
   }
 
   h1 {
     font-size: var(--font-size-2xl);
+    font-weight: 700;
     line-height: 1.2;
+    letter-spacing: -0.01em;
   }
 
   .value {
-    color: var(--color-text-muted);
-    font-size: var(--font-size-lg);
+    color: var(--muted);
+    font-size: var(--font-size-base);
   }
 
   .dropzone {
@@ -163,38 +172,48 @@
     width: 100%;
     max-width: 640px;
     padding: var(--space-7) var(--space-5);
-    border: 2px dashed var(--color-border-strong);
+    border: 2px dashed var(--border);
     border-radius: var(--radius-lg);
-    background: var(--color-surface);
+    background: var(--surface);
     text-align: center;
-    transition: background var(--transition-fast), border-color var(--transition-fast);
+    transition:
+      background var(--transition-fast),
+      border-color var(--transition-fast);
   }
 
   .dropzone.dragging {
-    background: var(--color-surface-strong);
-    border-color: var(--color-accent);
-    border-style: solid;
+    border-color: var(--accent);
+    background: var(--accent-soft);
+  }
+
+  .drop-icon {
+    display: grid;
+    place-items: center;
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    background: var(--accent-soft);
+    color: var(--accent);
   }
 
   .drop-hint {
     font-size: var(--font-size-lg);
-    font-weight: 600;
+    font-weight: 700;
   }
 
   .drop-or,
   .drop-sub {
-    color: var(--color-text-muted);
+    color: var(--muted);
     font-size: var(--font-size-sm);
   }
 
   .choose {
     min-width: 200px;
+    min-height: var(--touch-target);
     font-size: var(--font-size-md);
-    font-weight: 600;
   }
 
   .choose:disabled {
-    opacity: 0.6;
     cursor: progress;
   }
 
@@ -204,7 +223,7 @@
 
   .privacy {
     margin-top: var(--space-2);
-    color: var(--color-text-muted);
+    color: var(--muted);
     font-size: var(--font-size-sm);
   }
 
@@ -212,16 +231,18 @@
     width: 100%;
     max-width: 640px;
     padding: var(--space-4);
-    border: var(--border-width) solid var(--color-border-strong);
-    border-radius: var(--radius-md);
-    background: var(--color-error-bg);
-    color: var(--color-error);
     font-size: var(--font-size-sm);
+  }
+
+  .card-title {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
   }
 
   .errors ul {
     margin: var(--space-2) 0 0;
-    padding-left: var(--space-5);
+    padding-left: calc(var(--space-5) + var(--space-2));
   }
 
   .filename {
@@ -230,10 +251,11 @@
   }
 
   /* Phones and touch-first devices: no drag-and-drop wording, one big button. */
-  @media (max-width: 640px), (pointer: coarse) {
+  @media (max-width: 720px), (pointer: coarse) {
     .drop-hint,
     .drop-or,
-    .drop-sub {
+    .drop-sub,
+    .drop-icon {
       display: none;
     }
     .label-desktop {
@@ -244,7 +266,7 @@
     }
   }
 
-  @media (max-width: 640px) {
+  @media (max-width: 720px) {
     .home {
       gap: var(--space-5);
       padding-top: var(--space-4);

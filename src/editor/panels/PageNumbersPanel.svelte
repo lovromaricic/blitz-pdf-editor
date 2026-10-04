@@ -78,8 +78,8 @@
 <style>
   select {
     min-height: 36px;
-    border: var(--border-width) solid var(--color-border-strong);
+    border: var(--border-width) solid var(--border);
     border-radius: var(--radius-sm);
-    background: var(--color-bg);
+    background: var(--surface);
   }
 </style>

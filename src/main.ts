@@ -1,4 +1,8 @@
 import { mount } from 'svelte';
+// Manrope is bundled with the app (never fetched from a CDN: nothing leaves the device).
+import '@fontsource/manrope/400.css';
+import '@fontsource/manrope/600.css';
+import '@fontsource/manrope/700.css';
 import './styles/tokens.css';
 import './styles/global.css';
 import './styles/pdf-layers.css';

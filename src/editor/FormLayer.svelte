@@ -135,6 +135,6 @@
   }
   /* The Fill form tool makes empty fields easier to spot. */
   .fill-mode :global(:is(input, textarea, select):not(:focus)) {
-    outline: 1px dashed var(--color-border-strong);
+    outline: 1px dashed var(--border);
   }
 </style>

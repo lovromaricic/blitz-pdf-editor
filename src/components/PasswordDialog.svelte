@@ -48,13 +48,13 @@
   dialog {
     width: min(420px, calc(100vw - 2 * var(--space-4)));
     padding: var(--space-5);
-    border: var(--border-width) solid var(--color-border-strong);
+    border: var(--border-width) solid var(--border);
     border-radius: var(--radius-lg);
-    background: var(--color-bg);
-    color: var(--color-text);
+    background: var(--surface);
+    color: var(--text);
   }
   dialog::backdrop {
-    background: rgb(0 0 0 / 0.4);
+    background: var(--backdrop);
   }
   form {
     display: grid;
@@ -68,9 +68,12 @@
   }
   .error {
     padding: var(--space-2) var(--space-3);
-    background: var(--color-error-bg);
+    border-left: 4px solid var(--danger);
     border-radius: var(--radius-sm);
+    background: var(--danger-soft);
+    color: var(--danger);
     font-size: var(--font-size-sm);
+    font-weight: 600;
   }
   label {
     font-size: var(--font-size-sm);
@@ -79,7 +82,7 @@
   input {
     min-height: var(--touch-target);
     padding: 0 var(--space-3);
-    border: var(--border-width) solid var(--color-border-strong);
+    border: var(--border-width) solid var(--border);
     border-radius: var(--radius-sm);
   }
   .actions {

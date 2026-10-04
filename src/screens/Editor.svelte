@@ -20,6 +20,7 @@
   import Sheet from '../editor/mobile/Sheet.svelte';
   import ToolStrip from '../editor/mobile/ToolStrip.svelte';
   import { MARKUP_TOOLS } from '../editor/tools';
+  import X from '@lucide/svelte/icons/x';
   import { MediaQuery } from 'svelte/reactivity';
   import MenuBar from '../editor/MenuBar.svelte';
   import SidePanel from '../editor/SidePanel.svelte';
@@ -81,7 +82,7 @@
   const idle = () => !viewer.task;
 
   // Phones get their own layout: same features, different chrome.
-  const phone = new MediaQuery('(max-width: 640px)');
+  const phone = new MediaQuery('(max-width: 720px)');
   let menuOpen = $state(false);
   let pagesOpen = $state(false);
   /** The properties sheet shows only when there's something to set. */
@@ -258,25 +259,24 @@
   {:else}
     <TitleBar onReveal={revealMatch} />
     <MenuBar {commands} />
-    <Toolbar {commands} />
   {/if}
 
   {#each doc.warnings as w, i (w)}
     <div class="warning" role="status">
       <span>{w}</span>
-      <button type="button" class="dismiss" aria-label="Dismiss" onclick={() => doc.warnings.splice(i, 1)}>×</button>
+      <button type="button" class="dismiss" aria-label="Dismiss" onclick={() => doc.warnings.splice(i, 1)}><X size={18} strokeWidth={1.7} aria-hidden="true" /></button>
     </div>
   {/each}
 
   {#if app.openWarnings.length}
-    <div class="warning" role="alert">
+    <div class="warning error" role="alert">
       <span>
-        Could not open:
+        <strong>Could not open:</strong>
         {#each app.openWarnings as w, i (w.name + i)}
           <strong>{w.name}</strong> ({w.reason}){i < app.openWarnings.length - 1 ? '; ' : ''}
         {/each}
       </span>
-      <button type="button" class="dismiss" aria-label="Dismiss" onclick={() => (app.openWarnings = [])}>×</button>
+      <button type="button" class="dismiss" aria-label="Dismiss" onclick={() => (app.openWarnings = [])}><X size={18} strokeWidth={1.7} aria-hidden="true" /></button>
     </div>
   {/if}
 
@@ -291,7 +291,9 @@
   {:else}
     <main class="main">
       {#if viewer.showThumbnails}<ThumbnailRail {commands} {actions} />{/if}
-      <CanvasView />
+      <CanvasView>
+        {#snippet toolbar()}<Toolbar {commands} />{/snippet}
+      </CanvasView>
       {#if viewer.showPanel}<SidePanel {commands} {actions} />{/if}
     </main>
   {/if}
@@ -323,17 +325,18 @@
 
 <style>
   .editor {
-    display: grid;
-    grid-template-rows: auto auto auto auto 1fr;
+    display: flex;
+    flex-direction: column;
     height: 100vh;
     height: 100dvh;
     overflow: hidden;
+    background: var(--bg);
   }
   .main {
     display: grid;
+    flex: 1;
     grid-template-columns: var(--rail-width) minmax(0, 1fr) var(--panel-width);
     min-height: 0;
-    grid-row: 5;
   }
   .no-rail .main {
     grid-template-columns: minmax(0, 1fr) var(--panel-width);
@@ -344,22 +347,39 @@
   .no-rail.no-panel .main {
     grid-template-columns: minmax(0, 1fr);
   }
+  /* Information about the open file (signed, XFA…). */
   .warning {
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: var(--space-3);
     padding: var(--space-2) var(--space-4);
-    background: var(--color-error-bg);
-    border-bottom: var(--border-width) solid var(--color-border);
+    background: var(--surface);
+    border-bottom: var(--border-width) solid var(--border);
+    border-left: 4px solid var(--accent);
     font-size: var(--font-size-sm);
   }
+  /* Files that could not be opened. */
+  .warning.error {
+    background: var(--danger-soft);
+    border-left-color: var(--danger);
+  }
+  .warning.error strong:first-child {
+    color: var(--danger);
+  }
   .dismiss {
-    width: 28px;
-    height: 28px;
+    display: grid;
+    place-items: center;
+    flex-shrink: 0;
+    width: 32px;
+    height: 32px;
     border: 0;
+    border-radius: var(--radius-sm);
     background: none;
-    font-size: var(--font-size-lg);
+    color: var(--muted);
+  }
+  .dismiss:hover {
+    background: var(--surface-2);
   }
 
   .skip-link {
@@ -369,8 +389,8 @@
     z-index: 1000;
     padding: var(--space-2) var(--space-3);
     border-radius: var(--radius-sm);
-    background: var(--color-accent);
-    color: var(--color-text-inverse);
+    background: var(--accent);
+    color: var(--on-accent);
   }
   .skip-link:focus {
     top: var(--space-2);

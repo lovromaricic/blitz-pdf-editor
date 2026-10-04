@@ -3,6 +3,9 @@
   import { tick } from 'svelte';
   import type { CommandId, CommandRegistry } from '../../lib/commands';
   import { MENUS, type MenuEntry } from '../menus';
+  import ChevronDown from '@lucide/svelte/icons/chevron-down';
+  import ChevronUp from '@lucide/svelte/icons/chevron-up';
+  import X from '@lucide/svelte/icons/x';
 
   let { commands, open, onClose }: { commands: CommandRegistry; open: boolean; onClose: () => void } = $props();
 
@@ -38,7 +41,7 @@
   <header>
     <h2>Menu</h2>
     <button type="button" class="close" aria-label="Close menu" onclick={onClose}>
-      <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2" /></svg>
+      <X size={22} strokeWidth={1.7} aria-hidden="true" />
     </button>
   </header>
   <div class="sections">
@@ -48,7 +51,9 @@
         <h3>
           <button type="button" class="section-btn" aria-expanded={isOpen} aria-controls="mm-{menu.label}" onclick={() => (expanded = isOpen ? null : menu.label)}>
             <span>{menu.label}</span>
-            <span class="chev" aria-hidden="true">{isOpen ? '−' : '+'}</span>
+            <span class="chev" aria-hidden="true">
+              {#if isOpen}<ChevronUp size={20} strokeWidth={1.7} />{:else}<ChevronDown size={20} strokeWidth={1.7} />{/if}
+            </span>
           </button>
         </h3>
         {#if isOpen}
@@ -92,8 +97,8 @@
     margin: 0;
     padding: 0;
     border: 0;
-    background: var(--color-bg);
-    color: var(--color-text);
+    background: var(--surface);
+    color: var(--text);
   }
   .menu[open] {
     display: flex;
@@ -105,7 +110,7 @@
     justify-content: space-between;
     padding: var(--space-2) var(--space-2) var(--space-2) var(--space-4);
     padding-top: max(var(--space-2), env(safe-area-inset-top));
-    border-bottom: var(--border-width) solid var(--color-border);
+    border-bottom: var(--border-width) solid var(--border);
   }
   h2 {
     font-size: var(--font-size-lg);
@@ -123,7 +128,7 @@
     padding-bottom: env(safe-area-inset-bottom);
   }
   section {
-    border-bottom: var(--border-width) solid var(--color-border);
+    border-bottom: var(--border-width) solid var(--border);
   }
   h3 {
     margin: 0;
@@ -137,17 +142,25 @@
     padding: 0 var(--space-4);
     border: 0;
     background: none;
-    font-size: var(--font-size-md);
+    color: var(--text);
+    font-size: 1rem;
     font-weight: 600;
+  }
+  .section-btn[aria-expanded='true'] {
+    background: var(--surface-2);
   }
   .chev {
     font-size: var(--font-size-lg);
-    color: var(--color-text-muted);
+    color: var(--muted);
   }
   ul {
     margin: 0;
     padding: 0 0 var(--space-2);
     list-style: none;
+  }
+  /* Indented rows separated by thin lines. */
+  li:has(> .item) + li:has(> .item) {
+    border-top: var(--border-width) solid var(--border);
   }
   .item {
     display: flex;
@@ -155,32 +168,38 @@
     gap: var(--space-2);
     width: 100%;
     min-height: var(--touch-target);
-    padding: 0 var(--space-4);
+    padding: 0 var(--space-4) 0 22px;
     border: 0;
     background: none;
+    color: var(--text);
+    font-size: var(--font-size-md);
     text-align: left;
   }
+
   .item:active:not(.disabled) {
-    background: var(--color-surface-strong);
+    background: var(--surface-2);
   }
   .check {
     width: 1.25rem;
+    color: var(--accent);
   }
   .disabled {
-    color: var(--color-text-muted);
+    color: var(--muted);
     opacity: 0.6;
   }
   .later {
     margin-left: auto;
-    padding: 0 var(--space-1);
-    border: var(--border-width) solid var(--color-border);
-    border-radius: var(--radius-sm);
-    font-size: var(--font-size-xs);
+    padding: 0 var(--space-2);
+    border-radius: var(--radius-pill);
+    background: var(--surface-2);
+    font-size: var(--font-size-label);
+    font-weight: 600;
     text-transform: uppercase;
+    letter-spacing: var(--tracking-label);
   }
   .heading {
     padding: var(--space-2) var(--space-4) 0 calc(var(--space-4) + 1.25rem + var(--space-2));
-    color: var(--color-text-muted);
+    color: var(--muted);
     font-size: var(--font-size-xs);
     font-weight: 600;
     text-transform: uppercase;
@@ -189,6 +208,6 @@
   .sep {
     height: var(--border-width);
     margin: var(--space-1) var(--space-4);
-    background: var(--color-border);
+    background: var(--border);
   }
 </style>

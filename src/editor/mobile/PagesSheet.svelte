@@ -178,7 +178,7 @@
 <dialog bind:this={dialog} class="pages-sheet" aria-labelledby="pages-title" oncancel={(e) => { e.preventDefault(); onClose(); }}>
   <header>
     <h2 id="pages-title">Pages ({doc.pages.length})</h2>
-    <button type="button" class="btn done" onclick={onClose}>Done</button>
+    <button type="button" class="done" onclick={onClose}>Done</button>
   </header>
 
   <div class="scroller">
@@ -223,7 +223,7 @@
       {selectMode ? (n ? `${n} selected` : 'Tap pages') : 'Select'}
     </button>
     <button type="button" class="act" onclick={action('page.rotateRight')}>Rotate</button>
-    <button type="button" class="act" disabled={!commands.isEnabled('page.delete')} onclick={action('page.delete')}>Delete</button>
+    <button type="button" class="act danger" disabled={!commands.isEnabled('page.delete')} onclick={action('page.delete')}>Delete</button>
     <button type="button" class="act" onclick={() => { onClose(); commands.run('page.extract'); }}>Extract</button>
     <button type="button" class="act" onclick={action('page.insertBlank')}>Add blank</button>
     <button type="button" class="act" onclick={action('page.insertFromFile')}>Add file</button>
@@ -239,29 +239,38 @@
     margin: auto 0 0;
     padding: 0;
     border: 0;
+    border-top: 2px solid var(--text);
     border-radius: var(--radius-lg) var(--radius-lg) 0 0;
-    background: var(--color-bg);
-    color: var(--color-text);
+    background: var(--surface);
+    color: var(--text);
   }
   .pages-sheet[open] {
     display: flex;
     flex-direction: column;
   }
   .pages-sheet::backdrop {
-    background: rgb(0 0 0 / 0.4);
+    background: var(--backdrop);
   }
   header {
     display: flex;
     align-items: center;
     justify-content: space-between;
     padding: var(--space-2) var(--space-2) var(--space-2) var(--space-4);
-    border-bottom: var(--border-width) solid var(--color-border);
+    border-bottom: var(--border-width) solid var(--border);
   }
   h2 {
-    font-size: var(--font-size-md);
+    font-size: var(--font-size-base);
+    font-weight: 700;
   }
+  /* "Done" is a text button. */
   .done {
-    min-width: 72px;
+    min-width: var(--touch-target);
+    min-height: var(--touch-target);
+    padding: 0 var(--space-3);
+    border: 0;
+    background: none;
+    color: var(--accent);
+    font-weight: 700;
   }
   .scroller {
     flex: 1;
@@ -296,8 +305,8 @@
     top: 0;
     bottom: 0;
     width: 4px;
-    border-radius: 2px;
-    background: var(--color-accent);
+    border-radius: var(--radius-pill);
+    background: var(--accent);
   }
   .cell.drop-before::before {
     left: -8px;
@@ -311,8 +320,8 @@
   .placeholder {
     width: 100%;
     border: 0;
-    border-radius: var(--radius-sm);
-    background: var(--color-surface);
+    border-radius: var(--radius-page);
+    background: var(--surface-2);
   }
   .actions {
     display: flex;
@@ -320,22 +329,27 @@
     overflow-x: auto;
     padding: var(--space-2);
     padding-bottom: max(var(--space-2), env(safe-area-inset-bottom));
-    border-top: var(--border-width) solid var(--color-border);
+    border-top: var(--border-width) solid var(--border);
     scrollbar-width: none;
   }
   .act {
     flex-shrink: 0;
     min-height: var(--touch-target);
     padding: 0 var(--space-3);
-    border: var(--border-width) solid var(--color-border);
+    border: var(--border-width) solid var(--border);
     border-radius: var(--radius-md);
-    background: var(--color-bg);
+    background: var(--surface);
+    color: var(--text);
     font-size: var(--font-size-sm);
+    font-weight: 600;
   }
   .act.on {
-    background: var(--color-active-bg);
-    border-color: var(--color-border-strong);
-    font-weight: 600;
+    background: var(--accent-soft);
+    border-color: var(--accent-soft);
+    color: var(--accent-strong);
+  }
+  .act.danger {
+    color: var(--danger);
   }
   .act:disabled {
     opacity: 0.45;

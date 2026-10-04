@@ -4,6 +4,7 @@
   import { useViewer } from '../../lib/viewer.svelte';
   import Swatches from '../../components/Swatches.svelte';
   import PanelHeader from './PanelHeader.svelte';
+  import Range from '../../components/Range.svelte';
 
   const viewer = useViewer();
   const doc = viewer.doc;
@@ -63,7 +64,7 @@
   </div>
   <div class="field">
     <label for="wm-opacity">Opacity <span class="value">{Math.round(w.opacity * 100)}%</span></label>
-    <input id="wm-opacity" type="range" min="0.05" max="0.8" step="0.05" value={w.opacity} oninput={(e) => set('opacity', +e.currentTarget.value)} />
+    <Range id="wm-opacity" min={0.05} max={0.8} step={0.05} value={w.opacity} onInput={(v) => set('opacity', v)} />
   </div>
   <fieldset>
     <legend>Pages</legend>
@@ -90,9 +91,6 @@
   .value {
     float: right;
     font-weight: 400;
-    color: var(--color-text-muted);
-  }
-  input[type='range'] {
-    width: 100%;
+    color: var(--muted);
   }
 </style>

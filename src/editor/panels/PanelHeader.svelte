@@ -1,44 +1,65 @@
 <script lang="ts">
-  let { title, onClose }: { title: string; onClose?: () => void } = $props();
+  import X from '@lucide/svelte/icons/x';
+
+  let { title, label = 'Properties', onClose }: { title: string; label?: string; onClose?: () => void } = $props();
 </script>
 
 <header>
-  <h2>{title}</h2>
+  <div class="titles">
+    <span class="section-label">{label}</span>
+    <h2>{title}</h2>
+  </div>
   {#if onClose}
-    <button type="button" class="close" aria-label="Close {title}" onclick={onClose}>×</button>
+    <button type="button" class="close" aria-label="Close {title}" onclick={onClose}>
+      <X size={18} strokeWidth={1.7} aria-hidden="true" />
+    </button>
   {/if}
 </header>
 
 <style>
   header {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     justify-content: space-between;
-    margin-bottom: var(--space-3);
+    gap: var(--space-2);
+    margin-bottom: var(--space-5);
+  }
+  .titles {
+    display: grid;
+    gap: 2px;
+    min-width: 0;
   }
   h2 {
-    font-size: var(--font-size-xs);
-    font-weight: 600;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--color-text-muted);
+    font-size: var(--font-size-lg);
+    font-weight: 700;
+    line-height: 1.25;
   }
   .close {
-    width: 28px;
-    height: 28px;
+    display: grid;
+    place-items: center;
+    flex-shrink: 0;
+    width: 32px;
+    height: 32px;
+    margin: -4px -6px 0 0;
     border: 0;
     border-radius: var(--radius-sm);
     background: none;
-    font-size: var(--font-size-lg);
-    line-height: 1;
+    color: var(--muted);
   }
-  @media (max-width: 640px), (pointer: coarse) {
+  .close:hover {
+    background: var(--surface-2);
+    color: var(--text);
+  }
+  @media (max-width: 720px), (pointer: coarse) {
+    header {
+      margin-bottom: var(--space-4);
+    }
+    h2 {
+      font-size: var(--font-size-base);
+    }
     .close {
       width: var(--touch-target);
       height: var(--touch-target);
     }
-  }
-  .close:hover {
-    background: var(--color-surface-strong);
   }
 </style>

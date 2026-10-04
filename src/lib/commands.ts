@@ -90,10 +90,10 @@ export const COMMANDS = {
   'tool.text': { label: 'Text', keys: ['t'], nativeInFields: true },
   'tool.highlight': { label: 'Highlight', keys: ['h'], nativeInFields: true },
   'tool.draw': { label: 'Draw', keys: ['d'], nativeInFields: true },
-  'tool.shapes': { label: 'Shapes', keys: ['r'], nativeInFields: true },
-  'tool.stamp': { label: 'Stamp', keys: ['k'], nativeInFields: true },
-  'tool.comment': { label: 'Comment', keys: ['n'], nativeInFields: true },
-  'tool.sign': { label: 'Sign', keys: ['s'], nativeInFields: true },
+  'tool.shapes': { label: 'Shapes', keys: ['s'], nativeInFields: true },
+  'tool.stamp': { label: 'Stamp', keys: ['p'], nativeInFields: true },
+  'tool.comment': { label: 'Comment', keys: ['c'], nativeInFields: true },
+  'tool.sign': { label: 'Sign', keys: ['g'], nativeInFields: true },
   'tool.form': { label: 'Fill form', keys: ['f'], nativeInFields: true },
 } as const satisfies Record<string, CommandMeta>;
 

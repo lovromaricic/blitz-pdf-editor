@@ -4,6 +4,8 @@ A free PDF editor that runs entirely in the browser. Files are never uploaded an
 
 > The product name lives only in `src/config.ts` (`APP_NAME`), pending a domain/trademark check.
 
+Design and contribution rules (tokens only, bundled font, no network requests, reuse of `Toolbar` etc.) are in [CLAUDE.md](CLAUDE.md).
+
 ## Requirements
 
 - Node.js 20.19+, 22.12+ or 24+ (LTS recommended)
@@ -80,7 +82,7 @@ src/
   editor/panels/         Right-panel content (desktop) / bottom-sheet content (phones)
   editor/mobile/         Phone layout (< 640px): top bar, accordion menu, tool strip, Pages sheet
   components/            Shared UI (dialogs, context menu)
-  styles/tokens.css      Design tokens (colors, spacing, radii). Restyle here.
+  styles/tokens.css      Design tokens ("Mist"): every color, radius, shadow, font. Restyle (or add a dark theme) here.
 build-tools/             Vite plugins: PDF.js runtime assets, third-party license file
 tests/                   Vitest unit tests (tests/tmp/ is a gitignored scratch area for sample PDFs)
 ```

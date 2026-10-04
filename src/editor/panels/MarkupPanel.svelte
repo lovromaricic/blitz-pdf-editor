@@ -6,6 +6,7 @@
   import { useViewer } from '../../lib/viewer.svelte';
   import Swatches from '../../components/Swatches.svelte';
   import PanelHeader from './PanelHeader.svelte';
+  import Range from '../../components/Range.svelte';
   import { MediaQuery } from 'svelte/reactivity';
 
   const viewer = useViewer();
@@ -104,29 +105,13 @@
     {#if kind !== 'highlight'}
       <div class="field">
         <label for="mk-width">Thickness <span class="value">{props.width} pt</span></label>
-        <input
-          id="mk-width"
-          type="range"
-          min="0.5"
-          max="20"
-          step="0.5"
-          value={props.width}
-          oninput={(e) => set('width', +e.currentTarget.value, 'thickness')}
-        />
+        <Range id="mk-width" min={0.5} max={20} step={0.5} value={props.width ?? 2} onInput={(v) => set('width', v, 'thickness')} />
       </div>
     {/if}
 
     <div class="field">
       <label for="mk-opacity">Opacity <span class="value">{Math.round(props.opacity * 100)}%</span></label>
-      <input
-        id="mk-opacity"
-        type="range"
-        min="0.1"
-        max="1"
-        step="0.05"
-        value={props.opacity}
-        oninput={(e) => set('opacity', +e.currentTarget.value, 'opacity')}
-      />
+      <Range id="mk-opacity" min={0.1} max={1} step={0.05} value={props.opacity} onInput={(v) => set('opacity', v, 'opacity')} />
     </div>
 
     {#if kind === 'highlight' && !sel}
@@ -138,7 +123,12 @@
 
     {#if sel}
       <div class="actions">
-        <button type="button" class="btn" onclick={() => actions.deleteAnnotation(sel.page.id, sel.annot.id)}>
+        <button
+          type="button"
+          class="btn"
+          class:btn-danger={sel.annot.type !== 'highlight'}
+          onclick={() => actions.deleteAnnotation(sel.page.id, sel.annot.id)}
+        >
           {sel.annot.type === 'highlight' ? 'Remove highlight' : 'Delete'}
         </button>
       </div>
@@ -154,10 +144,7 @@
   .value {
     float: right;
     font-weight: 400;
-    color: var(--color-text-muted);
-  }
-  input[type='range'] {
-    width: 100%;
+    color: var(--muted);
   }
   .segmented {
     display: grid;
@@ -166,19 +153,19 @@
   }
   .segmented button {
     min-height: 32px;
-    border: var(--border-width) solid var(--color-border);
+    border: var(--border-width) solid var(--border);
     border-radius: var(--radius-sm);
-    background: var(--color-bg);
+    background: var(--surface);
     font-size: var(--font-size-sm);
   }
-  @media (max-width: 640px), (pointer: coarse) {
+  @media (max-width: 720px), (pointer: coarse) {
     .segmented button {
       min-height: var(--touch-target);
     }
   }
   .segmented button[aria-checked='true'] {
-    background: var(--color-active-bg);
-    border-color: var(--color-border-strong);
+    background: var(--accent-soft);
+    border-color: var(--border);
     font-weight: 600;
   }
 </style>

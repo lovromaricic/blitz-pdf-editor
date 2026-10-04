@@ -1,6 +1,6 @@
 // Draws boxed annotations (text, stamp, comment, image) on a canvas, for printing.
 // Mirrors the saved PDF appearance (write-annotations.ts) and the on-screen view.
-import { rgbToCss, STAMP_TEXT_RATIO, type BoxedAnnotation, type Point } from './annotations';
+import { NOTE_OUTLINE, rgbToCss, STAMP_TEXT_RATIO, type BoxedAnnotation, type Point } from './annotations';
 import { boxedGeometry } from './annotation-view';
 import { cssFont, LINE_HEIGHT, loadFonts, TEXT_PADDING } from './fonts';
 
@@ -47,7 +47,7 @@ export async function drawBoxed(
       ctx.translate(0, 22);
       ctx.scale(1, -1);
       ctx.fillStyle = rgbToCss(a.color);
-      ctx.strokeStyle = '#404040';
+      ctx.strokeStyle = rgbToCss(NOTE_OUTLINE);
       ctx.lineWidth = 1;
       ctx.beginPath();
       ctx.roundRect(1, 6.16, 20, 15.4, 2.64);

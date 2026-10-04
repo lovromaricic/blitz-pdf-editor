@@ -2,7 +2,7 @@
   import { capturePointer } from '../lib/dom';
   import '@fontsource/dancing-script/400.css';
   import { tick } from 'svelte';
-  import { fileToCanvas, removeWhiteBackground, trimCanvas } from '../lib/signature';
+  import { fileToCanvas, removeWhiteBackground, SIGNATURE_FONT, SIGNATURE_INKS, trimCanvas } from '../lib/signature';
   import { useViewer } from '../lib/viewer.svelte';
 
   const viewer = useViewer();
@@ -15,7 +15,7 @@
   let uploaded = $state<HTMLCanvasElement | null>(null);
   let uploadPreview = $state<string | null>(null);
   let removeBg = $state(true);
-  let inkColor = $state('#111111');
+  let inkColor = $state<string>(SIGNATURE_INKS[0].css);
   let error = $state('');
 
   const PAD_W = 520;
@@ -127,13 +127,13 @@
     if (tab === 'draw') {
       source = pad;
     } else if (tab === 'type') {
-      await document.fonts.load('64px "Dancing Script"');
+      await document.fonts.load(`64px ${SIGNATURE_FONT}`);
       const c = document.createElement('canvas');
       const ctx = c.getContext('2d')!;
-      ctx.font = '96px "Dancing Script"';
+      ctx.font = `96px ${SIGNATURE_FONT}`;
       c.width = Math.ceil(ctx.measureText(typed).width) + 40;
       c.height = 160;
-      ctx.font = '96px "Dancing Script"';
+      ctx.font = `96px ${SIGNATURE_FONT}`;
       ctx.fillStyle = inkColor;
       ctx.textBaseline = 'middle';
       ctx.fillText(typed, 20, 80);
@@ -196,7 +196,7 @@
     {:else if tab === 'type'}
       <label for="sig-typed">Type your name</label>
       <input id="sig-typed" type="text" bind:value={typed} autocomplete="name" maxlength="60" />
-      <div class="typed-preview" style:color={inkColor}>{typed || ' '}</div>
+      <div class="typed-preview" style:color={inkColor} style:font-family={SIGNATURE_FONT}>{typed || ' '}</div>
     {:else}
       <label for="sig-file">Photo or scan of your signature (PNG or JPG)</label>
       <input id="sig-file" type="file" accept="image/png,image/jpeg,image/webp" onchange={(e) => onFile(e.currentTarget.files?.[0])} />
@@ -212,8 +212,9 @@
     {#if tab !== 'upload'}
       <fieldset class="ink">
         <legend>Ink</legend>
-        <label class="option"><input type="radio" name="ink" value="#111111" bind:group={inkColor} /> Black</label>
-        <label class="option"><input type="radio" name="ink" value="#1a3fb0" bind:group={inkColor} /> Blue</label>
+        {#each SIGNATURE_INKS as ink (ink.css)}
+          <label class="option"><input type="radio" name="ink" value={ink.css} bind:group={inkColor} /> {ink.name}</label>
+        {/each}
       </fieldset>
     {/if}
 
@@ -231,13 +232,13 @@
   dialog {
     width: min(600px, calc(100vw - 2 * var(--space-4)));
     padding: 0;
-    border: var(--border-width) solid var(--color-border-strong);
+    border: var(--border-width) solid var(--border);
     border-radius: var(--radius-lg);
-    background: var(--color-bg);
-    color: var(--color-text);
+    background: var(--surface);
+    color: var(--text);
   }
   dialog::backdrop {
-    background: rgb(0 0 0 / 0.4);
+    background: var(--backdrop);
   }
   header,
   footer {
@@ -249,7 +250,7 @@
   }
   footer {
     justify-content: flex-end;
-    border-top: var(--border-width) solid var(--color-border);
+    border-top: var(--border-width) solid var(--border);
   }
   h2 {
     font-size: var(--font-size-lg);
@@ -265,7 +266,7 @@
     display: flex;
     gap: var(--space-1);
     padding: 0 var(--space-5);
-    border-bottom: var(--border-width) solid var(--color-border);
+    border-bottom: var(--border-width) solid var(--border);
   }
   [role='tab'] {
     min-height: var(--touch-target);
@@ -274,9 +275,13 @@
     border-bottom: 3px solid transparent;
     background: none;
   }
-  [role='tab'][aria-selected='true'] {
-    border-bottom-color: var(--color-accent);
+  [role='tab'] {
+    color: var(--muted);
     font-weight: 600;
+  }
+  [role='tab'][aria-selected='true'] {
+    border-bottom-color: var(--accent);
+    color: var(--accent);
   }
   .body {
     display: grid;
@@ -287,9 +292,9 @@
   .pad {
     width: 100%;
     aspect-ratio: 520 / 180;
-    border: var(--border-width) dashed var(--color-border-strong);
+    border: var(--border-width) dashed var(--border);
     border-radius: var(--radius-md);
-    background: #fff;
+    background: var(--page);
     touch-action: none;
     cursor: crosshair;
   }
@@ -300,16 +305,15 @@
   input[type='text'] {
     min-height: var(--touch-target);
     padding: 0 var(--space-3);
-    border: var(--border-width) solid var(--color-border-strong);
+    border: var(--border-width) solid var(--border);
     border-radius: var(--radius-sm);
   }
   .typed-preview {
     min-height: 90px;
     padding: var(--space-2) var(--space-3);
-    border: var(--border-width) dashed var(--color-border-strong);
+    border: var(--border-width) dashed var(--border);
     border-radius: var(--radius-md);
-    background: #fff;
-    font-family: 'Dancing Script', cursive;
+    background: var(--page);
     font-size: 56px;
     line-height: 1.4;
     overflow: hidden;
@@ -317,9 +321,9 @@
   }
   .upload-preview {
     padding: var(--space-3);
-    border: var(--border-width) dashed var(--color-border-strong);
+    border: var(--border-width) dashed var(--border);
     border-radius: var(--radius-md);
-    background: repeating-conic-gradient(#eee 0% 25%, #fff 0% 50%) 50% / 16px 16px;
+    background: repeating-conic-gradient(var(--surface-2) 0% 25%, var(--page) 0% 50%) 50% / 16px 16px;
   }
   .upload-preview img {
     display: block;
@@ -345,7 +349,7 @@
     gap: var(--space-2);
   }
   .hint {
-    color: var(--color-text-muted);
+    color: var(--muted);
     font-size: var(--font-size-xs);
   }
   .error {

@@ -1,6 +1,9 @@
 <script lang="ts">
   import { useViewer } from '../lib/viewer.svelte';
   import type { SearchMatch } from '../lib/search.svelte';
+  import ChevronDown from '@lucide/svelte/icons/chevron-down';
+  import ChevronUp from '@lucide/svelte/icons/chevron-up';
+  import SearchIcon from '@lucide/svelte/icons/search';
 
   let { onReveal }: { onReveal: (m: SearchMatch) => void } = $props();
 
@@ -43,26 +46,37 @@
   const status = $derived.by(() => {
     if (!search.query) return '';
     if (search.matches.length === 0) return search.running ? 'Searching…' : 'No results';
-    const pos = search.active >= 0 ? `${search.active + 1} / ` : '';
+    const pos = search.active >= 0 ? `${search.active + 1} of ` : '';
     return `${pos}${search.matches.length}${search.running ? '+' : ''}`;
   });
+  const hasResults = $derived(search.matches.length > 0);
 </script>
 
 <div class="search" role="search">
-  <label for="doc-search" class="visually-hidden">Search in document</label>
-  <input
-    id="doc-search"
-    type="search"
-    placeholder="Search in document"
-    autocomplete="off"
-    spellcheck="false"
-    bind:value
-    oninput={onInput}
-    onkeydown={onKey}
-  />
-  <span class="status" aria-live="polite">{status}</span>
-  <button type="button" class="nav" aria-label="Previous result" disabled={search.matches.length === 0} onclick={() => step(-1)}>‹</button>
-  <button type="button" class="nav" aria-label="Next result" disabled={search.matches.length === 0} onclick={() => step(1)}>›</button>
+  <div class="field">
+    <SearchIcon class="icon" size={16} strokeWidth={1.7} aria-hidden="true" />
+    <label for="doc-search" class="visually-hidden">Search in document</label>
+    <input
+      id="doc-search"
+      type="search"
+      placeholder="Search in document"
+      autocomplete="off"
+      spellcheck="false"
+      bind:value
+      oninput={onInput}
+      onkeydown={onKey}
+    />
+  </div>
+  <span class="status" class:empty={!status} aria-live="polite">{status}</span>
+  <!-- Result arrows appear only once there are results. -->
+  {#if hasResults}
+    <button type="button" class="nav" aria-label="Previous result" onclick={() => step(-1)}>
+      <ChevronUp size={18} strokeWidth={1.7} aria-hidden="true" />
+    </button>
+    <button type="button" class="nav" aria-label="Next result" onclick={() => step(1)}>
+      <ChevronDown size={18} strokeWidth={1.7} aria-hidden="true" />
+    </button>
+  {/if}
 </div>
 
 <style>
@@ -72,34 +86,51 @@
     gap: var(--space-1);
     min-width: 0;
   }
+  .field {
+    position: relative;
+    display: flex;
+    align-items: center;
+    min-width: 0;
+  }
+  .field :global(.icon) {
+    position: absolute;
+    left: 12px;
+    color: var(--muted);
+    pointer-events: none;
+  }
   input {
     width: 240px;
     min-width: 0;
-    height: 32px;
-    padding: 0 var(--space-3);
-    border: var(--border-width) solid var(--color-border-strong);
-    border-radius: var(--radius-sm);
-    background: var(--color-bg);
-    font-size: var(--font-size-sm);
+    height: 38px;
+    padding: 0 var(--space-3) 0 36px;
+    border-color: var(--surface-2);
+    border-radius: var(--radius-md);
+    background: var(--surface-2);
+    font-size: var(--font-size-md);
+  }
+  input::placeholder {
+    color: var(--muted);
   }
   .status {
-    min-width: 4.5rem;
-    color: var(--color-text-muted);
-    font-size: var(--font-size-xs);
-    text-align: right;
+    padding: 0 var(--space-1);
+    color: var(--muted);
+    font-size: var(--font-size-sm);
     white-space: nowrap;
   }
+  .status.empty {
+    display: none;
+  }
   .nav {
+    display: grid;
+    place-items: center;
     width: 32px;
     height: 32px;
-    border: var(--border-width) solid var(--color-border);
+    border: 0;
     border-radius: var(--radius-sm);
-    background: var(--color-bg);
-    font-size: var(--font-size-lg);
-    line-height: 1;
+    background: none;
+    color: var(--text);
   }
-  .nav:disabled {
-    opacity: 0.4;
-    cursor: default;
+  .nav:hover {
+    background: var(--surface-2);
   }
 </style>

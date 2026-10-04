@@ -1,10 +1,13 @@
 <script lang="ts">
-  import { tick, untrack } from 'svelte';
+  import { tick, untrack, type Snippet } from 'svelte';
   import { MAX_ZOOM, MIN_ZOOM, useViewer } from '../lib/viewer.svelte';
   import BottomBar from './BottomBar.svelte';
+  import CircleAlert from '@lucide/svelte/icons/circle-alert';
+  import CircleCheck from '@lucide/svelte/icons/circle-check';
+  import X from '@lucide/svelte/icons/x';
   import PageView from './PageView.svelte';
 
-  let { mobile = false }: { mobile?: boolean } = $props();
+  let { mobile = false, toolbar }: { mobile?: boolean; toolbar?: Snippet } = $props();
 
   const viewer = useViewer();
   const doc = viewer.doc;
@@ -154,7 +157,8 @@
   });
 </script>
 
-<div class="canvas-column">
+<div class="canvas-column" class:has-toolbar={!!toolbar}>
+  {@render toolbar?.()}
   <!-- Focusable so keyboard users can scroll the document (WCAG scrollable-region). -->
   <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions, a11y_no_noninteractive_tabindex -->
   <div
@@ -194,8 +198,15 @@
     {:else if viewer.notice}
       {#key viewer.notice.id}
         <div class="toast" class:error={viewer.notice.error} role={viewer.notice.error ? 'alert' : 'status'}>
+          {#if viewer.notice.error}
+            <CircleAlert class="toast-icon" size={18} strokeWidth={1.7} aria-hidden="true" />
+          {:else}
+            <CircleCheck class="toast-icon" size={18} strokeWidth={1.7} aria-hidden="true" />
+          {/if}
           <span>{viewer.notice.text}</span>
-          <button type="button" class="dismiss" aria-label="Dismiss" onclick={() => (viewer.notice = null)}>×</button>
+          <button type="button" class="dismiss" aria-label="Dismiss" onclick={() => (viewer.notice = null)}>
+            <X size={16} strokeWidth={1.7} aria-hidden="true" />
+          </button>
         </div>
       {/key}
     {/if}
@@ -214,8 +225,12 @@
     position: relative;
     display: grid;
     grid-template-rows: 1fr auto;
+    background: var(--canvas);
     min-width: 0;
     min-height: 0;
+  }
+  .canvas-column.has-toolbar {
+    grid-template-rows: auto 1fr auto;
   }
   .status {
     position: absolute;
@@ -227,38 +242,56 @@
     max-width: calc(100% - 2 * var(--space-4));
     pointer-events: none;
   }
+  /* Messages: a white card. Errors: red icon on a soft red strip. */
   .toast {
     display: flex;
     align-items: center;
     gap: var(--space-3);
-    padding: var(--space-2) var(--space-3);
-    border-radius: var(--radius-md);
-    background: var(--color-accent);
-    color: var(--color-text-inverse);
+    max-width: 520px;
+    padding: var(--space-2) var(--space-2) var(--space-2) var(--space-3);
+    border: var(--border-width) solid var(--border);
+    border-radius: var(--radius-lg);
+    background: var(--surface);
+    color: var(--text);
     font-size: var(--font-size-sm);
-    box-shadow: 0 4px 16px rgb(0 0 0 / 0.2);
+    box-shadow: var(--shadow-overlay);
     pointer-events: auto;
   }
+  .toast :global(.toast-icon) {
+    flex-shrink: 0;
+    color: var(--accent);
+  }
   .toast.error {
-    max-width: 480px;
-    border: 2px solid var(--color-error-bg);
+    border-left: 4px solid var(--danger);
+    background: var(--danger-soft);
+  }
+  .toast.error :global(.toast-icon) {
+    color: var(--danger);
   }
   .toast progress {
     width: 120px;
+    accent-color: var(--accent);
   }
   .dismiss {
+    display: grid;
+    place-items: center;
+    flex-shrink: 0;
+    width: 28px;
+    height: 28px;
     border: 0;
+    border-radius: var(--radius-sm);
     background: none;
-    color: inherit;
-    font-size: var(--font-size-lg);
-    line-height: 1;
+    color: var(--muted);
+  }
+  .dismiss:hover {
+    background: var(--surface-2);
   }
   .scroller {
     position: relative;
     overflow: auto;
     /* One finger scrolls natively; two-finger pinch is handled above. */
     touch-action: pan-x pan-y;
-    background: var(--color-canvas-bg);
+    background: var(--canvas);
     scrollbar-gutter: stable;
     outline: none;
   }
@@ -277,8 +310,8 @@
     z-index: 10;
     padding: var(--space-1) var(--space-3);
     border-radius: 999px;
-    background: rgb(0 0 0 / 0.65);
-    color: #fff;
+    background: var(--text);
+    color: var(--on-accent);
     font-size: var(--font-size-sm);
     font-variant-numeric: tabular-nums;
     pointer-events: none;

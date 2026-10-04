@@ -2,6 +2,7 @@
   import { APP_NAME } from '../config';
   import type { SearchMatch } from '../lib/search.svelte';
   import { useViewer } from '../lib/viewer.svelte';
+  import Logo from './Logo.svelte';
   import SearchBox from './SearchBox.svelte';
 
   let { onReveal }: { onReveal: (m: SearchMatch) => void } = $props();
@@ -10,7 +11,7 @@
 
 <header class="titlebar">
   <div class="brand">
-    <span class="logo" aria-hidden="true">Logo</span>
+    <Logo />
     <span class="app-name">{APP_NAME}</span>
   </div>
   <span class="divider" aria-hidden="true"></span>
@@ -23,55 +24,46 @@
 <style>
   .titlebar {
     display: flex;
+    flex-shrink: 0;
     align-items: center;
     gap: var(--space-3);
-    min-height: 48px;
-    padding: var(--space-2) var(--space-4);
-    border-bottom: var(--border-width) solid var(--color-border);
-    background: var(--color-surface);
+    height: var(--titlebar-height);
+    padding: 0 var(--space-4);
+    border-bottom: var(--border-width) solid var(--border);
+    background: var(--surface);
   }
   .brand {
     display: flex;
     align-items: center;
-    gap: var(--space-2);
+    gap: 10px;
     flex-shrink: 0;
   }
-  .logo {
-    display: grid;
-    place-items: center;
-    width: 28px;
-    height: 28px;
-    border: var(--border-width) dashed var(--color-border-strong);
-    border-radius: var(--radius-sm);
-    background: var(--color-placeholder);
-    color: var(--color-text-muted);
-    font-size: 9px;
-    text-transform: uppercase;
-  }
   .app-name {
+    font-size: var(--font-size-base);
     font-weight: 700;
-    font-size: var(--font-size-sm);
   }
   .divider {
     width: var(--border-width);
-    height: 20px;
-    background: var(--color-border);
+    height: 22px;
+    background: var(--border);
   }
   .file-name {
     min-width: 0;
     overflow: hidden;
-    font-size: var(--font-size-sm);
+    color: var(--muted);
+    font-size: var(--font-size-md);
     font-weight: 400;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
   .edited {
     flex-shrink: 0;
-    padding: 0 var(--space-2);
-    border: var(--border-width) solid var(--color-border-strong);
-    border-radius: var(--radius-sm);
-    color: var(--color-text-muted);
+    padding: 2px var(--space-2);
+    border-radius: var(--radius-pill);
+    background: var(--surface-2);
+    color: var(--muted);
     font-size: var(--font-size-xs);
+    font-weight: 600;
   }
   .spacer {
     flex: 1;

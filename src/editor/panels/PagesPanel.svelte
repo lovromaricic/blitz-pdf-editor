@@ -22,7 +22,7 @@
     <button type="button" class="btn" onclick={() => commands.run('page.rotateRight')}>Rotate right</button>
   </div>
   <div class="actions">
-    <button type="button" class="btn" disabled={!commands.isEnabled('page.delete')} onclick={() => commands.run('page.delete')}>
+    <button type="button" class="btn btn-danger" disabled={!commands.isEnabled('page.delete')} onclick={() => commands.run('page.delete')}>
       Delete {selected.length === 1 ? 'page' : `${selected.length} pages`}
     </button>
     <button type="button" class="btn" onclick={() => commands.run('page.extract')}>Extract…</button>

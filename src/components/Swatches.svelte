@@ -50,26 +50,43 @@
   .swatches {
     display: flex;
     flex-wrap: wrap;
-    gap: var(--space-2);
+    gap: 10px;
   }
   .swatch {
-    width: 28px;
-    height: 28px;
+    width: 36px;
+    height: 36px;
     padding: 0;
-    border: 2px solid var(--color-bg);
+    border: 0;
     border-radius: 50%;
-    box-shadow: 0 0 0 1px var(--color-border-strong);
+    box-shadow: inset 0 0 0 1px var(--border);
+    transition: box-shadow var(--transition-fast);
   }
-  @media (max-width: 640px), (pointer: coarse) {
+  /* Selected: white inner ring, accent outer ring. */
+  .swatch[aria-checked='true'] {
+    box-shadow:
+      inset 0 0 0 2px var(--surface),
+      0 0 0 2px var(--accent);
+  }
+  .swatch.none {
+    background:
+      linear-gradient(135deg, transparent 46%, var(--danger) 46% 54%, transparent 54%),
+      var(--surface);
+  }
+  /* Phones: a 40px swatch inside a 44px tap area. */
+  @media (max-width: 720px), (pointer: coarse) {
+    .swatches {
+      gap: 6px;
+    }
     .swatch {
       width: var(--touch-target);
       height: var(--touch-target);
+      border: 2px solid transparent;
+      background-clip: padding-box;
     }
-  }
-  .swatch[aria-checked='true'] {
-    box-shadow: 0 0 0 2px var(--color-accent);
-  }
-  .swatch.none {
-    background: linear-gradient(135deg, transparent 45%, var(--color-text-muted) 45% 55%, transparent 55%), var(--color-bg);
+    .swatch[aria-checked='true'] {
+      box-shadow:
+        inset 0 0 0 2px var(--surface),
+        0 0 0 2px var(--accent);
+    }
   }
 </style>

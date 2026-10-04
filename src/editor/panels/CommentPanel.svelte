@@ -52,7 +52,7 @@
   </div>
   {#if sel}
     <div class="actions">
-      <button type="button" class="btn" onclick={() => actions.deleteAnnotation(sel.page.id, sel.annot.id)}>Delete comment</button>
+      <button type="button" class="btn btn-danger" onclick={() => actions.deleteAnnotation(sel.page.id, sel.annot.id)}>Delete comment</button>
     </div>
   {/if}
 </div>
@@ -63,7 +63,7 @@
   }
   textarea {
     padding: var(--space-2);
-    border: var(--border-width) solid var(--color-border-strong);
+    border: var(--border-width) solid var(--border);
     border-radius: var(--radius-sm);
     resize: vertical;
   }

@@ -8,6 +8,7 @@
   import {
     describe,
     isBoxed,
+    rgbToCss,
     NOTE_SIZE,
     rectFromUpright,
     uprightTopLeft,
@@ -633,7 +634,7 @@
     style:font-size="{a.size * viewer.scale}px"
     style:line-height={LINE_HEIGHT}
     style:padding="{TEXT_PADDING * viewer.scale}px"
-    style:color="rgb({a.color.map((c) => Math.round(c * 255)).join(' ')})"
+    style:color={rgbToCss(a.color)}
     oninput={autoSize}
     onblur={() => void commitEdit()}
     onpointerdown={(e) => e.stopPropagation()}
@@ -709,7 +710,7 @@
   .annot:focus-visible polygon,
   .annot:focus-visible polyline:not(.hit),
   .annot:focus-visible ellipse:not(.hit) {
-    filter: drop-shadow(0 0 2px var(--color-focus));
+    filter: drop-shadow(0 0 2px var(--accent));
   }
   .hit {
     fill: none;
@@ -717,13 +718,13 @@
   }
   .sel-box {
     fill: none;
-    stroke: var(--color-accent);
+    stroke: var(--accent);
     stroke-width: 1;
     stroke-dasharray: 4 3;
   }
   .handle {
-    fill: #fff;
-    stroke: var(--color-accent);
+    fill: var(--surface);
+    stroke: var(--accent);
     stroke-width: 1.5;
     pointer-events: all;
   }
@@ -747,7 +748,7 @@
     cursor: move;
   }
   .box-hit:focus-visible {
-    outline: 2px solid var(--color-focus);
+    outline: 2px solid var(--accent);
     outline-offset: 2px;
   }
   .text-editor {
@@ -756,8 +757,8 @@
     box-sizing: border-box;
     min-height: 1em;
     margin: 0;
-    border: 1px dashed var(--color-accent);
-    background: rgb(255 255 255 / 0.85);
+    border: 1px dashed var(--accent);
+    background: var(--editing-fill);
     resize: none;
     overflow: hidden;
     white-space: pre-wrap;

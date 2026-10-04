@@ -227,8 +227,12 @@
 
 <style>
   .menubar {
-    border-bottom: var(--border-width) solid var(--color-border);
-    background: var(--color-bg);
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    height: var(--menubar-height);
+    border-bottom: var(--border-width) solid var(--border);
+    background: var(--surface);
     padding: 0 var(--space-2);
   }
 
@@ -240,6 +244,7 @@
 
   [role='menubar'] {
     display: flex;
+    gap: 2px;
   }
 
   .top {
@@ -247,34 +252,37 @@
   }
 
   .top > button {
-    padding: var(--space-1) var(--space-3);
+    height: 30px;
+    padding: 0 var(--space-3);
     border: 0;
     border-radius: var(--radius-sm);
     background: none;
-    font-size: var(--font-size-sm);
+    color: var(--text);
+    font-size: var(--font-size-md);
+    transition: background var(--transition-fast);
   }
 
   .top > button:hover,
   .top > button.open {
-    background: var(--color-surface-strong);
+    background: var(--surface-2);
   }
 
   [role='menu'] {
     position: absolute;
-    top: 100%;
+    top: calc(100% + 6px);
     left: 0;
     z-index: 100;
-    min-width: 260px;
-    padding: var(--space-1);
-    background: var(--color-bg);
-    border: var(--border-width) solid var(--color-border-strong);
+    min-width: 264px;
+    padding: 6px;
+    background: var(--surface);
+    border: var(--border-width) solid var(--border);
     border-radius: var(--radius-md);
-    box-shadow: 0 4px 16px rgb(0 0 0 / 0.15);
+    box-shadow: var(--shadow-overlay);
   }
 
   .submenu {
-    top: calc(-1 * var(--space-1) - var(--border-width));
-    left: 100%;
+    top: calc(-6px - var(--border-width));
+    left: calc(100% + 4px);
   }
 
   .has-sub {
@@ -287,11 +295,13 @@
     align-items: center;
     gap: var(--space-2);
     width: 100%;
-    padding: var(--space-1) var(--space-2);
+    min-height: 32px;
+    padding: 0 var(--space-2);
     border: 0;
     border-radius: var(--radius-sm);
     background: none;
-    font-size: var(--font-size-sm);
+    color: var(--text);
+    font-size: var(--font-size-md);
     text-align: left;
   }
 
@@ -305,36 +315,42 @@
 
   [role='menu'] button:hover:not(.disabled),
   [role='menu'] button:focus-visible {
-    background: var(--color-surface-strong);
+    background: var(--surface-2);
   }
 
   [role='menu'] button:focus-visible {
     outline-offset: -2px;
   }
 
-  .disabled {
-    color: var(--color-text-muted);
-    opacity: 0.6;
+  /* Dimmed but still readable. */
+  [role='menu'] button.disabled {
+    color: var(--muted);
+    opacity: 0.7;
     cursor: default;
+  }
+  .check {
+    color: var(--accent);
   }
 
   .keys,
   .later {
-    color: var(--color-text-muted);
+    color: var(--muted);
     font-size: var(--font-size-xs);
   }
 
   .later {
-    padding: 0 var(--space-1);
-    border: var(--border-width) solid var(--color-border);
-    border-radius: var(--radius-sm);
+    padding: 0 var(--space-2);
+    border-radius: var(--radius-pill);
+    background: var(--surface-2);
+    font-size: var(--font-size-label);
+    font-weight: 600;
     text-transform: uppercase;
-    letter-spacing: 0.04em;
+    letter-spacing: var(--tracking-label);
   }
 
   .sep {
     height: var(--border-width);
     margin: var(--space-1) 0;
-    background: var(--color-border);
+    background: var(--border);
   }
 </style>

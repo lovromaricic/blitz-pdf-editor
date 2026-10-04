@@ -85,7 +85,7 @@ export function formatBytes(n: number): string {
  */
 export function largeFileThreshold(): number {
   const memory = (navigator as Navigator & { deviceMemory?: number }).deviceMemory;
-  const phone = typeof matchMedia === 'function' && matchMedia('(max-width: 640px), (pointer: coarse)').matches;
+  const phone = typeof matchMedia === 'function' && matchMedia('(max-width: 720px), (pointer: coarse)').matches;
   if ((memory !== undefined && memory <= 2) || phone) return 120 * 1024 * 1024;
   if (memory !== undefined && memory <= 4) return 250 * 1024 * 1024;
   return 500 * 1024 * 1024;

@@ -95,14 +95,14 @@
     align-items: center;
     gap: var(--space-2);
     padding: var(--space-1);
-    border: var(--border-width) solid var(--color-border);
+    border: var(--border-width) solid var(--border);
     border-radius: var(--radius-sm);
-    background: var(--color-surface);
+    background: var(--surface-2);
   }
   li.empty {
     justify-content: center;
     padding: var(--space-3);
-    color: var(--color-text-muted);
+    color: var(--muted);
   }
   img {
     width: 40px;
@@ -124,11 +124,11 @@
   .mini {
     width: 28px;
     height: 28px;
-    border: var(--border-width) solid var(--color-border);
+    border: var(--border-width) solid var(--border);
     border-radius: var(--radius-sm);
-    background: var(--color-bg);
+    background: var(--surface);
   }
-  @media (max-width: 640px), (pointer: coarse) {
+  @media (max-width: 720px), (pointer: coarse) {
     .mini {
       width: var(--touch-target);
       height: var(--touch-target);
@@ -139,8 +139,8 @@
   }
   select {
     min-height: 36px;
-    border: var(--border-width) solid var(--color-border-strong);
+    border: var(--border-width) solid var(--border);
     border-radius: var(--radius-sm);
-    background: var(--color-bg);
+    background: var(--surface);
   }
 </style>

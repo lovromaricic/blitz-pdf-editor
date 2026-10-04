@@ -114,31 +114,33 @@
   .thumb {
     display: grid;
     justify-items: center;
-    gap: 2px;
+    gap: 6px;
     width: 100%;
-    padding: var(--space-1);
+    padding: var(--space-2) var(--space-1) var(--space-1);
     border: 0;
-    border-radius: var(--radius-sm);
+    border-radius: var(--radius-md);
     background: none;
     touch-action: pan-y;
     user-select: none;
     -webkit-user-select: none;
+    transition: background var(--transition-fast);
+  }
+  .thumb:hover {
+    background: var(--surface-2);
+  }
+  .thumb.selected {
+    background: var(--accent-soft);
   }
   .frame {
     position: relative;
     display: block;
     overflow: hidden;
-    background: #fff;
-    box-shadow: 0 0 0 1px var(--color-border);
-  }
-  .thumb:hover .frame {
-    box-shadow: 0 0 0 2px var(--color-border-strong);
-  }
-  .thumb.selected {
-    background: var(--color-active-bg);
+    border-radius: var(--radius-page);
+    background: var(--page);
+    box-shadow: 0 0 0 1px var(--border);
   }
   .thumb.current .frame {
-    box-shadow: 0 0 0 3px var(--color-accent);
+    box-shadow: 0 0 0 2px var(--accent);
   }
   .thumb.dimmed {
     opacity: 0.35;
@@ -148,23 +150,21 @@
     top: 0;
     left: 0;
   }
-  .placeholder {
-    position: absolute;
-    inset: 0;
-  }
   .canvas-host :global(canvas) {
     display: block;
   }
   .placeholder {
-    background: var(--color-surface);
+    position: absolute;
+    inset: 0;
+    background: var(--surface-2);
   }
   .num {
     font-size: var(--font-size-xs);
-    color: var(--color-text-muted);
+    color: var(--muted);
     line-height: 16px;
   }
   .thumb.current .num {
-    color: var(--color-text);
-    font-weight: 600;
+    color: var(--accent);
+    font-weight: 700;
   }
 </style>

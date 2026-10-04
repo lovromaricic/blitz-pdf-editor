@@ -121,24 +121,24 @@
     width: min(560px, calc(100vw - 2 * var(--space-4)));
     max-height: min(80vh, 720px);
     padding: 0;
-    border: var(--border-width) solid var(--color-border-strong);
+    border: var(--border-width) solid var(--border);
     border-radius: var(--radius-lg);
-    background: var(--color-bg);
-    color: var(--color-text);
+    background: var(--surface);
+    color: var(--text);
   }
   dialog[open] {
     display: flex;
     flex-direction: column;
   }
   dialog::backdrop {
-    background: rgb(0 0 0 / 0.4);
+    background: var(--backdrop);
   }
   header {
     display: flex;
     align-items: center;
     justify-content: space-between;
     padding: var(--space-4) var(--space-5);
-    border-bottom: var(--border-width) solid var(--color-border);
+    border-bottom: var(--border-width) solid var(--border);
   }
   h2 {
     font-size: var(--font-size-lg);
@@ -156,7 +156,7 @@
     font-size: var(--font-size-lg);
   }
   .close:hover {
-    background: var(--color-surface-strong);
+    background: var(--surface-2);
   }
   .body {
     overflow-y: auto;
@@ -179,7 +179,7 @@
   th,
   td {
     padding: var(--space-1) 0;
-    border-bottom: var(--border-width) solid var(--color-border);
+    border-bottom: var(--border-width) solid var(--border);
     text-align: left;
     vertical-align: top;
   }
@@ -192,14 +192,14 @@
   }
   kbd {
     padding: 0 var(--space-1);
-    border: var(--border-width) solid var(--color-border-strong);
+    border: var(--border-width) solid var(--border);
     border-radius: var(--radius-sm);
-    background: var(--color-surface);
+    background: var(--surface-2);
     font-family: inherit;
     font-size: var(--font-size-xs);
   }
   .or {
-    color: var(--color-text-muted);
+    color: var(--muted);
     font-size: var(--font-size-xs);
   }
 </style>
