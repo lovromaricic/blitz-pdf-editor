@@ -74,7 +74,7 @@ export const COMMANDS = {
   'tools.protect': { label: 'Protect with password…' },
   'tools.unlock': { label: 'Remove password…' },
   'tools.watermark': { label: 'Add watermark…' },
-  'tools.flatten': { label: 'Flatten form' },
+  'tools.flatten': { label: 'Flatten / lock form…' },
   'tools.ocr': { label: 'Make text searchable (OCR)…' },
   'tools.compare': { label: 'Compare two PDFs…' },
   'tools.redact': { label: 'Redact content…' },

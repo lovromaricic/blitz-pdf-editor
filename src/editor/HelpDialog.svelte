@@ -83,6 +83,7 @@
           <li><strong>Mistakes:</strong> everything can be undone with {mod}+Z until you close the document.</li>
           <li><strong>Saving:</strong> <em>File › Save</em> downloads the edited PDF. Your original file is never changed.</li>
           <li><strong>Find text:</strong> {mod}+F, then Enter for the next match. Scanned pages need <em>Tools › Make text searchable</em> first.</li>
+          <li><strong>Forms:</strong> fill fields with the Fill form tool. <em>Tools › Flatten / lock form</em> makes the answers permanent; you download the result as a new "-flattened" copy, and your original file stays as it is.</li>
           <li><strong>Redact:</strong> <em>Tools › Redact content</em> blacks out areas or every match of a word, and removes what's underneath from the file.</li>
           <li><strong>Compare:</strong> <em>Tools › Compare two PDFs</em> shows the open document next to another file, with the words that differ highlighted.</li>
         </ul>

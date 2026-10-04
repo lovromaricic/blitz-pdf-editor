@@ -19,7 +19,8 @@
           const dot = text.lastIndexOf('.');
           input.setSelectionRange(0, dot > 0 ? dot : text.length);
         } else {
-          dialog.querySelector<HTMLButtonElement>('button.btn-primary')?.focus();
+          const first = req.initialFocus ? dialog.querySelector<HTMLButtonElement>(`button[data-value="${req.initialFocus}"]`) : null;
+          (first ?? dialog.querySelector<HTMLButtonElement>('button.btn-primary'))?.focus();
         }
       });
     } else if (!req && dialog.open) {
@@ -46,6 +47,14 @@
     e.preventDefault();
     if (req) choose(req.cancelValue);
   }}
+  onclick={(e) => {
+    // A click on the backdrop (outside the dialog's box) cancels.
+    if (e.target === dialog && req) {
+      const r = dialog.getBoundingClientRect();
+      const inside = e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom;
+      if (!inside) choose(req.cancelValue);
+    }
+  }}
 >
   {#if req}
     <form onsubmit={onSubmit}>
@@ -57,7 +66,7 @@
       {/if}
       <div class="actions">
         {#each req.buttons as b (b.value)}
-          <button class="btn" class:btn-primary={b.primary} class:btn-danger={b.danger} type={b.primary ? 'submit' : 'button'} onclick={b.primary ? undefined : () => choose(b.value)}>
+          <button class="btn" class:btn-primary={b.primary} class:btn-danger={b.danger} data-value={b.value} type={b.primary ? 'submit' : 'button'} onclick={b.primary ? undefined : () => choose(b.value)}>
             {b.label}
           </button>
         {/each}

@@ -239,7 +239,21 @@ async function applyForm(doc: PDFDocument, values: FieldValue[], flatten: boolea
     const font = strings.every(isWinAnsi) ? await doc.embedFont(StandardFonts.Helvetica) : await fonts(doc, 'sans');
     form.updateFieldAppearances(font);
   }
-  if (flatten) form.flatten({ updateFieldAppearances: false });
+  if (flatten) {
+    // Fields filled in elsewhere may have a value but no drawn appearance; flattening would
+    // then draw one with Helvetica, which turns č, ć, đ… into "?". Draw just those, with a
+    // font that has every letter in the form. Fields that already look right are kept as is.
+    const texts = form.getFields().flatMap((f) => {
+      if (f instanceof PDFTextField) return [f.getText() ?? ''];
+      if (f instanceof PDFDropdown || f instanceof PDFOptionList) return f.getSelected();
+      return [];
+    });
+    const font = texts.every(isWinAnsi) ? await doc.embedFont(StandardFonts.Helvetica) : await fonts(doc, 'sans');
+    form.updateFieldAppearances(font);
+    form.flatten({ updateFieldAppearances: false });
+    // An empty form dictionary still makes viewers say "this PDF has a form"; drop it.
+    if (form.getFields().length === 0) doc.catalog.delete(PDFName.of('AcroForm'));
+  }
 }
 
 async function openSource(src: SourceInput): Promise<PDFDocument> {

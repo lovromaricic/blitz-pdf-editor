@@ -174,7 +174,8 @@
     'tools.redact': { run: () => openPanel('redact'), enabled: idle },
     'tools.compare': { run: () => compareInput.click(), enabled: idle },
     'tools.split': { run: () => openPanel('split'), enabled: () => idle() && doc.pages.length > 1 },
-    'tools.flatten': { run: () => actions.flattenForms(), enabled: () => actions.canFlatten() },
+    // Always available: on a PDF without fields it explains instead of changing anything.
+    'tools.flatten': { run: () => void actions.flattenForms(), enabled: idle },
     'tools.watermark': { run: () => openPanel('watermark') },
     'tools.protect': { run: () => openPanel('protect') },
     'tools.unlock': { run: () => openPanel('unlock'), enabled: () => !!doc.settings.protection },

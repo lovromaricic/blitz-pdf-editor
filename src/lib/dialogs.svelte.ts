@@ -16,6 +16,8 @@ export interface DialogRequest {
   buttons: DialogButton[];
   /** Value returned on Escape / backdrop. */
   cancelValue: string;
+  /** Button (by value) that gets focus first; default: the primary button. */
+  initialFocus?: string;
   resolve: (result: { button: string; text: string }) => void;
 }
 

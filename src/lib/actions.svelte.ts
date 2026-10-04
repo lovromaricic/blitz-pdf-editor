@@ -14,6 +14,7 @@ import { canvasToBlob, createRasterizer } from './rasterize';
 import { addOcrText, analyzeSources, compressSources, estimateCompression, imagesToPdfInWorker, redactInWorker, writePdf, writePdfs } from './pdf/pdf-writer';
 import type { Rect } from './annotations';
 import { findMatchRects } from './search.svelte';
+import { FLATTEN_STRINGS } from './strings';
 import { groupMarks, padTextRect } from './redact-marks';
 import type { OcrLanguage } from './ocr';
 import { isWorthwhile, type CompressSettings } from './pdf/compress';
@@ -154,7 +155,11 @@ export class Actions {
     return this.doc.hasPasswordSources ? ' It is not password-protected.' : '';
   }
 
-  async save(fileName = this.doc.fileName, markSaved = true) {
+  async save(fileName = this.doc.fileName, markSaved = true): Promise<boolean> {
+    // A flattened form is never saved under the original name: offer a "-flattened" copy.
+    if (this.doc.pages.some((p) => p.flattenForm) && fileName === this.doc.fileName && fileName !== this.flattenedFileName()) {
+      return this.saveFlattenedCopy();
+    }
     if (!(await this.checkPendingRedactions())) return false;
     const bytes = await this.viewer.runTask('Saving…', () => writePdf(this.doc, this.doc.pages, 'preserve'));
     if (!bytes) return false;
@@ -162,6 +167,18 @@ export class Actions {
     if (markSaved) this.doc.markSaved();
     this.viewer.notify(`Saved ${fileName} to your downloads.${this.passwordNote()}`);
     return true;
+  }
+
+  /** Save the flattened form as a new copy (the normal Save a copy flow, with the suggested name). */
+  private async saveFlattenedCopy(): Promise<boolean> {
+    const suggested = this.flattenedFileName();
+    const name = await promptText('Save a copy', 'File name', suggested, 'Save');
+    if (name === null) return false;
+    const fileName = pdfFileName(name, suggested);
+    // From now on this document is the copy: further saves keep its name.
+    const saved = await this.save(fileName, true);
+    if (saved) this.doc.fileName = fileName;
+    return saved;
   }
 
   async saveCopy() {
@@ -482,15 +499,44 @@ export class Actions {
 
   // --- Forms ----------------------------------------------------------------
 
-  canFlatten() {
-    return this.doc.hasForms && this.doc.pages.some((p) => !p.flattenForm && this.doc.source(p).hasForm);
+  /** Pages whose form fields aren't flattened yet. */
+  private unflattenedFormPages() {
+    return this.doc.pages.filter((p) => !p.flattenForm && this.doc.source(p).hasForm);
   }
 
-  /** Mark form fields for flattening on save (undoable until then). */
-  flattenForms() {
-    if (!this.canFlatten()) return;
-    this.doc.edit('Flatten form', this.doc.pages.map((p) => (p.flattenForm || !this.doc.source(p).hasForm ? p : { ...p, flattenForm: true })));
-    this.viewer.notify('The form will be flattened when you save. Until then you can undo with Ctrl+Z.');
+  /**
+   * Flatten / lock form: after confirmation, mark the form fields to become page
+   * content (one undo step). The result is saved as a new "-flattened" copy.
+   */
+  async flattenForms() {
+    if (!this.doc.hasForms) {
+      // Nothing to flatten: say so, change nothing, no undo step.
+      this.viewer.notify(FLATTEN_STRINGS.noFields);
+      return;
+    }
+    if (this.unflattenedFormPages().length === 0) {
+      this.viewer.notify(FLATTEN_STRINGS.already);
+      return;
+    }
+    const r = await showDialog({
+      title: FLATTEN_STRINGS.title,
+      message: FLATTEN_STRINGS.message,
+      buttons: [
+        { value: 'cancel', label: FLATTEN_STRINGS.cancel },
+        { value: 'flatten', label: FLATTEN_STRINGS.confirm, primary: true },
+      ],
+      cancelValue: 'cancel',
+      initialFocus: 'cancel',
+    });
+    if (r.button !== 'flatten') return;
+    this.doc.edit(FLATTEN_STRINGS.undoLabel, this.doc.pages.map((p) => (p.flattenForm || !this.doc.source(p).hasForm ? p : { ...p, flattenForm: true })));
+    this.viewer.notify(FLATTEN_STRINGS.done);
+  }
+
+  /** The name a flattened form is saved under: "<original>-flattened.pdf". */
+  flattenedFileName() {
+    const base = baseName(this.doc.fileName);
+    return `${base.endsWith(FLATTEN_STRINGS.copySuffix) ? base : base + FLATTEN_STRINGS.copySuffix}.pdf`;
   }
 
   // --- Annotations --------------------------------------------------------

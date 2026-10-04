@@ -43,3 +43,13 @@ describe('shortcuts', () => {
     }
   });
 });
+
+describe('Flatten / lock form', () => {
+  it('is in the Tools menu under its new name', () => {
+    const tools = MENUS.find((m) => m.label === 'Tools')!;
+    const flat = (entries: MenuEntry[]): string[] => entries.flatMap((e) => (e === '-' ? [] : typeof e === 'string' ? [e] : flat(e.items)));
+    expect(flat(tools.items)).toContain('tools.flatten');
+    expect(COMMANDS['tools.flatten'].label).toBe('Flatten / lock form…');
+    expect(Object.values(COMMANDS).some((c) => (c.label as string) === 'Flatten form')).toBe(false);
+  });
+});
