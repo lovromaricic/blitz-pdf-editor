@@ -12,6 +12,7 @@
   import { PAGE_GAP, provideViewer, Viewer } from '../lib/viewer.svelte';
   import { APP_NAME, REPORT_PROBLEM_URL } from '../config';
   import CanvasView from '../editor/CanvasView.svelte';
+  import CompareView from '../editor/compare/CompareView.svelte';
   import HelpDialog, { type HelpTopic } from '../editor/HelpDialog.svelte';
   import SignatureDialog from '../editor/SignatureDialog.svelte';
   import MobileMenu from '../editor/mobile/MobileMenu.svelte';
@@ -42,6 +43,9 @@
 
   let openInput: HTMLInputElement;
   let insertInput: HTMLInputElement;
+  let compareInput: HTMLInputElement;
+  /** The other file in Compare, while it's open. */
+  let compareFile = $state<File | null>(null);
 
   function focusById(id: string) {
     const el = document.getElementById(id) as HTMLInputElement | null;
@@ -165,6 +169,9 @@
     // Tools
     'tools.merge': { run: () => openPanel('merge'), enabled: idle },
     'tools.compress': { run: () => openPanel('compress'), enabled: idle },
+    'tools.ocr': { run: () => openPanel('ocr'), enabled: idle },
+    'tools.redact': { run: () => openPanel('redact'), enabled: idle },
+    'tools.compare': { run: () => compareInput.click(), enabled: idle },
     'tools.split': { run: () => openPanel('split'), enabled: () => idle() && doc.pages.length > 1 },
     'tools.flatten': { run: () => actions.flattenForms(), enabled: () => actions.canFlatten() },
     'tools.watermark': { run: () => openPanel('watermark') },
@@ -212,6 +219,8 @@
   });
 
   function onKeyDown(e: KeyboardEvent) {
+    // Compare is a separate full-screen view: editor shortcuts don't apply there.
+    if (compareFile) return;
     const plain = !e.ctrlKey && !e.metaKey && !e.altKey;
     // Single-key shortcuts don't apply inside dialogs or menus.
     const inOverlay = !!document.querySelector('dialog[open]') || !!(e.target as HTMLElement).closest?.('[role="menu"], [role="menubar"]');
@@ -299,6 +308,7 @@
   {/if}
 
   <HelpDialog topic={help} onClose={() => (help = null)} />
+  {#if compareFile}<CompareView {doc} file={compareFile} onClose={() => (compareFile = null)} />{/if}
   <SignatureDialog />
 
   <input
@@ -320,6 +330,18 @@
     tabindex="-1"
     aria-hidden="true"
     onchange={(e) => onPickInsert(e.currentTarget.files)}
+  />
+  <input
+    bind:this={compareInput}
+    class="visually-hidden"
+    type="file"
+    accept="application/pdf,.pdf"
+    tabindex="-1"
+    aria-hidden="true"
+    onchange={(e) => {
+      compareFile = e.currentTarget.files?.[0] ?? null;
+      e.currentTarget.value = '';
+    }}
   />
 </div>
 

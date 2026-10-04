@@ -194,6 +194,9 @@
       <div class="toast" role="status">
         <span>{viewer.task.label}</span>
         <progress max="1" value={viewer.task.progress ?? undefined} aria-label={viewer.task.label}></progress>
+        {#if viewer.task.cancel}
+          <button type="button" class="btn task-cancel" onclick={() => viewer.task?.cancel?.()}>Cancel</button>
+        {/if}
       </div>
     {:else if viewer.notice}
       {#key viewer.notice.id}
@@ -267,6 +270,11 @@
   }
   .toast.error :global(.toast-icon) {
     color: var(--danger);
+  }
+  .task-cancel {
+    min-height: 30px;
+    padding: 0 var(--space-3);
+    font-size: var(--font-size-sm);
   }
   .toast progress {
     width: 120px;

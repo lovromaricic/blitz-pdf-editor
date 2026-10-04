@@ -23,7 +23,9 @@ export async function createRasterizer(doc: EditorDocument): Promise<Rasterizer>
   const decoFor = decorationResolver(doc);
   await loadFonts();
   return {
-    async render(page, dpi, intent = 'display') {
+    // 'print' intent renders without waiting for animation frames: exports keep
+    // going in background tabs.
+    async render(page, dpi, intent = 'print') {
       const pdfPage = await doc.source(page).pdf.getPage(page.sourceIndex + 1);
       // Fit within the pixel budget, lowering the resolution if needed.
       const m = doc.displayedCrop(page);

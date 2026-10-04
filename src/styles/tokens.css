@@ -26,6 +26,10 @@
   --search-hit: rgb(63 111 224 / 0.22); /* search results on the page */
   --search-hit-active: rgb(63 111 224 / 0.45);
   --editing-fill: rgb(255 255 255 / 0.85); /* behind a text box being typed in */
+  --redact-mark: #1f2733; /* outline of an area marked for redaction (not yet applied) */
+  --redact-mark-fill: rgb(31 39 51 / 0.45);
+  --diff-removed: rgb(217 45 32 / 0.28); /* Compare: text only in the first document */
+  --diff-added: rgb(18 140 74 / 0.3); /* Compare: text only in the second document */
 
   /* Typography (Manrope is bundled with the app; never loaded from a CDN) */
   --font-sans: 'Manrope', system-ui, sans-serif;

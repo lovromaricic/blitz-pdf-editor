@@ -29,7 +29,12 @@
     "@fontsource/dancing-script": "^5.3.0",
     "@fontsource/manrope": "^5.3.0",
     "@lucide/svelte": "^1.52.0",
+    "@tesseract.js-data/eng": "^1.0.0",
+    "@tesseract.js-data/hrv": "^1.0.0",
+    "diff": "^9.0.0",
     "fflate": "^0.8.3",
-    "pdfjs-dist": "^6.4.299"
+    "pdfjs-dist": "^6.4.299",
+    "tesseract.js": "^7.0.0",
+    "tesseract.js-core": "^7.0.0"
   }
 }

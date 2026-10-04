@@ -3,7 +3,7 @@
 import { getContext, setContext } from 'svelte';
 import { describe, newAnnotationId, translate, type Annotation } from './annotations';
 import { baseName, loadFiles, newPageId, type EditorDocument, type PageRef } from './document.svelte';
-import { confirmDiscard, promptText } from './dialogs.svelte';
+import { confirmDiscard, promptText, showDialog } from './dialogs.svelte';
 import { downloadBytes, downloadZip, pdfFileName } from './download';
 import { readPdfFiles, type OpenFile } from './files';
 import { askPassword } from './open-files.svelte';
@@ -11,7 +11,11 @@ import { deletePages, formatPageRange, insertPages, movePages, rotatePages } fro
 import { blankPdf } from './pdf/blank';
 import { documentText, printDocument } from './print';
 import { canvasToBlob, createRasterizer } from './rasterize';
-import { analyzeSources, compressSources, imagesToPdfInWorker, writePdf, writePdfs } from './pdf/pdf-writer';
+import { addOcrText, analyzeSources, compressSources, imagesToPdfInWorker, redactInWorker, writePdf, writePdfs } from './pdf/pdf-writer';
+import type { Rect } from './annotations';
+import { findMatchRects } from './search.svelte';
+import { groupMarks, padTextRect } from './redact-marks';
+import type { OcrLanguage } from './ocr';
 import type { CompressLevel } from './pdf/compress';
 import type { ImagesToPdfOptions } from './pdf/images-to-pdf';
 import { isImageFile, prepareImage } from './image-input';
@@ -151,6 +155,7 @@ export class Actions {
   }
 
   async save(fileName = this.doc.fileName, markSaved = true) {
+    if (!(await this.checkPendingRedactions())) return false;
     const bytes = await this.viewer.runTask('Saving…', () => writePdf(this.doc, this.doc.pages, 'preserve'));
     if (!bytes) return false;
     downloadBytes(bytes, fileName);
@@ -221,7 +226,7 @@ export class Actions {
     const empty = text.replace(/--- Page \d+ ---/g, '').trim() === '';
     this.viewer.notify(
       empty
-        ? `Saved ${fileName}, but no text was found. This looks like a scanned document; text recognition (OCR) comes in a later version.`
+        ? `Saved ${fileName}, but no text was found. This looks like a scanned document: use Tools › Make text searchable (OCR) first.`
         : `Saved ${fileName} to your downloads.`,
     );
   }
@@ -283,6 +288,155 @@ export class Actions {
       }
       return { before, after };
     });
+  }
+
+  // --- OCR ------------------------------------------------------------------
+
+  /** Recognise text on scanned pages and add it as an invisible, searchable layer (undoable). */
+  async ocr(pages: readonly PageRef[], languages: OcrLanguage[]) {
+    if (pages.length === 0) return;
+    const result = await this.viewer.runTask(
+      `Recognizing text (${this.plural(pages.length, 'page')})…`,
+      async (progress, signal) => {
+        const { recognizePages } = await import('./ocr');
+        const found = await recognizePages(this.doc, pages, languages, (p) => progress(p * 0.9), signal);
+        // Write the words into each affected file, then point pages at the new version.
+        const bySource = new Map<string, Record<number, NonNullable<ReturnType<typeof found.get>>>>();
+        let words = 0;
+        for (const [page, list] of found) {
+          if (!list.length) continue;
+          words += list.length;
+          const entry = bySource.get(page.sourceId) ?? {};
+          entry[page.sourceIndex] = list;
+          bySource.set(page.sourceId, entry);
+        }
+        const remap = new Map<string, string>();
+        for (const [sourceId, wordsByPage] of bySource) {
+          signal.throwIfAborted();
+          const bytes = await addOcrText(this.doc, sourceId, wordsByPage);
+          remap.set(sourceId, await this.doc.addReplacementSource(this.doc.sources.get(sourceId)!, bytes, 'ocr'));
+        }
+        progress(1);
+        if (remap.size) {
+          this.doc.edit('Make text searchable', this.doc.pages.map((p) => (remap.has(p.sourceId) ? { ...p, sourceId: remap.get(p.sourceId)! } : p)));
+        }
+        return { words, pages: [...found.values()].filter((l) => l.length).length };
+      },
+      { cancellable: true },
+    );
+    if (!result) return;
+    this.viewer.notify(
+      result.words
+        ? `Recognized ${result.words} words on ${this.plural(result.pages, 'page')}. Search and text selection now work there.`
+        : 'No text was recognized. The pages may be blank, or the language setting may not match.',
+    );
+  }
+
+  // --- Redaction ----------------------------------------------------------
+
+  get redactionCount() {
+    return this.doc.pages.reduce((n, p) => n + (p.redactions?.length ?? 0), 0);
+  }
+
+  private editRedactions(label: string, fn: (p: PageRef) => readonly Rect[] | undefined) {
+    let changed = false;
+    const next = this.doc.pages.map((p) => {
+      const before = p.redactions ?? [];
+      const after = fn(p) ?? [];
+      if (after === before || (after.length === 0 && before.length === 0)) return p;
+      changed = true;
+      const { redactions: _, ...rest } = p;
+      return after.length ? { ...rest, redactions: after } : rest;
+    });
+    if (changed) this.doc.edit(label, next);
+  }
+
+  markRedaction(pageId: string, rect: Rect) {
+    this.editRedactions('Mark area for redaction', (p) => (p.id === pageId ? [...(p.redactions ?? []), rect] : p.redactions));
+  }
+
+  removeRedaction(pageId: string, index: number) {
+    this.editRedactions('Remove redaction mark', (p) => (p.id === pageId ? p.redactions?.filter((_, k) => k !== index) : p.redactions));
+  }
+
+  clearRedactions() {
+    this.editRedactions('Clear redaction marks', () => undefined);
+  }
+
+  /** Mark every occurrence of `query` in the document. Returns how many were found. */
+  async markMatches(query: string) {
+    const found = await this.viewer.runTask('Finding text…', () => findMatchRects(this.doc, this.doc.pages, query));
+    if (!found?.length) return 0;
+        const byPage = new Map(found.map((f) => [f.pageId, f.rects.map(padTextRect)]));
+    const total = found.reduce((n, f) => n + f.rects.length, 0);
+    this.editRedactions(`Mark ${this.plural(total, 'match')} for redaction`, (p) =>
+      byPage.has(p.id) ? [...(p.redactions ?? []), ...byPage.get(p.id)!] : p.redactions,
+    );
+    this.viewer.goToPage(this.doc.pages.findIndex((p) => p.id === found[0].pageId));
+    return total;
+  }
+
+  /**
+   * Burn the marks in: affected pages are replaced by images with black boxes,
+   * and their original content is removed from the file (undoable until saved).
+   */
+  async applyRedactions(removeInfo: boolean) {
+    const { renderRedactedPage } = await import('./redact');
+    const groups = groupMarks(this.doc.pages);
+    const total = [...groups.values()].reduce((n, m) => n + m.size, 0);
+    if (total === 0) return false;
+    const done = await this.viewer.runTask(`Redacting ${this.plural(total, 'page')}…`, async (progress, signal) => {
+      const remap = new Map<string, string>();
+      let n = 0;
+      for (const [sourceId, marks] of groups) {
+        const rendered = [];
+        for (const [index, rects] of marks) {
+          signal.throwIfAborted();
+          rendered.push(await renderRedactedPage(this.doc, sourceId, index, rects));
+          progress((++n / total) * 0.8);
+        }
+        const bytes = await redactInWorker(this.doc, sourceId, rendered, removeInfo);
+        signal.throwIfAborted();
+        remap.set(sourceId, await this.doc.addReplacementSource(this.doc.sources.get(sourceId)!, bytes, 'redacted'));
+      }
+      progress(1);
+      // Point every page of the affected files at the redacted version; marks are now applied.
+      this.doc.edit(
+        'Apply redaction',
+        this.doc.pages.map((p) => {
+          if (!remap.has(p.sourceId)) return p;
+          const { redactions: _, ...rest } = p;
+          return { ...rest, sourceId: remap.get(p.sourceId)! };
+        }),
+      );
+      if (removeInfo) this.doc.info = { pdfVersion: this.doc.info.pdfVersion };
+      return true;
+    }, { cancellable: true });
+    if (!done) return false;
+    this.viewer.notify(
+      `Redacted ${this.plural(total, 'page')}. The marked content is removed from the file; save to keep it that way. ` +
+        'Redacted pages are now images: use Make text searchable to search them again.',
+    );
+    return true;
+  }
+
+  /** Before saving: marks that aren't applied would leave the content in the file. */
+  private async checkPendingRedactions() {
+    const n = this.redactionCount;
+    if (n === 0) return true;
+    const r = await showDialog({
+      title: 'Redaction not applied',
+      message: `${this.plural(n, 'area')} ${n === 1 ? 'is' : 'are'} marked for redaction but not applied yet, so the content underneath would still be in the saved file.`,
+      buttons: [
+        { value: 'cancel', label: 'Cancel' },
+        { value: 'skip', label: 'Save without redacting' },
+        { value: 'apply', label: 'Apply and save', primary: true },
+      ],
+      cancelValue: 'cancel',
+    });
+    if (r.button === 'cancel') return false;
+    if (r.button === 'apply') return this.applyRedactions(this.viewer.redactRemoveInfo);
+    return true;
   }
 
   // --- Images to PDF -------------------------------------------------------

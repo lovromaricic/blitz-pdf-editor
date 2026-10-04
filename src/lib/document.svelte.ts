@@ -6,7 +6,7 @@ import { SvelteMap } from 'svelte/reactivity';
 import { looksDigitallySigned, type OpenFile, type RejectedFile } from './files';
 import { History } from './history.svelte';
 import type { DocSettings } from './settings';
-import type { Annotation } from './annotations';
+import type { Annotation, Rect } from './annotations';
 import { marginsToDisplayed, NO_MARGINS, type Margins } from './page-ops';
 import { hasFormFields } from './forms';
 import { loadPdf, PdfLoadError } from './pdf/pdfjs';
@@ -54,6 +54,8 @@ export interface PageRef {
   readonly annots?: readonly Annotation[];
   /** Form fields on this page are flattened into page content when saved. */
   readonly flattenForm?: boolean;
+  /** Areas marked for redaction (PDF user space), not yet applied. */
+  readonly redactions?: readonly Rect[];
 }
 
 interface Snapshot {
@@ -284,7 +286,7 @@ async function measureSource(source: Source) {
   }
 }
 
-async function openWithPassword(file: OpenFile, askPassword: AskPassword) {
+export async function openWithPassword(file: OpenFile, askPassword: AskPassword) {
   let password: string | undefined;
   for (;;) {
     try {

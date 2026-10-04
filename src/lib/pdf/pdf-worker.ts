@@ -1,16 +1,20 @@
 // Web Worker for heavy PDF work (save, extract, split, images to PDF,
-// compress), off the UI thread.
+// compress, OCR text, redaction), off the UI thread.
 import {
+  addOcrToSource,
   analyzeSource,
   assemble,
   compressSource,
+  redactSource,
   UserError,
+  type RedactedPage,
   type AssembleMode,
   type Encryption,
   type PagePlan,
   type SourceInput,
 } from './assemble';
 import type { Analysis, CompressLevel } from './compress';
+import type { OcrWord } from './ocr-text';
 import { createFontProvider } from './font-provider';
 import { imagesToPdf, type ImageInput, type ImagesToPdfOptions } from './images-to-pdf';
 import type { FontKey } from './write-annotations';
@@ -28,7 +32,9 @@ export type Job =
     }
   | { kind: 'images'; images: ImageInput[]; options: ImagesToPdfOptions }
   | { kind: 'compress'; sources: SourceInput[]; level: CompressLevel; forms: Record<string, FieldValue[]> }
-  | { kind: 'analyze'; sources: SourceInput[] };
+  | { kind: 'analyze'; sources: SourceInput[] }
+  | { kind: 'ocrText'; source: SourceInput; words: Record<number, OcrWord[]>; forms: FieldValue[] }
+  | { kind: 'redact'; source: SourceInput; pages: RedactedPage[]; forms: FieldValue[]; removeInfo: boolean };
 
 export type JobRequest = Job & { id: number; fontUrls: Record<FontKey, string> };
 
@@ -80,6 +86,10 @@ async function run(job: JobRequest, progress: (done: number, total: number) => v
     }
     case 'analyze':
       return { files: [], analyses: await Promise.all(job.sources.map(analyzeSource)) };
+    case 'ocrText':
+      return { files: [await addOcrToSource(job.source, job.words, job.forms, fonts)] };
+    case 'redact':
+      return { files: [await redactSource(job.source, job.pages, job.forms, fonts, job.removeInfo)] };
   }
 }
 

@@ -6,6 +6,8 @@
   import { formatBytes } from '../lib/files';
   import { useViewer } from '../lib/viewer.svelte';
   import CompressPanel from './panels/CompressPanel.svelte';
+  import OcrPanel from './panels/OcrPanel.svelte';
+  import RedactPanel from './panels/RedactPanel.svelte';
   import CropPanel from './panels/CropPanel.svelte';
   import ImagesToPdfPanel from './panels/ImagesToPdfPanel.svelte';
   import ExportImagesPanel from './panels/ExportImagesPanel.svelte';
@@ -72,6 +74,10 @@
     <UnlockPanel />
   {:else if viewer.panel === 'exportImages'}
     <ExportImagesPanel />
+  {:else if viewer.panel === 'ocr'}
+    <OcrPanel />
+  {:else if viewer.panel === 'redact'}
+    <RedactPanel />
   {:else if viewer.panel === 'compress'}
     <CompressPanel />
   {:else if viewer.panel === 'imagesToPdf'}

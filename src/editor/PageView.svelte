@@ -6,6 +6,7 @@
   import AnnotationLayer from './AnnotationLayer.svelte';
   import FormLayer from './FormLayer.svelte';
   import DecorationLayer from './DecorationLayer.svelte';
+  import RedactLayer from './RedactLayer.svelte';
 
   let {
     page,
@@ -160,6 +161,7 @@
   <div class="textLayer" bind:this={textHost}></div>
   {#if viewport && pdfPage}<FormLayer {pdfPage} {viewport} {page} source={doc.source(page)} />{/if}
   {#if viewport}<AnnotationLayer {page} {viewport} />{/if}
+  {#if viewport}<RedactLayer {page} {viewport} {index} />{/if}
   </div>
   {#if viewer.fontsReady && !viewer.cropPreview}
     {@const deco = viewer.decorationFor(page)}

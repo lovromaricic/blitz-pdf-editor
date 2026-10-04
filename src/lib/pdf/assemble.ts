@@ -24,6 +24,7 @@ import type { PageDecoration } from '../decorations';
 import { addAnnotations, type FontProvider } from './write-annotations';
 import { drawDecoration } from './write-decorations';
 import { analyze, recompressImages, type Analysis, type CompressLevel } from './compress';
+import { addInvisibleText, type OcrWord } from './ocr-text';
 
 export interface SourceInput {
   id: string;
@@ -382,4 +383,69 @@ export async function compressSource(
 
 export async function analyzeSource(src: SourceInput): Promise<Analysis> {
   return analyze(await openSource(src), src.bytes.length);
+}
+
+/** Add recognised text (invisible) to pages of one source file. */
+export async function addOcrToSource(
+  src: SourceInput,
+  wordsByPage: Record<number, OcrWord[]>,
+  values: FieldValue[],
+  fonts: FontProvider,
+): Promise<Uint8Array> {
+  const doc = await openSource(src);
+  await applyForm(doc, values, false, fonts);
+  for (const [index, words] of Object.entries(wordsByPage)) await addInvisibleText(doc, Number(index), words, fonts);
+  return doc.save({ useObjectStreams: true, updateFieldAppearances: false });
+}
+
+/** A page to redact: its replacement image (JPEG) and where it goes (the page's visible box). */
+export interface RedactedPage {
+  /** 0-based page index in the source. */
+  index: number;
+  jpeg: Uint8Array;
+  /** [x0, y0, x1, y1] in PDF user space. */
+  box: [number, number, number, number];
+}
+
+/** Page entries that can carry content or text of the old page. */
+const PAGE_KEYS_TO_DROP = ['Contents', 'Resources', 'Annots', 'Thumb', 'PieceInfo', 'Metadata', 'StructParents', 'B', 'AA', 'Group'];
+
+/**
+ * Replace the content of the given pages with images (already blacked out),
+ * so nothing that was under the redaction boxes remains in the file: text,
+ * images, vector art, annotations, form fields, thumbnails and tagged-text
+ * alternates are all removed, and unreachable objects are dropped.
+ */
+export async function redactSource(
+  src: SourceInput,
+  pages: readonly RedactedPage[],
+  values: FieldValue[],
+  fonts: FontProvider,
+  removeInfo: boolean,
+): Promise<Uint8Array> {
+  const doc = await openSource(src);
+  await applyForm(doc, values, false, fonts);
+  for (const r of pages) {
+    const page = doc.getPage(r.index);
+    for (const key of PAGE_KEYS_TO_DROP) page.node.delete(PDFName.of(key));
+    // Own (empty) resources, so nothing is inherited from the page tree.
+    page.node.set(PDFName.of('Resources'), doc.context.obj({}));
+    const image = await doc.embedJpg(r.jpeg);
+    const [x0, y0, x1, y1] = r.box;
+    page.drawImage(image, { x: x0, y: y0, width: x1 - x0, height: y1 - y0 });
+  }
+  if (pages.length) {
+    // Form fields whose widgets were on redacted pages go too.
+    pruneFormFields(doc, doc.getPages());
+    // The structure tree can hold the original text (ActualText, Alt) of tagged PDFs.
+    doc.catalog.delete(PDFName.of('StructTreeRoot'));
+    doc.catalog.delete(PDFName.of('MarkInfo'));
+  }
+  if (removeInfo) {
+    doc.catalog.delete(PDFName.of('Metadata'));
+    const info = doc.context.trailerInfo.Info;
+    if (info) doc.context.assign(info as PDFRef, doc.context.obj({}));
+  }
+  collectGarbage(doc);
+  return doc.save({ useObjectStreams: true, updateFieldAppearances: false });
 }

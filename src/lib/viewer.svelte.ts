@@ -20,6 +20,8 @@ export const PAGE_GAP = 16;
 export type FitMode = 'width' | 'page' | null;
 /** Tool panels shown in the right-hand panel (opened from menus). */
 export type ToolPanel =
+  | 'ocr'
+  | 'redact'
   | 'extract'
   | 'split'
   | 'merge'
@@ -36,6 +38,8 @@ export interface Task {
   label: string;
   /** 0..1, or null when unknown. */
   progress: number | null;
+  /** Present for jobs that can be stopped (shows a Cancel button). */
+  cancel?: () => void;
 }
 
 export type Tool = 'select' | 'text' | 'highlight' | 'draw' | 'shapes' | 'stamp' | 'comment' | 'sign' | 'form';
@@ -95,6 +99,8 @@ export class Viewer {
   /** While the crop panel is open: pages show uncropped, with these margins (on-screen orientation, points) shaded. */
   cropPreview = $state.raw<{ ids: ReadonlySet<string>; margins: Margins } | null>(null);
   notice = $state<{ text: string; id: number; error: boolean } | null>(null);
+  /** Redaction also removes the document's properties (title, author…). */
+  redactRemoveInfo = $state(true);
 
   /** Mirrors of the scroll container's geometry, for virtualized rendering. */
   scrollTop = $state(0);
@@ -234,12 +240,24 @@ export class Viewer {
     if (!error) this.noticeTimer = setTimeout(() => (this.notice = null), 6000);
   }
 
-  /** Run a slow job with a progress indicator; errors become a notice. */
-  async runTask<T>(label: string, job: (progress: (p: number) => void) => Promise<T>): Promise<T | undefined> {
-    this.task = { label, progress: null };
+  /**
+   * Run a slow job with a progress indicator; errors become a notice. With
+   * `cancellable`, the job gets an AbortSignal and the notice a Cancel button.
+   */
+  async runTask<T>(
+    label: string,
+    job: (progress: (p: number) => void, signal: AbortSignal) => Promise<T>,
+    { cancellable = false } = {},
+  ): Promise<T | undefined> {
+    const controller = new AbortController();
+    this.task = { label, progress: null, cancel: cancellable ? () => controller.abort() : undefined };
     try {
-      return await job((p) => this.task && (this.task.progress = p));
+      return await job((p) => this.task && (this.task.progress = p), controller.signal);
     } catch (e) {
+      if (controller.signal.aborted) {
+        this.notify('Cancelled.');
+        return undefined;
+      }
       this.notify(friendlyError(e), { error: true });
       return undefined;
     } finally {

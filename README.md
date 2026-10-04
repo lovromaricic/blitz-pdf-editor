@@ -47,12 +47,13 @@ BASE_PATH=/tools/pdf/ npm run build
 - `THIRD_PARTY_LICENSES.txt`: license texts of every library shipped in the app, generated at build time by `build-tools/licenses.ts` (also shown in *Help › About*). Keep it with the app; Apache-2.0 and MIT require it.
 - `index.html` and `assets/`: the app. Fonts (Noto, about 2.2 MB) load only when text tools or saving need them. The PDF viewer (PDF.js) is a separate chunk loaded in the background after the Home screen appears. The PDF writer (pdf-lib, in a Web Worker) loads the first time you save, extract or split.
 - `pdfjs/`: data PDF.js fetches only when a document needs it (CJK character maps, the 14 standard fonts, image-decoder WASM, colour profiles). Copied from `pdfjs-dist` at build time by `build-tools/pdfjs-assets.ts`. Upload it with everything else.
+- `tesseract/`: the text-recognition (OCR) engine, its worker and the English and Croatian language data (about 7 MB in total). Loaded only when someone runs *Make text searchable*, never from a CDN, and never cached in browser storage. Also copied by `build-tools/pdfjs-assets.ts`.
 
 ### Server headers
 
 - No special headers (CORS, cross-origin isolation) are needed.
 - Password protection uses pdf-lib's built-in AES-256 encryption, so no qpdf/WASM build is needed.
-- `.mjs` files must be served as JavaScript (`text/javascript`) and `.wasm` files (PDF.js image decoders) as `application/wasm`. Most hosts already do. On Apache, add to `.htaccess`:
+- `.mjs` files must be served as JavaScript (`text/javascript`) and `.wasm` files (PDF.js image decoders) as `application/wasm`. Most hosts already do. The OCR language files are `.traineddata.gz` and must be served as-is (not re-compressed or decompressed by the server). On Apache, add to `.htaccess`:
   ```
   AddType application/wasm .wasm
   AddType text/javascript .mjs
@@ -75,12 +76,16 @@ src/
     print.ts             Print (pages rendered to images) and plain-text export
     viewer.svelte.ts     Zoom, layout, scrolling, navigation
     search.svelte.ts     Full-text search
+    ocr.ts               Text recognition (Tesseract, on this device) for scanned pages
+    redact.ts            Redaction: renders marked pages with black boxes (see redactSource in pdf/assemble.ts)
+    compare.ts           Compare two PDFs (word diff in compare-worker.ts / compare-diff.ts)
     open-files.svelte.ts The single "open PDFs" entry point (Home + File > Open)
     pdf/                 PDF.js setup and rendering; assemble.ts + pdf-worker.ts write PDFs (pdf-lib)
   screens/               Home.svelte, Editor.svelte
   editor/                Editor parts: title bar, menu bar, toolbar, thumbnails, canvas, panel
   editor/panels/         Right-panel content (desktop) / bottom-sheet content (phones)
-  editor/mobile/         Phone layout (< 640px): top bar, accordion menu, tool strip, Pages sheet
+  editor/mobile/         Phone layout (< 720px): top bar, accordion menu, tool strip, Pages sheet
+  editor/compare/        The full-screen Compare view
   components/            Shared UI (dialogs, context menu)
   styles/tokens.css      Design tokens ("Mist"): every color, radius, shadow, font. Restyle (or add a dark theme) here.
 build-tools/             Vite plugins: PDF.js runtime assets, third-party license file
@@ -99,9 +104,11 @@ tests/                   Vitest unit tests (tests/tmp/ is a gitignored scratch a
 - **Protect with password** encrypts with AES-256. A file opened with a password is saved with the same password unless *Remove password* is used.
 - **Compress** re-encodes photos (JPEG and plain RGB/grey images) at lower resolution and quality in the worker, then drops unused objects. Alpha masks, CMYK and special image formats are left untouched. It's undoable: the original bytes stay in memory.
 - **Images to PDF** embeds JPEGs unchanged; other formats and rotated phone photos are normalized in the browser first.
-- **Crop** sets each page's crop box. The trimmed area is hidden, not removed (true removal is what Redact, planned for later, will do).
+- **Crop** sets each page's crop box. The trimmed area is hidden, not removed (use Tools › Redact content to remove content for good).
 - **Extract** and **Split** write fresh PDFs that contain only the chosen pages.
-- Saving a password-protected PDF produces an unprotected copy (the app warns about this). Re-protecting is the job of *Tools › Protect with password* (Phase 6).
+- **Make text searchable (OCR)** recognizes scanned pages with Tesseract (English, Croatian) in a Web Worker and adds the words as invisible text over the scan, so search, selection and copying work while the pages look the same. Undoable.
+- **Redact** marks areas (drag on the page, or *Mark all matches* of a word). *Apply* renders each marked page to an image (200 dpi) with black boxes and replaces the page's content with it: text, images, vector art, annotations and form fields on that page, the page thumbnail and the tagged-text structure are removed, and unreachable objects are dropped. Page size, rotation and markup made in the editor stay. Optionally the document properties (title, author, XMP metadata) are removed too. Undoable until you save; saving with marks that aren't applied asks first. Redacted pages are images, so run OCR afterwards if they need to be searchable. Bookmarks are not changed.
+- **Compare two PDFs** compares the words of the open document (as edited) with another file, side by side with synced scrolling and a list of changes. It compares text, not images or layout; scans need OCR first.
 
 ## Testing on a phone
 
@@ -111,11 +118,11 @@ Run the dev server on your network and open the printed address on the phone (sa
 npm run dev -- --host
 ```
 
-Under 640px wide the editor switches to the phone layout. Two fingers pinch-zoom and pan in every tool; one finger scrolls with Select and Fill form, and draws or highlights with the markup tools.
+Under 720px wide the editor switches to the phone layout. Two fingers pinch-zoom and pan in every tool; one finger scrolls with Select and Fill form, and draws or highlights with the markup tools.
 
 ## Keyboard and accessibility
 
-- Every action is reachable by keyboard. The full list is in *Help › Keyboard shortcuts* (generated from the command registry). Single-key tool shortcuts: V Select, T Text, H Highlight, D Draw, R Shapes, K Stamp, N Comment, S Sign, F Fill form; `?` shows all shortcuts.
+- Every action is reachable by keyboard. The full list is in *Help › Keyboard shortcuts* (generated from the command registry). Single-key tool shortcuts: V Select, T Text, H Highlight, D Draw, S Shapes, P Stamp, C Comment, G Sign, F Fill form; `?` shows all shortcuts.
 - Landmarks, a "Skip to document" link, labelled controls, ARIA menu/toolbar patterns with arrow-key navigation, focus moves into tool panels when they open, and page changes are announced politely.
 - PDF form fields get an accessible name from the PDF's description, or from the field name when the PDF has none.
 - Respects *reduce motion* and Windows High Contrast (forced colors).

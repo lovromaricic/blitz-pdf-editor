@@ -4,10 +4,10 @@ import { MENUS, type MenuEntry } from '../src/editor/menus';
 
 describe('CommandRegistry', () => {
   it('disables commands without an implementation and "later" commands', () => {
-    const reg = new CommandRegistry({ 'file.open': { run: () => {} }, 'tools.ocr': { run: () => {} } });
+    const reg = new CommandRegistry({ 'file.open': { run: () => {} }, 'file.exportWord': { run: () => {} } });
     expect(reg.isEnabled('file.open')).toBe(true);
     expect(reg.isEnabled('file.save')).toBe(false);
-    expect(reg.isEnabled('tools.ocr')).toBe(false);
+    expect(reg.isEnabled('file.exportWord')).toBe(false);
   });
 
   it('runs only enabled commands', () => {

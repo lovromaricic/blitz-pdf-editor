@@ -1,9 +1,10 @@
 // Main-thread client for the PDF worker.
 import type { EditorDocument, PageRef } from '../document.svelte';
-import type { AssembleMode, PagePlan } from './assemble';
+import type { AssembleMode, PagePlan, RedactedPage } from './assemble';
 import type { Job, JobRequest, WorkerResponse } from './pdf-worker';
 import type { Analysis, CompressLevel } from './compress';
 import type { ImageInput, ImagesToPdfOptions } from './images-to-pdf';
+import type { OcrWord } from './ocr-text';
 import { FONT_URLS } from '../fonts';
 import { changedFieldValues, type FieldValue } from '../forms';
 import type { Rgb } from '../annotations';
@@ -122,6 +123,18 @@ async function formValues(doc: EditorDocument, ids: Iterable<string>) {
 function sourceInputs(doc: EditorDocument, ids: Iterable<string>) {
   const want = new Set(ids);
   return [...doc.sources.values()].filter((s) => want.has(s.id)).map((s) => ({ id: s.id, bytes: s.bytes, password: s.password }));
+}
+
+export async function addOcrText(doc: EditorDocument, sourceId: string, words: Record<number, OcrWord[]>) {
+  const [source] = sourceInputs(doc, [sourceId]);
+  const forms = (await formValues(doc, [sourceId]))[sourceId] ?? [];
+  return (await runJob({ kind: 'ocrText', source, words, forms })).files[0];
+}
+
+export async function redactInWorker(doc: EditorDocument, sourceId: string, pages: RedactedPage[], removeInfo: boolean) {
+  const [source] = sourceInputs(doc, [sourceId]);
+  const forms = (await formValues(doc, [sourceId]))[sourceId] ?? [];
+  return (await runJob({ kind: 'redact', source, pages, forms, removeInfo })).files[0];
 }
 
 export async function imagesToPdfInWorker(images: ImageInput[], options: ImagesToPdfOptions, onProgress?: (done: number, total: number) => void) {

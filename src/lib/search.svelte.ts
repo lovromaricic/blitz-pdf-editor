@@ -177,3 +177,28 @@ function quadsFor(page: PageText, start: number, end: number): Quad[] {
   }
   return quads;
 }
+
+/** Every match of `query` on the given pages, one bounding box per text run (for redaction). */
+export async function findMatchRects(
+  doc: EditorDocument,
+  pages: readonly PageRef[],
+  query: string,
+): Promise<{ pageId: string; rects: [number, number, number, number][] }[]> {
+  const needle = normalize(query);
+  if (!needle) return [];
+  const out = [];
+  for (const page of pages) {
+    const pdfPage = await doc.source(page).pdf.getPage(page.sourceIndex + 1);
+    const content = await pdfPage.getTextContent();
+    const text = buildPageText(content.items.filter((it): it is TextItem => 'str' in it));
+    const rects = findInPage(text, needle).flatMap((quads) =>
+      quads.map((quad): [number, number, number, number] => {
+        const xs = quad.map((p) => p[0]);
+        const ys = quad.map((p) => p[1]);
+        return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
+      }),
+    );
+    if (rects.length) out.push({ pageId: page.id, rects });
+  }
+  return out;
+}
