@@ -4,6 +4,7 @@ import { NOTE_OUTLINE, rgbToCss, STAMP_TEXT_RATIO, type BoxedAnnotation, type Po
 import { boxedGeometry } from './annotation-view';
 import { cssFont, cssFontFor, ensureFontsFor, LINE_HEIGHT, loadFonts, TEXT_PADDING } from './fonts';
 import { firstBaseline } from './font-catalog';
+import { bubblePath, NOTE_LINE_WIDTH, NOTE_LINES, NOTE_STROKE, traceCanvas } from './note-shape';
 
 const ASCENT = 1.069;
 const DESCENT = 0.293;
@@ -48,23 +49,21 @@ export async function drawBoxed(
       ctx.scale(s, s);
       ctx.translate(0, 22);
       ctx.scale(1, -1);
+      ctx.lineJoin = 'round';
+      ctx.lineCap = 'round';
       ctx.fillStyle = rgbToCss(a.color);
       ctx.strokeStyle = rgbToCss(NOTE_OUTLINE);
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.roundRect(1, 6.16, 20, 15.4, 2.64);
+      // Box and tail are one closed path: the outline runs all the way round.
+      traceCanvas(ctx, bubblePath());
       ctx.fill();
+      ctx.lineWidth = NOTE_STROKE;
       ctx.stroke();
       ctx.beginPath();
-      ctx.moveTo(5.5, 6.16);
-      ctx.lineTo(4.4, 1);
-      ctx.lineTo(9.9, 6.16);
-      ctx.fill();
-      ctx.beginPath();
-      for (const [y, x2] of [[17.6, 17.6], [13.86, 17.6], [10.12, 13.2]]) {
-        ctx.moveTo(4.4, y);
+      for (const [x1, y, x2] of NOTE_LINES) {
+        ctx.moveTo(x1, y);
         ctx.lineTo(x2, y);
       }
+      ctx.lineWidth = NOTE_LINE_WIDTH;
       ctx.stroke();
     } else {
       const img = new Image();

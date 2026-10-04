@@ -2,6 +2,7 @@
 // Line, FreeText, Stamp, Text), each with an appearance stream so every viewer
 // draws it the same way and other editors can still select and change it.
 import { faceKey, firstBaseline } from '../font-catalog';
+import { bubblePath, NOTE_LINE_WIDTH, NOTE_LINES, NOTE_STROKE, toPdfPath } from '../note-shape';
 import {
   beginText,
   concatTransformationMatrix,
@@ -27,6 +28,8 @@ import {
   arrowSize,
   bounds,
   normRect,
+  NOTE_OUTLINE,
+  NOTE_SIZE,
   STAMP_TEXT_RATIO,
   uprightSize,
   type Annotation,
@@ -260,16 +263,18 @@ async function boxedAppearance(doc: PDFDocument, a: BoxedAnnotation, fonts: Font
       };
     }
     case 'note': {
-      // A speech bubble with three text lines.
-      const s = w;
+      // A speech bubble with three text lines (note-shape.ts): box and tail are one
+      // closed path, filled and outlined in one go, with round joins and caps.
+      const k = w / NOTE_SIZE;
+      const lines = NOTE_LINES.map(([x1, y, x2]) => `${n(x1 * k)} ${n(y * k)} m ${n(x2 * k)} ${n(y * k)} l`).join(' ');
       return {
         ...base,
         content:
-          `/GS0 gs ${rgb(a.color)} rg 0.25 0.25 0.25 RG 1 w\n` +
-          `${roundedRect(1, s * 0.28, s - 2, s * 0.7, s * 0.12)} B\n` +
-          `${n(s * 0.25)} ${n(s * 0.28)} m ${n(s * 0.2)} ${n(1)} l ${n(s * 0.45)} ${n(s * 0.28)} l f\n` +
-          `${n(s * 0.2)} ${n(s * 0.8)} m ${n(s * 0.8)} ${n(s * 0.8)} l ${n(s * 0.2)} ${n(s * 0.63)} m ${n(s * 0.8)} ${n(s * 0.63)} l ${n(s * 0.2)} ${n(s * 0.46)} m ${n(s * 0.6)} ${n(s * 0.46)} l S`,
-        entries: { Subtype: 'Text', Name: 'Comment', Open: false },
+          `/GS0 gs ${rgb(a.color)} rg ${rgb(NOTE_OUTLINE)} RG 1 J 1 j\n` +
+          `${n(NOTE_STROKE * k)} w ${toPdfPath(bubblePath(), k)} B\n` +
+          `${n(NOTE_LINE_WIDTH * k)} w ${lines} S`,
+        // No extra border from the viewer: the appearance is the whole design.
+        entries: { Subtype: 'Text', Name: 'Comment', Open: false, Border: [0, 0, 0] },
       };
     }
     case 'image': {

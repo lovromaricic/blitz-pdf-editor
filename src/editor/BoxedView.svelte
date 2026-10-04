@@ -5,6 +5,7 @@
   import { boxedGeometry } from '../lib/annotation-view';
   import { cssFamily, LINE_HEIGHT, resolveStyle, TEXT_PADDING } from '../lib/fonts';
   import { STAMP_TEXT_RATIO } from '../lib/annotations';
+  import { bubblePath, NOTE_LINE_WIDTH, NOTE_LINES, NOTE_STROKE, toSvgPath, type Segment } from '../lib/note-shape';
 
   let {
     a,
@@ -15,6 +16,9 @@
   }: { a: BoxedAnnotation; toScreen: (p: Point) => Point; scale: number; pageRotation: number; hidden?: boolean } = $props();
 
   const box = $derived(boxedGeometry(a, toScreen, scale, pageRotation));
+
+  const BUBBLE_SVG = toSvgPath(bubblePath());
+  const LINES_SVG = toSvgPath(NOTE_LINES.flatMap(([x1, y, x2]): Segment[] => [['M', x1, y], ['L', x2, y]]));
 </script>
 
 <div
@@ -53,13 +57,10 @@
       {a.label}
     </div>
   {:else if a.type === 'note'}
-    <svg viewBox="0 0 22 22" width="100%" height="100%" aria-hidden="true">
-      <!-- Same drawing as the saved appearance (PDF y-up flipped to screen y-down). -->
-      <g transform="translate(0 22) scale(1 -1)">
-        <rect x="1" y="6.16" width="20" height="15.4" rx="2.64" fill={rgbToCss(a.color)} stroke={rgbToCss(NOTE_OUTLINE)} />
-        <path d="M5.5 6.16 L4.4 1 L9.9 6.16 Z" fill={rgbToCss(a.color)} />
-        <path d="M4.4 17.6 H17.6 M4.4 13.86 H17.6 M4.4 10.12 H13.2" stroke={rgbToCss(NOTE_OUTLINE)} />
-      </g>
+    <!-- Same drawing as the saved appearance (note-shape.ts). The viewBox scales the outline with the icon. -->
+    <svg viewBox="0 0 22 22" width="100%" height="100%" aria-hidden="true" stroke-linejoin="round" stroke-linecap="round">
+      <path d={BUBBLE_SVG} fill={rgbToCss(a.color)} stroke={rgbToCss(NOTE_OUTLINE)} stroke-width={NOTE_STROKE} />
+      <path d={LINES_SVG} fill="none" stroke={rgbToCss(NOTE_OUTLINE)} stroke-width={NOTE_LINE_WIDTH} />
     </svg>
   {:else}
     <img src={a.dataUrl} alt="" draggable="false" />

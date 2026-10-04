@@ -188,3 +188,40 @@ describe('custom colors', () => {
     for (const [name, rgb] of Object.entries(picks)) expect(hexes, name).toContain(toHex(rgb.map(String)));
   });
 });
+
+describe('comment icon', () => {
+  it('is one closed path: box and tail together', async () => {
+    const { bubblePath, toSvgPath } = await import('../src/lib/note-shape');
+    const segs = bubblePath();
+    expect(segs[0][0]).toBe('M');
+    expect(segs.at(-1)![0]).toBe('Z');
+    expect(segs.filter((s) => s[0] === 'M')).toHaveLength(1);
+    // The tail tip is part of the outline.
+    expect(segs.some((s) => s[0] === 'L' && s[2] < 2)).toBe(true);
+    expect(toSvgPath(segs).match(/M/g)).toHaveLength(1);
+  });
+
+  it('saves the bubble as one filled-and-stroked closed path with round joins, as a Text annotation', async () => {
+    const note: Annotation = { id: 'n', type: 'note', color: [1, 0.85, 0.2], opacity: 1, rect: [100, 100, 122, 122], rotate: 0, text: 'Hello' };
+    const out = await assemble([{ id: 'a', bytes: await onePage() }], [{ sourceId: 'a', index: 0, rotation: 0, annots: [note] }], 'preserve', { fonts });
+    const doc = await PDFDocument.load(out);
+    const { decodePDFRawStream, PDFDict, PDFRawStream } = await import('@cantoo/pdf-lib');
+    const annot = doc.context.lookup(doc.getPage(0).node.Annots()!.get(0), PDFDict);
+    expect(annot.get(PDFName.of('Subtype'))?.toString()).toBe('/Text');
+    expect(annot.get(PDFName.of('Border'))?.toString().replace(/\s+/g, ' ').trim()).toBe('[ 0 0 0 ]');
+    const ap = annot.lookupMaybe(PDFName.of('AP'), PDFDict)!.lookup(PDFName.of('N'));
+    if (!(ap instanceof PDFRawStream)) throw new Error('no appearance');
+    const ops = new TextDecoder().decode(decodePDFRawStream(ap).decode());
+    expect(ops).toContain('1 J 1 j');
+    // Exactly one subpath before the fill-and-stroke (B), and it is closed (h).
+    const bubble = ops.slice(0, ops.indexOf(' B'));
+    expect(bubble.match(/ m\b/g)).toHaveLength(1);
+    expect(bubble.trimEnd().endsWith('h')).toBe(true);
+    // Still a real comment for other viewers.
+    const pdf = await getDocument({ data: out.slice(), isEvalSupported: false } as never).promise;
+    const [read] = await (await pdf.getPage(1)).getAnnotations();
+    expect(read.subtype).toBe('Text');
+    expect(read.contentsObj.str).toBe('Hello');
+    await pdf.loadingTask.destroy();
+  });
+});
