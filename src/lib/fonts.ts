@@ -90,6 +90,8 @@ const families = new Map<string, Promise<boolean>>();
  */
 export function ensureFont(font: string): Promise<boolean> {
   if (font in BUILTIN_FONTS) return loadFonts().then(() => true, () => false);
+  // Fonts from the user's computer are registered (and loaded) when chosen.
+  if (font.startsWith('local:')) return families.get(font) ?? Promise.resolve(false);
   let p = families.get(font);
   if (!p) {
     const info = FONTS.find((f) => f.id === font);
@@ -133,6 +135,11 @@ export function loadFontPreviews(): Promise<FontPreviews | null> {
     () => null,
   );
   return previews;
+}
+
+/** A font family registered from elsewhere (the user's computer): its faces are already loaded. */
+export function markFamilyLoaded(font: string) {
+  families.set(font, Promise.resolve(true));
 }
 
 /** Load the fonts that some text needs (before measuring, drawing or printing it). */

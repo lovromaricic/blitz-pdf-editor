@@ -5,7 +5,8 @@
   import Check from '@lucide/svelte/icons/check';
   import ChevronDown from '@lucide/svelte/icons/chevron-down';
   import { tick, type Snippet } from 'svelte';
-  import { FONT_GROUPS, FONTS, fontLabel } from '../lib/font-catalog';
+  import { FONT_GROUPS, FONTS, fontLabel, type FontInfo } from '../lib/font-catalog';
+  import { localFonts } from '../lib/local-fonts.svelte';
   import { cssFamily, ensureFont, loadFontPreviews, type FontPreviews } from '../lib/fonts';
   import FontName from './FontName.svelte';
 
@@ -32,8 +33,12 @@
   let previews = $state.raw<FontPreviews | null>(null);
   const uid = Math.random().toString(36).slice(2, 8);
 
-  const filtered = $derived(FONTS.filter((f) => f.label.toLowerCase().includes(query.trim().toLowerCase())));
-  const groups = $derived(FONT_GROUPS.map((g) => ({ name: g, fonts: filtered.filter((f) => f.group === g) })).filter((g) => g.fonts.length));
+  /** Bundled fonts, then any chosen from the user's computer this session. */
+  const all = $derived<FontInfo[]>([...FONTS, ...localFonts.list]);
+  const filtered = $derived(all.filter((f) => f.label.toLowerCase().includes(query.trim().toLowerCase())));
+  const groups = $derived(
+    [...FONT_GROUPS, 'My computer' as const].map((g) => ({ name: g, fonts: filtered.filter((f) => f.group === g) })).filter((g) => g.fonts.length),
+  );
   const optionId = (font: string) => `font-${uid}-${font}`;
 
   function loadPreviews() {
@@ -50,7 +55,7 @@
   async function show() {
     loadPreviews();
     query = '';
-    active = FONTS.some((f) => f.id === value) ? value : FONTS[0].id;
+    active = all.some((f) => f.id === value) ? value : FONTS[0].id;
     open = true;
     await tick();
     search?.focus();
@@ -119,7 +124,7 @@
     return () => window.removeEventListener('pointerdown', onDown, true);
   });
 
-  const current = $derived(FONTS.find((f) => f.id === value));
+  const current = $derived(all.find((f) => f.id === value));
   // The current font is the one new text uses: load it to show its name in it.
   $effect(() => prefetch(value));
 </script>
@@ -176,7 +181,7 @@
                 onpointerenter={() => ((active = f.id), prefetch(f.id))}
                 onclick={() => choose(f.id)}
               >
-                <FontName font={f.id} label={f.label} {previews} loaded={loaded[f.id]} />
+                <FontName font={f.id} label={f.label} {previews} loaded={loaded[f.id] || f.group === 'My computer'} />
                 {#if f.id === value}<Check class="check" size={16} strokeWidth={2} aria-hidden="true" />{/if}
               </div>
             {/each}

@@ -19,6 +19,7 @@ import type { OcrWord } from './ocr-text';
 import { createFontProvider } from './font-provider';
 import { imagesToPdf, type ImageInput, type ImagesToPdfOptions } from './images-to-pdf';
 import type { FontKey } from './write-annotations';
+import { registerLocalFonts, type FontInfo } from '../font-catalog';
 import type { FieldValue } from '../forms';
 
 export type Job =
@@ -38,7 +39,7 @@ export type Job =
   | { kind: 'ocrText'; source: SourceInput; words: Record<number, OcrWord[]>; forms: FieldValue[] }
   | { kind: 'redact'; source: SourceInput; pages: RedactedPage[]; forms: FieldValue[]; removeInfo: boolean };
 
-export type JobRequest = Job & { id: number; fontUrls: Record<FontKey, string> };
+export type JobRequest = Job & { id: number; fontUrls: Record<FontKey, string>; localFonts: FontInfo[] };
 
 /** Stop a running job (compress and estimate check between images). */
 export interface CancelRequest {
@@ -127,6 +128,8 @@ self.onmessage = async (e: MessageEvent<JobRequest | CancelRequest>) => {
   }
   const job = e.data;
   fontUrls = job.fontUrls;
+  // Fonts from the user's computer: which styles they have (their files come as blob: URLs).
+  registerLocalFonts(job.localFonts);
   try {
     const result = await run(job, (done, total) => post({ id: job.id, type: 'progress', done, total }));
     post({ id: job.id, type: 'done', ...result }, result.files.map((f) => f.buffer as ArrayBuffer));

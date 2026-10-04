@@ -6,6 +6,7 @@ import type { Analysis, CompressSettings } from './compress';
 import type { ImageInput, ImagesToPdfOptions } from './images-to-pdf';
 import type { OcrWord } from './ocr-text';
 import { FONT_URLS } from '../fonts';
+import { localFontList } from '../font-catalog';
 import { changedFieldValues, type FieldValue } from '../forms';
 import type { Rgb } from '../annotations';
 import type { PageDecoration } from '../decorations';
@@ -119,7 +120,7 @@ function runJob(
     };
     w.addEventListener('message', onMessage);
     w.addEventListener('error', onError);
-    const req = { ...job, id, fontUrls: FONT_URLS } as JobRequest;
+    const req = { ...job, id, fontUrls: FONT_URLS, localFonts: localFontList() } as JobRequest;
     w.postMessage(req);
   });
 }

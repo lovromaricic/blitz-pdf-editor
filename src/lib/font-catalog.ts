@@ -2,7 +2,7 @@
 // and fetched from our own server only when used. No DOM: shared by the UI,
 // the PDF worker and tests. See THIRD_PARTY_LICENSES.md.
 
-export type FontGroup = 'Sans serif' | 'Serif' | 'Monospace' | 'Handwriting';
+export type FontGroup = 'Sans serif' | 'Serif' | 'Monospace' | 'Handwriting' | 'My computer';
 
 export interface FontInfo {
   /** Stable id stored in annotations; also the @expo-google-fonts package name. */
@@ -68,8 +68,19 @@ export function firstBaseline(font: string, size: number, lineHeight: number, pa
   return padding + (lineHeight * size - (ascent + descent) * size) / 2 + ascent * size;
 }
 
+/** Fonts from the user's computer chosen in this session (memory only), by id ("local:<PostScript name>"). */
+const localFonts = new Map<string, FontInfo>();
+
+export function registerLocalFonts(list: readonly FontInfo[]) {
+  for (const f of list) localFonts.set(f.id, f);
+}
+
+export function localFontList(): FontInfo[] {
+  return [...localFonts.values()];
+}
+
 export function fontInfo(id: string): FontInfo | undefined {
-  return FONTS.find((f) => f.id === id);
+  return FONTS.find((f) => f.id === id) ?? localFonts.get(id);
 }
 
 export function fontLabel(id: string): string {

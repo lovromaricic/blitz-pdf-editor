@@ -8,6 +8,8 @@
   import { layoutText } from '../../lib/text-layout';
   import { useViewer } from '../../lib/viewer.svelte';
   import FontPicker from '../../components/FontPicker.svelte';
+  import LocalFontsDialog from '../../components/LocalFontsDialog.svelte';
+  import { localFontsSupported } from '../../lib/local-fonts.svelte';
   import Swatches from '../../components/Swatches.svelte';
   import PanelHeader from './PanelHeader.svelte';
   import Range from '../../components/Range.svelte';
@@ -46,6 +48,10 @@
     return set('font', FALLBACK_FONT, 'font');
   }
 
+  /** Shown only where the browser can list installed fonts (Chrome and Edge on desktop). */
+  const canUseLocalFonts = localFontsSupported();
+  let localOpen = $state(false);
+
   const canBold = $derived(hasBold(props.font));
   const canItalic = $derived(hasItalic(props.font));
 </script>
@@ -59,7 +65,22 @@
   <div class="field">
     <label for="tx-font">Font</label>
     <div class="font-row">
-      <div class="picker"><FontPicker id="tx-font" value={props.font} onChange={chooseFont} /></div>
+      <div class="picker">
+        <FontPicker id="tx-font" value={props.font} onChange={chooseFont}>
+          {#snippet extra(close)}
+            {#if canUseLocalFonts}
+              <button
+                type="button"
+                class="local-btn"
+                onclick={() => {
+                  close();
+                  localOpen = true;
+                }}>My computer's fonts…</button
+              >
+            {/if}
+          {/snippet}
+        </FontPicker>
+      </div>
       <div class="styles" role="group" aria-label="Text style">
         <button
           type="button"
@@ -98,6 +119,9 @@
     <label for="tx-opacity">Opacity <span class="value">{Math.round(props.opacity * 100)}%</span></label>
     <Range id="tx-opacity" min={0.1} max={1} step={0.05} value={props.opacity} onInput={(v) => set('opacity', v, 'opacity')} />
   </div>
+  {#if canUseLocalFonts}
+    <LocalFontsDialog open={localOpen} onClose={() => (localOpen = false)} onChoose={(font) => set('font', font, 'font')} />
+  {/if}
   {#if sel}
     <div class="actions">
       <button type="button" class="btn btn-danger" onclick={() => actions.deleteAnnotation(sel.page.id, sel.annot.id)}>Delete</button>
@@ -154,6 +178,25 @@
     .style-btn {
       width: var(--touch-target);
       height: var(--touch-target);
+    }
+  }
+  .local-btn {
+    min-height: 36px;
+    padding: 0 var(--space-2);
+    border: 0;
+    border-top: var(--border-width) solid var(--border);
+    background: none;
+    color: var(--accent-strong);
+    font-size: var(--font-size-sm);
+    font-weight: 600;
+    text-align: left;
+  }
+  .local-btn:hover {
+    background: var(--surface-2);
+  }
+  @media (max-width: 720px), (pointer: coarse) {
+    .local-btn {
+      min-height: var(--touch-target);
     }
   }
   select {
