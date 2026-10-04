@@ -8,7 +8,9 @@
   import { viewportFor } from '../lib/pdf/render';
   import type { SearchMatch } from '../lib/search.svelte';
   import { PAGE_GAP, provideViewer, Viewer } from '../lib/viewer.svelte';
+  import { REPORT_PROBLEM_URL } from '../config';
   import CanvasView from '../editor/CanvasView.svelte';
+  import HelpDialog, { type HelpTopic } from '../editor/HelpDialog.svelte';
   import MenuBar from '../editor/MenuBar.svelte';
   import SidePanel from '../editor/SidePanel.svelte';
   import ThumbnailRail from '../editor/ThumbnailRail.svelte';
@@ -63,12 +65,15 @@
   }
 
   const idle = () => !viewer.task;
+  let help = $state<HelpTopic | null>(null);
 
   const commands = new CommandRegistry({
     // File
     'file.open': { run: () => openInput.click() },
     'file.save': { run: () => void actions.save(), enabled: idle },
     'file.saveCopy': { run: () => void actions.saveCopy(), enabled: idle },
+    'file.exportText': { run: () => void actions.exportText(), enabled: idle },
+    'file.print': { run: () => void actions.print(), enabled: idle },
     'file.close': {
       run: async () => {
         if (await actions.confirmLeave('close it')) closeDocument();
@@ -76,10 +81,24 @@
     },
 
     // Edit
-    'edit.undo': { run: () => doc.undo(), enabled: () => doc.history.canUndo && idle() },
-    'edit.redo': { run: () => doc.redo(), enabled: () => doc.history.canRedo && idle() },
+    'edit.undo': {
+      run: () => doc.undo(),
+      enabled: () => doc.history.canUndo && idle(),
+      label: () => (doc.history.undoLabel ? `Undo ${lowerFirst(doc.history.undoLabel)}` : 'Undo'),
+    },
+    'edit.redo': {
+      run: () => doc.redo(),
+      enabled: () => doc.history.canRedo && idle(),
+      label: () => (doc.history.redoLabel ? `Redo ${lowerFirst(doc.history.redoLabel)}` : 'Redo'),
+    },
+    // Until markup objects exist (Phase 5), Select all selects all pages.
+    'edit.selectAll': { run: () => viewer.selectAll(), label: () => 'Select all pages' },
     // Delete acts on selected pages until markup objects exist (Phase 5).
-    'edit.delete': { run: () => actions.delete(), enabled: () => viewer.selection.size > 0 && actions.canDelete() },
+    'edit.delete': {
+      run: () => actions.delete(),
+      enabled: () => viewer.selection.size > 0 && actions.canDelete(),
+      label: () => (viewer.selection.size > 0 ? `Delete ${viewer.selection.size === 1 ? 'page' : `${viewer.selection.size} pages`}` : 'Delete'),
+    },
     'edit.find': { run: () => focusById('doc-search') },
 
     // View
@@ -88,7 +107,9 @@
     'view.fitWidth': { run: () => viewer.fitWidth(), checked: () => viewer.fit === 'width' },
     'view.fitPage': { run: () => viewer.fitPage(), checked: () => viewer.fit === 'page' },
     'view.actualSize': { run: () => viewer.actualSize() },
-    'view.continuous': { run: () => {}, checked: () => true },
+    'view.singlePage': { run: () => void viewer.setMode('single'), checked: () => viewer.mode === 'single' },
+    'view.continuous': { run: () => void viewer.setMode('continuous'), checked: () => viewer.mode === 'continuous' },
+    'view.twoPages': { run: () => void viewer.setMode('two'), checked: () => viewer.mode === 'two' },
     'view.thumbnails': { run: () => (viewer.showThumbnails = !viewer.showThumbnails), checked: () => viewer.showThumbnails },
     'view.panel': { run: () => (viewer.showPanel = !viewer.showPanel), checked: () => viewer.showPanel },
     'view.fullscreen': { run: toggleFullscreen, checked: () => isFullscreen },
@@ -100,12 +121,23 @@
     'page.extract': { run: () => openPanel('extract'), enabled: idle },
     'page.insertBlank': { run: () => void actions.insertBlank() },
     'page.insertFromFile': { run: () => insertInput.click(), enabled: idle },
+    'page.crop': { run: () => openPanel('crop'), enabled: idle },
     'page.goTo': { run: () => focusById('page-number-input') },
 
     // Tools
     'tools.merge': { run: () => openPanel('merge'), enabled: idle },
     'tools.split': { run: () => openPanel('split'), enabled: () => idle() && doc.pages.length > 1 },
+
+    // Help
+    'help.guide': { run: () => (help = 'guide') },
+    'help.shortcuts': { run: () => (help = 'shortcuts') },
+    'help.report': { run: () => window.open(REPORT_PROBLEM_URL, '_blank', 'noopener'), enabled: () => !!REPORT_PROBLEM_URL },
+    'help.about': { run: () => (help = 'about') },
   });
+
+  function lowerFirst(s: string) {
+    return s[0].toLowerCase() + s.slice(1);
+  }
 
   async function onPickOpen(files: FileList | null) {
     const list = files ? Array.from(files) : [];
@@ -164,6 +196,8 @@
     <CanvasView />
     {#if viewer.showPanel}<SidePanel {commands} {actions} />{/if}
   </div>
+
+  <HelpDialog topic={help} onClose={() => (help = null)} />
 
   <input
     bind:this={openInput}

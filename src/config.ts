@@ -8,3 +8,11 @@ export const COPY = {
   valueStatement: '[One-line value statement goes here]',
   privacyNote: '[Privacy note: your files stay on your device and are never uploaded]',
 } as const;
+
+export const APP_VERSION = __APP_VERSION__;
+
+/**
+ * Undecided: where "Help › Report a problem" should go (a mailto: or a web form URL).
+ * The menu item stays disabled while this is empty.
+ */
+export const REPORT_PROBLEM_URL = '';

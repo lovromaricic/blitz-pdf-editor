@@ -16,7 +16,7 @@
 
 <div class="bottombar" role="toolbar" aria-label="Page navigation and zoom">
   <div class="cluster">
-    <button type="button" class="icon-btn" aria-label="Previous page" disabled={viewer.currentIndex <= 0} onclick={() => viewer.previousPage()}>‹</button>
+    <button type="button" class="icon-btn" aria-label="Previous page" disabled={viewer.isFirstRow} onclick={() => viewer.previousPage()}>‹</button>
     <label class="page-field">
       <span class="visually-hidden">Current page</span>
       <input
@@ -44,7 +44,7 @@
       />
       <span class="of">/ {viewer.pageCount}</span>
     </label>
-    <button type="button" class="icon-btn" aria-label="Next page" disabled={viewer.currentIndex >= viewer.pageCount - 1} onclick={() => viewer.nextPage()}>›</button>
+    <button type="button" class="icon-btn" aria-label="Next page" disabled={viewer.isLastRow} onclick={() => viewer.nextPage()}>›</button>
   </div>
 
   <div class="cluster">

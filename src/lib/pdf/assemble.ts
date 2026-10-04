@@ -25,6 +25,8 @@ export interface PagePlan {
   index: number;
   /** Extra rotation in degrees, added to the page's own rotation. */
   rotation: number;
+  /** Margins (points, PDF user space) to trim from the page's current crop box. */
+  crop?: { top: number; right: number; bottom: number; left: number };
 }
 
 /**
@@ -94,10 +96,16 @@ export async function assemble(
   });
 
   for (let pos = 0; pos < plan.length; pos++) {
-    const extra = plan[pos].rotation;
+    const { rotation: extra, crop } = plan[pos];
+    const page = finalPages[pos];
     if (extra % 360 !== 0) {
-      const page = finalPages[pos];
       page.setRotation(degrees((((page.getRotation().angle + extra) % 360) + 360) % 360));
+    }
+    if (crop) {
+      const box = page.getCropBox();
+      const width = Math.max(1, box.width - crop.left - crop.right);
+      const height = Math.max(1, box.height - crop.top - crop.bottom);
+      page.setCropBox(box.x + crop.left, box.y + crop.bottom, width, height);
     }
   }
 

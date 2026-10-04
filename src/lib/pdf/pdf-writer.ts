@@ -12,7 +12,7 @@ function getWorker() {
 }
 
 export function planFor(pages: readonly PageRef[]): PagePlan[] {
-  return pages.map((p) => ({ sourceId: p.sourceId, index: p.sourceIndex, rotation: p.rotation }));
+  return pages.map((p) => ({ sourceId: p.sourceId, index: p.sourceIndex, rotation: p.rotation, crop: p.crop }));
 }
 
 /** Build one PDF per page list. `onProgress` reports finished outputs. */

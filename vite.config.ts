@@ -1,12 +1,17 @@
 import { defineConfig } from 'vitest/config';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
+import { readFileSync } from 'node:fs';
+import { licenses } from './build-tools/licenses.ts';
 import { pdfjsAssets } from './build-tools/pdfjs-assets.ts';
+
+const { version } = JSON.parse(readFileSync('package.json', 'utf8'));
 
 // BASE_PATH lets the app live in a subfolder, e.g. BASE_PATH=/tools/pdf/ npm run build.
 // The default './' (relative) works from any folder without rebuilding.
 export default defineConfig({
   base: process.env.BASE_PATH || './',
-  plugins: [svelte(), pdfjsAssets()],
+  plugins: [svelte(), pdfjsAssets(), licenses()],
+  define: { __APP_VERSION__: JSON.stringify(version) },
   server: { port: Number(process.env.PORT) || 5173 },
   build: {
     target: 'es2022',

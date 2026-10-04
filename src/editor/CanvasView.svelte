@@ -1,6 +1,6 @@
 <script lang="ts">
   import { untrack } from 'svelte';
-  import { PAGE_GAP, useViewer } from '../lib/viewer.svelte';
+  import { useViewer } from '../lib/viewer.svelte';
   import BottomBar from './BottomBar.svelte';
   import PageView from './PageView.svelte';
 
@@ -13,6 +13,7 @@
     viewer.scrollEl = scroller;
     untrack(() => {
       viewer.viewHeight = scroller.clientHeight;
+      viewer.viewWidth = scroller.clientWidth;
       // Open at fit width, but not absurdly large on wide screens.
       viewer.fitWidth();
       if (viewer.zoom > 1.25) void viewer.setZoom(1.25, null);
@@ -21,6 +22,7 @@
     let lastWidth = scroller.clientWidth;
     const ro = new ResizeObserver(() => {
       viewer.viewHeight = scroller.clientHeight;
+      viewer.viewWidth = scroller.clientWidth;
       if (scroller.clientWidth !== lastWidth) {
         lastWidth = scroller.clientWidth;
         viewer.refit();
@@ -29,8 +31,23 @@
     ro.observe(scroller);
 
     // Ctrl/Cmd + wheel (and trackpad pinch, which arrives as ctrl+wheel) zooms around the pointer.
+    let lastFlip = 0;
     const onWheel = (e: WheelEvent) => {
-      if (!e.ctrlKey && !e.metaKey) return;
+      if (!e.ctrlKey && !e.metaKey) {
+        // Single-page mode: scrolling past the top or bottom edge turns the page.
+        if (viewer.mode !== 'single' || Math.abs(e.deltaY) < 4 || e.timeStamp - lastFlip < 400) return;
+        const atTop = scroller.scrollTop <= 0;
+        const atBottom = scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - 1;
+        if (e.deltaY > 0 && atBottom && !viewer.isLastRow) viewer.nextPage();
+        else if (e.deltaY < 0 && atTop && !viewer.isFirstRow) {
+          viewer.previousPage();
+          // Land at the bottom of the previous page, as if scrolling continued.
+          requestAnimationFrame(() => (scroller.scrollTop = scroller.scrollHeight));
+        } else return;
+        lastFlip = e.timeStamp;
+        e.preventDefault();
+        return;
+      }
       e.preventDefault();
       const rect = scroller.getBoundingClientRect();
       const factor = Math.exp(-e.deltaY * (e.deltaMode === 1 ? 0.05 : 0.0025));
@@ -47,9 +64,23 @@
 
   // Page sizes arrive in the background after opening; keep a fit mode honest.
   $effect(() => {
-    void viewer.layout.maxWidth;
+    void viewer.layout.contentWidth;
     untrack(() => viewer.refit());
   });
+
+  // Page Up/Down and arrow keys turn pages when the whole page fits (single and two-page modes).
+  function onKeyDown(e: KeyboardEvent) {
+    if (viewer.mode === 'continuous' || e.altKey || e.ctrlKey || e.metaKey) return;
+    const fits = scroller.scrollHeight <= scroller.clientHeight + 1;
+    const atTop = scroller.scrollTop <= 0;
+    const atBottom = scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - 1;
+    const next = e.key === 'ArrowRight' || ((e.key === 'PageDown' || e.key === 'ArrowDown') && (fits || atBottom));
+    const prev = e.key === 'ArrowLeft' || ((e.key === 'PageUp' || e.key === 'ArrowUp') && (fits || atTop));
+    if (next && !viewer.isLastRow) viewer.nextPage();
+    else if (prev && !viewer.isFirstRow) viewer.previousPage();
+    else return;
+    e.preventDefault();
+  }
 
   const visible = $derived.by(() => {
     const { start, end } = viewer.visibleRange;
@@ -65,6 +96,7 @@
     class="scroller"
     bind:this={scroller}
     onscroll={() => viewer.updateCurrentFromScroll()}
+    onkeydown={onKeyDown}
     onclick={(e) => {
       // Clicking the gray background (not a page) clears the page selection.
       // A pointer convenience only: Escape in the thumbnail rail does the same.
@@ -77,11 +109,11 @@
     <div
       class="pages"
       style:height="{viewer.layout.totalHeight}px"
-      style:min-width="{viewer.layout.maxWidth + 2 * PAGE_GAP}px"
+      style:min-width="{viewer.layout.contentWidth}px"
     >
       {#each visible as i (doc.pages[i].id)}
         {@const box = viewer.layout.boxes[i]}
-        <PageView page={doc.pages[i]} index={i} top={box.top} width={box.width} height={box.height} />
+        <PageView page={doc.pages[i]} index={i} top={box.top} left={box.left} width={box.width} height={box.height} />
       {/each}
     </div>
   </div>

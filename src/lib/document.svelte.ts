@@ -5,6 +5,7 @@ import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { SvelteMap } from 'svelte/reactivity';
 import type { OpenFile, RejectedFile } from './files';
 import { History } from './history.svelte';
+import { marginsToDisplayed, NO_MARGINS, type Margins } from './page-ops';
 import { loadPdf, PdfLoadError } from './pdf/pdfjs';
 
 export interface PageSize {
@@ -15,6 +16,8 @@ export interface PageSize {
 export class Source {
   /** Page sizes in points as the source displays them (its own /Rotate applied). */
   sizes = $state<PageSize[]>([]);
+  /** Each page's own /Rotate, in degrees. */
+  rotations = $state<number[]>([]);
 
   constructor(
     public id: string,
@@ -40,6 +43,8 @@ export interface PageRef {
   readonly sourceIndex: number;
   /** Rotation added by the user, in degrees (0, 90, 180, 270), on top of the page's own /Rotate. */
   readonly rotation: number;
+  /** Crop margins in points, in PDF user space (unrotated), relative to the page's crop box. */
+  readonly crop?: Margins;
 }
 
 export interface DocInfo {
@@ -87,10 +92,28 @@ export class EditorDocument {
     return this.sources.get(page.sourceId)!;
   }
 
-  /** Displayed size in points, user rotation included. */
-  displaySize(page: PageRef): PageSize {
+  /** Total rotation shown on screen: the page's own /Rotate plus the user's. */
+  totalRotation(page: PageRef) {
+    return ((this.source(page).rotations[page.sourceIndex] ?? 0) + page.rotation) % 360;
+  }
+
+  /** Crop margins as they appear on screen (rotation applied), in points. */
+  displayedCrop(page: PageRef): Margins {
+    return page.crop ? marginsToDisplayed(page.crop, this.totalRotation(page)) : NO_MARGINS;
+  }
+
+  /** Displayed size in points before cropping, user rotation included. */
+  fullDisplaySize(page: PageRef): PageSize {
     const s = this.source(page).sizes[page.sourceIndex] ?? { width: 612, height: 792 };
     return page.rotation % 180 === 0 ? s : { width: s.height, height: s.width };
+  }
+
+  /** Displayed size in points, user rotation and crop included. */
+  displaySize(page: PageRef): PageSize {
+    const full = this.fullDisplaySize(page);
+    if (!page.crop) return full;
+    const m = this.displayedCrop(page);
+    return { width: Math.max(1, full.width - m.left - m.right), height: Math.max(1, full.height - m.top - m.bottom) };
   }
 
   /** Apply an undoable edit to the page list. */
@@ -122,8 +145,10 @@ export class EditorDocument {
 
     // Use page 1's size for every page so the layout can render immediately,
     // then fill in real sizes in the background.
-    const first = (await pdf.getPage(1)).getViewport({ scale: 1 });
+    const firstPage = await pdf.getPage(1);
+    const first = firstPage.getViewport({ scale: 1 });
     source.sizes = Array.from({ length: pdf.numPages }, () => ({ width: first.width, height: first.height }));
+    source.rotations = Array.from({ length: pdf.numPages }, () => firstPage.rotate);
     void measureSource(source);
 
     return Array.from({ length: pdf.numPages }, (_, i) => ({
@@ -162,22 +187,28 @@ async function measureSource(source: Source) {
   for (let start = 1; start < n; start += BATCH) {
     const indexes = Array.from({ length: Math.min(BATCH, n - start) }, (_, k) => start + k);
     try {
-      const sizes = await Promise.all(
+      const measured = await Promise.all(
         indexes.map(async (i) => {
-          const vp = (await source.pdf.getPage(i + 1)).getViewport({ scale: 1 });
-          return { width: vp.width, height: vp.height };
+          const page = await source.pdf.getPage(i + 1);
+          const vp = page.getViewport({ scale: 1 });
+          return { width: vp.width, height: vp.height, rotate: page.rotate };
         }),
       );
-      const next = source.sizes.slice();
+      const sizes = source.sizes.slice();
+      const rotations = source.rotations.slice();
       let changed = false;
-      sizes.forEach((s, k) => {
-        const old = next[indexes[k]];
-        if (old.width !== s.width || old.height !== s.height) {
-          next[indexes[k]] = s;
+      measured.forEach((m, k) => {
+        const i = indexes[k];
+        if (sizes[i].width !== m.width || sizes[i].height !== m.height || rotations[i] !== m.rotate) {
+          sizes[i] = { width: m.width, height: m.height };
+          rotations[i] = m.rotate;
           changed = true;
         }
       });
-      if (changed) source.sizes = next;
+      if (changed) {
+        source.sizes = sizes;
+        source.rotations = rotations;
+      }
     } catch {
       return; // Document closed while measuring.
     }

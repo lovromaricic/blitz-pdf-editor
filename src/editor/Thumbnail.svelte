@@ -26,6 +26,9 @@
   } & HTMLButtonAttributes = $props();
 
   const viewer = useViewer();
+  // Crop: draw the whole page at thumbnail scale and shift it under the clipping frame.
+  const full = $derived(viewer.doc.fullDisplaySize(page));
+  const crop = $derived(viewer.doc.displayedCrop(page));
   let host: HTMLSpanElement;
   let canvas: HTMLCanvasElement | null = null;
   let rendered = $state(false);
@@ -83,7 +86,13 @@
   {...rest}
 >
   <span class="frame" style:width="{width}px" style:height="{height}px">
-    <span class="canvas-host" bind:this={host}></span>
+    <span
+      class="canvas-host"
+      bind:this={host}
+      style:width="{full.width * scale}px"
+      style:height="{full.height * scale}px"
+      style:transform={page.crop ? `translate(${-crop.left * scale}px, ${-crop.top * scale}px)` : undefined}
+    ></span>
     {#if !rendered}<span class="placeholder" aria-hidden="true"></span>{/if}
   </span>
   <span class="num" aria-hidden="true">{index + 1}</span>
@@ -106,6 +115,7 @@
   .frame {
     position: relative;
     display: block;
+    overflow: hidden;
     background: #fff;
     box-shadow: 0 0 0 1px var(--color-border);
   }
@@ -121,7 +131,11 @@
   .thumb.dimmed {
     opacity: 0.35;
   }
-  .canvas-host,
+  .canvas-host {
+    position: absolute;
+    top: 0;
+    left: 0;
+  }
   .placeholder {
     position: absolute;
     inset: 0;

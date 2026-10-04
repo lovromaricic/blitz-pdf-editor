@@ -4,8 +4,14 @@
   import { releaseCanvas, renderToCanvas, viewportFor } from '../lib/pdf/render';
   import { useViewer } from '../lib/viewer.svelte';
 
-  let { page, index, top, width, height }: { page: PageRef; index: number; top: number; width: number; height: number } =
-    $props();
+  let {
+    page,
+    index,
+    top,
+    left,
+    width,
+    height,
+  }: { page: PageRef; index: number; top: number; left: number; width: number; height: number } = $props();
 
   const viewer = useViewer();
   const doc = viewer.doc;
@@ -30,6 +36,12 @@
   });
 
   const viewport = $derived(pdfPage ? viewportFor(pdfPage, viewer.scale, page.rotation) : null);
+  /** Cropped-away margins on screen, in CSS px. The full page is drawn and shifted under a clip. */
+  const offset = $derived.by(() => {
+    if (viewer.cropPreview) return { x: 0, y: 0 };
+    const m = doc.displayedCrop(page);
+    return { x: m.left * viewer.scale, y: m.top * viewer.scale };
+  });
 
   // Render the canvas, then the text layer. Re-renders (zoom, rotate) are debounced and
   // keep the old bitmap stretched in place until the new one is ready.
@@ -112,6 +124,7 @@
   class="page"
   class:loading={!rendered}
   style:top="{top}px"
+  style:left="{left}px"
   style:width="{width}px"
   style:height="{height}px"
   style:--total-scale-factor={viewport?.scale ?? 1}
@@ -119,6 +132,12 @@
   role="region"
   aria-label="Page {index + 1}"
 >
+  <div
+    class="inner"
+    style:width="{viewport?.width ?? width}px"
+    style:height="{viewport?.height ?? height}px"
+    style:transform={page.crop && !viewer.cropPreview ? `translate(${-offset.x}px, ${-offset.y}px)` : undefined}
+  >
   <div class="canvas-host" bind:this={canvasHost}></div>
   {#if highlights.length}
     <div class="highlights" aria-hidden="true">
@@ -135,6 +154,19 @@
     </div>
   {/if}
   <div class="textLayer" bind:this={textHost}></div>
+  </div>
+  {#if viewer.cropPreview?.ids.has(page.id)}
+    {@const m = viewer.cropPreview.margins}
+    {@const s = viewer.scale}
+    <div
+      class="crop-keep"
+      aria-hidden="true"
+      style:left="{m.left * s}px"
+      style:top="{m.top * s}px"
+      style:right="{m.right * s}px"
+      style:bottom="{m.bottom * s}px"
+    ></div>
+  {/if}
   {#if failed}
     <p class="error">This page could not be displayed.</p>
   {:else if !rendered}
@@ -145,11 +177,16 @@
 <style>
   .page {
     position: absolute;
-    left: 0;
-    right: 0;
-    margin: 0 auto;
     background: #fff;
     box-shadow: 0 1px 3px rgb(0 0 0 / 0.25);
+  }
+  .page {
+    overflow: hidden;
+  }
+  .inner {
+    position: absolute;
+    top: 0;
+    left: 0;
   }
   .canvas-host {
     position: absolute;
@@ -175,6 +212,14 @@
   }
   .textLayer {
     z-index: 2;
+  }
+  .crop-keep {
+    position: absolute;
+    z-index: 3;
+    outline: 2px dashed var(--color-accent);
+    /* Shade everything outside the kept area. */
+    box-shadow: 0 0 0 9999px rgb(0 0 0 / 0.35);
+    pointer-events: none;
   }
   .placeholder,
   .error {

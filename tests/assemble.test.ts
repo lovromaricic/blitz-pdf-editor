@@ -44,6 +44,13 @@ describe('assemble (preserve mode = Save)', () => {
     expect(await rotations(out)).toEqual([270, 180]);
   });
 
+  it('applies crop margins to the crop box', async () => {
+    const src = { id: 'c', bytes: await makePdf(1, 'C') };
+    const out = await assemble([src], [{ sourceId: 'c', index: 0, rotation: 0, crop: { top: 10, right: 20, bottom: 30, left: 40 } }], 'preserve');
+    const page = (await PDFDocument.load(out)).getPage(0);
+    expect(page.getCropBox()).toEqual({ x: 40, y: 30, width: 501 - 60, height: 700 - 40 });
+  });
+
   it('removes the content of deleted pages from the file', async () => {
     const src = { id: 'a', bytes: await makePdf(4, 'A') };
     expect(latin1(src.bytes)).toContain('MARK-A-3');

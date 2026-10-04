@@ -77,3 +77,46 @@ export function chunkAt(count: number, starts: readonly number[]): number[][] {
     return Array.from({ length: end - start }, (_, j) => start + j);
   });
 }
+
+/** Crop margins in points. For storage these are in PDF user space (unrotated). */
+export interface Margins {
+  top: number;
+  right: number;
+  bottom: number;
+  left: number;
+}
+
+export const NO_MARGINS: Margins = { top: 0, right: 0, bottom: 0, left: 0 };
+
+/**
+ * Convert user-space margins to margins as seen on screen after rotating the
+ * page clockwise by `rotation` degrees (own /Rotate plus user rotation).
+ */
+export function marginsToDisplayed(m: Margins, rotation: number): Margins {
+  switch (((rotation % 360) + 360) % 360) {
+    case 90:
+      return { top: m.left, right: m.top, bottom: m.right, left: m.bottom };
+    case 180:
+      return { top: m.bottom, right: m.left, bottom: m.top, left: m.right };
+    case 270:
+      return { top: m.right, right: m.bottom, bottom: m.left, left: m.top };
+    default:
+      return { ...m };
+  }
+}
+
+/** Inverse of marginsToDisplayed. */
+export function marginsFromDisplayed(m: Margins, rotation: number): Margins {
+  return marginsToDisplayed(m, 360 - (((rotation % 360) + 360) % 360));
+}
+
+export function setCrop(pages: Pages, ids: ReadonlySet<string>, cropFor: (p: PageRef) => Margins | undefined): Pages {
+  return pages.map((p) => {
+    if (!ids.has(p.id)) return p;
+    const crop = cropFor(p);
+    const empty = !crop || (crop.top === 0 && crop.right === 0 && crop.bottom === 0 && crop.left === 0);
+    if (empty && !p.crop) return p;
+    const { crop: _old, ...rest } = p;
+    return empty ? rest : { ...rest, crop };
+  });
+}

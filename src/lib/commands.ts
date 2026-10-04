@@ -14,6 +14,8 @@ export interface CommandMeta {
 
 export interface CommandImpl {
   run: () => void;
+  /** Overrides the menu label, e.g. "Undo Rotate right". */
+  label?: () => string;
   enabled?: () => boolean;
   checked?: () => boolean;
 }
@@ -93,6 +95,15 @@ export class CommandRegistry {
 
   meta(id: CommandId): CommandMeta {
     return COMMANDS[id];
+  }
+
+  label(id: CommandId): string {
+    return this.impls[id]?.label?.() ?? COMMANDS[id].label;
+  }
+
+  /** Has an implementation (it may still be disabled right now). */
+  isBuilt(id: CommandId): boolean {
+    return !!this.impls[id] && !(COMMANDS[id] as CommandMeta).later;
   }
 
   /** Built and currently usable. Commands with no implementation yet are disabled. */

@@ -4,6 +4,7 @@
   import type { CommandRegistry } from '../lib/commands';
   import { formatBytes } from '../lib/files';
   import { useViewer } from '../lib/viewer.svelte';
+  import CropPanel from './panels/CropPanel.svelte';
   import ExtractPanel from './panels/ExtractPanel.svelte';
   import MergePanel from './panels/MergePanel.svelte';
   import PagesPanel from './panels/PagesPanel.svelte';
@@ -23,6 +24,8 @@
     <SplitPanel {actions} />
   {:else if viewer.panel === 'merge'}
     <MergePanel {actions} />
+  {:else if viewer.panel === 'crop'}
+    <CropPanel />
   {:else if viewer.selection.size > 0}
     <PagesPanel {commands} />
   {:else}
@@ -64,7 +67,9 @@
 
 <style>
   .panel {
+    min-width: 0;
     min-height: 0;
+    overflow-x: hidden;
     overflow-y: auto;
     padding: var(--space-4);
     border-left: var(--border-width) solid var(--color-border);

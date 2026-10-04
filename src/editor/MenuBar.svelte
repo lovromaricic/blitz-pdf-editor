@@ -181,11 +181,12 @@
             aria-checked={checked}
             aria-disabled={!enabled}
             class:disabled={!enabled}
+            title={commands.isBuilt(entry) ? undefined : meta.later ? 'Planned for a later version' : 'Not available yet'}
             tabindex="-1"
             onclick={() => activate(entry)}
           >
             <span class="check" aria-hidden="true">{checked ? '✓' : ''}</span>
-            <span class="label">{meta.label}</span>
+            <span class="label">{commands.label(entry)}</span>
             {#if meta.later}
               <span class="later">Later</span>
             {:else}

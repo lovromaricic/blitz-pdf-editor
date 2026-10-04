@@ -1,10 +1,12 @@
 // View state for one open document: zoom, page layout, scrolling and navigation.
 import { getContext, setContext, tick } from 'svelte';
 import type { EditorDocument, PageRef } from './document.svelte';
+import type { Margins } from './page-ops';
+import { computeLayout, indexAtY, pagesPerRow, rowAtY, rowStartOf, type ViewMode } from './layout';
 import { CSS_UNITS } from './pdf/pdfjs';
 import { Search } from './search.svelte';
 
-export const ZOOM_STEPS = [0.25, 0.33, 0.5, 0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3, 4, 5];
+export const ZOOM_STEPS = [0.1, 0.25, 0.33, 0.5, 0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3, 4, 5];
 export const MIN_ZOOM = ZOOM_STEPS[0];
 export const MAX_ZOOM = ZOOM_STEPS[ZOOM_STEPS.length - 1];
 
@@ -13,7 +15,7 @@ export const PAGE_GAP = 16;
 
 export type FitMode = 'width' | 'page' | null;
 /** Tool panels shown in the right-hand panel (opened from menus). */
-export type ToolPanel = 'extract' | 'split' | 'merge';
+export type ToolPanel = 'extract' | 'split' | 'merge' | 'crop';
 
 export interface Task {
   label: string;
@@ -23,12 +25,6 @@ export interface Task {
 
 export type Tool = 'select' | 'text' | 'highlight' | 'draw' | 'shapes' | 'stamp' | 'comment' | 'sign' | 'form';
 
-interface PageBox {
-  top: number;
-  width: number;
-  height: number;
-}
-
 export class Viewer {
   zoom = $state(1);
   fit = $state<FitMode>('width');
@@ -36,17 +32,21 @@ export class Viewer {
   showThumbnails = $state(true);
   showPanel = $state(true);
   tool = $state<Tool>('select');
+  mode = $state<ViewMode>('continuous');
 
   /** Page ids selected in the thumbnail rail. */
   selection = $state.raw<ReadonlySet<string>>(new Set());
   private anchorId: string | null = null;
   panel = $state<ToolPanel | null>(null);
   task = $state<Task | null>(null);
+  /** While the crop panel is open: pages show uncropped, with these margins (on-screen orientation, points) shaded. */
+  cropPreview = $state.raw<{ ids: ReadonlySet<string>; margins: Margins } | null>(null);
   notice = $state<{ text: string; id: number } | null>(null);
 
   /** Mirrors of the scroll container's geometry, for virtualized rendering. */
   scrollTop = $state(0);
   viewHeight = $state(0);
+  viewWidth = $state(0);
 
   scrollEl: HTMLElement | null = null;
   readonly search: Search;
@@ -58,29 +58,29 @@ export class Viewer {
   /** Display scale: CSS px per PDF point. */
   scale = $derived(this.zoom * CSS_UNITS);
 
-  layout = $derived.by(() => {
-    const boxes: PageBox[] = [];
-    let top = PAGE_GAP;
-    let maxWidth = 0;
-    for (const page of this.doc.pages) {
-      const size = this.doc.displaySize(page);
-      const width = Math.floor(size.width * this.scale);
-      const height = Math.floor(size.height * this.scale);
-      boxes.push({ top, width, height });
-      top += height + PAGE_GAP;
-      maxWidth = Math.max(maxWidth, width);
-    }
-    return { boxes, totalHeight: top, maxWidth };
-  });
+  layout = $derived.by(() =>
+    computeLayout({
+      sizes: this.doc.pages.map((page) => {
+        const size = this.cropPreview ? this.doc.fullDisplaySize(page) : this.doc.displaySize(page);
+        return { width: Math.floor(size.width * this.scale), height: Math.floor(size.height * this.scale) };
+      }),
+      mode: this.mode,
+      gap: PAGE_GAP,
+      viewWidth: this.viewWidth,
+      // Only single-page mode depends on the current page.
+      currentIndex: this.mode === 'single' ? this.currentIndex : 0,
+    }),
+  );
 
   /** Indexes of pages close enough to the view to be in the DOM. */
   visibleRange = $derived.by(() => {
-    const n = this.layout.boxes.length;
-    if (n === 0) return { start: 0, end: -1 };
+    const { rows, boxes } = this.layout;
+    if (boxes.length === 0) return { start: 0, end: -1 };
+    if (this.mode === 'single') return { start: this.currentIndex, end: this.currentIndex };
     const overscan = Math.max(this.viewHeight, 400);
-    const start = this.indexAt(this.scrollTop - overscan);
-    const end = this.indexAt(this.scrollTop + this.viewHeight + overscan);
-    return { start, end };
+    const first = rowAtY(this.layout, this.scrollTop - overscan);
+    const last = rowAtY(this.layout, this.scrollTop + this.viewHeight + overscan);
+    return { start: rows[first].start, end: (rows[last + 1]?.start ?? boxes.length) - 1 };
   });
 
   get pageCount() {
@@ -172,18 +172,38 @@ export class Viewer {
     const box = this.layout.boxes[i];
     if (this.scrollEl && box) {
       this.lockedIndex = i;
-      this.scrollEl.scrollTop = box.top - PAGE_GAP + offsetInPage;
+      // With no offset, show the top of the page's row (two-page rows can mix heights).
+      const rowTop = this.layout.rows[rowAtY(this.layout, box.top)]?.top ?? box.top;
+      this.scrollEl.scrollTop = offsetInPage ? box.top - PAGE_GAP + offsetInPage : rowTop - PAGE_GAP;
       // Scroll events fire before animation frame callbacks, so this clears the lock after them.
       requestAnimationFrame(() => (this.lockedIndex = null));
     }
   }
 
   nextPage() {
-    this.goToPage(this.currentIndex + 1);
+    this.goToPage(rowStartOf(this.mode, this.currentIndex) + pagesPerRow(this.mode));
   }
 
   previousPage() {
-    this.goToPage(this.currentIndex - 1);
+    this.goToPage(Math.max(0, rowStartOf(this.mode, this.currentIndex) - pagesPerRow(this.mode)));
+  }
+
+  get isFirstRow() {
+    return rowStartOf(this.mode, this.currentIndex) === 0;
+  }
+
+  get isLastRow() {
+    return rowStartOf(this.mode, this.currentIndex) + pagesPerRow(this.mode) >= this.pageCount;
+  }
+
+  async setMode(mode: ViewMode) {
+    if (mode === this.mode) return;
+    const index = this.currentIndex;
+    this.mode = mode;
+    await tick();
+    this.refit();
+    await tick();
+    this.goToPage(index);
   }
 
   /** Called on scroll: the current page is the one crossing the upper third of the view. */
@@ -192,6 +212,7 @@ export class Viewer {
     if (!el) return;
     this.scrollTop = el.scrollTop;
     this.viewHeight = el.clientHeight;
+    if (this.mode === 'single') return;
     if (this.lockedIndex !== null) {
       this.currentIndex = this.lockedIndex;
       return;
@@ -202,15 +223,7 @@ export class Viewer {
   }
 
   indexAt(y: number) {
-    const boxes = this.layout.boxes;
-    let lo = 0;
-    let hi = boxes.length - 1;
-    while (lo < hi) {
-      const mid = (lo + hi + 1) >> 1;
-      if (boxes[mid].top <= y) lo = mid;
-      else hi = mid - 1;
-    }
-    return lo;
+    return this.mode === 'single' ? this.currentIndex : indexAtY(this.layout, y);
   }
 
   // --- Zoom -------------------------------------------------------------
@@ -272,23 +285,49 @@ export class Viewer {
     else if (this.fit === 'page') void this.setZoom(this.fitPageZoom(), 'page');
   }
 
+  /** Rows of displayed page sizes in points, for fitting. */
+  private rowSizes(): { width: number; height: number }[] {
+    const pages = this.doc.pages;
+    const sizeAt = (i: number) => this.doc.displaySize(pages[i]);
+    if (this.mode === 'single') return pages[this.currentIndex] ? [sizeAt(this.currentIndex)] : [];
+    const per = pagesPerRow(this.mode);
+    const rows = [];
+    for (let i = 0; i < pages.length; i += per) {
+      const sizes = Array.from({ length: Math.min(per, pages.length - i) }, (_, k) => sizeAt(i + k));
+      rows.push({ width: sizes.reduce((w, s) => w + s.width, 0), height: Math.max(...sizes.map((s) => s.height)) });
+    }
+    return rows;
+  }
+
   private fitWidthZoom() {
     const el = this.scrollEl;
-    if (!el || this.pageCount === 0) return 1;
-    let widest = 0;
-    for (const p of this.doc.pages) widest = Math.max(widest, this.doc.displaySize(p).width);
-    return (el.clientWidth - 2 * PAGE_GAP) / (widest * CSS_UNITS);
+    const rows = this.rowSizes();
+    if (!el || rows.length === 0) return 1;
+    let widest = Math.max(...rows.map((r) => r.width));
+    if (this.mode === 'two') {
+      // Rows share a center line: room for the widest left page plus the widest right page.
+      const pages = this.doc.pages;
+      let left = 0;
+      let right = 0;
+      pages.forEach((p, i) => {
+        const w = this.doc.displaySize(p).width;
+        if (i % 2 === 0) left = Math.max(left, w);
+        else right = Math.max(right, w);
+      });
+      widest = left + right;
+    }
+    const gaps = (pagesPerRow(this.mode) + 1) * PAGE_GAP;
+    // Leave a pixel per page for rounding.
+    return (el.clientWidth - gaps - pagesPerRow(this.mode)) / (widest * CSS_UNITS);
   }
 
   private fitPageZoom() {
     const el = this.scrollEl;
-    const page = this.doc.pages[this.currentIndex];
-    if (!el || !page) return 1;
-    const size = this.doc.displaySize(page);
-    return Math.min(
-      (el.clientWidth - 2 * PAGE_GAP) / (size.width * CSS_UNITS),
-      (el.clientHeight - 2 * PAGE_GAP) / (size.height * CSS_UNITS),
-    );
+    const rows = this.rowSizes();
+    if (!el || rows.length === 0) return 1;
+    const row = this.mode === 'single' ? rows[0] : rows[Math.floor(this.currentIndex / pagesPerRow(this.mode))];
+    const gaps = (pagesPerRow(this.mode) + 1) * PAGE_GAP;
+    return Math.min((el.clientWidth - gaps) / (row.width * CSS_UNITS), (el.clientHeight - 2 * PAGE_GAP) / (row.height * CSS_UNITS));
   }
 }
 

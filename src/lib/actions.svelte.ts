@@ -7,6 +7,7 @@ import { readPdfFiles, type OpenFile } from './files';
 import { askPassword } from './open-files.svelte';
 import { deletePages, formatPageRange, insertPages, movePages, rotatePages } from './page-ops';
 import { blankPdf } from './pdf/blank';
+import { documentText, printDocument } from './print';
 import { writePdf, writePdfs } from './pdf/pdf-writer';
 import type { Viewer } from './viewer.svelte';
 
@@ -190,5 +191,22 @@ export class Actions {
     if (named.length === 1) downloadBytes(named[0].bytes, named[0].name);
     else downloadZip(named, `${base} (split).zip`);
     this.viewer.notify(`Split into ${this.plural(named.length, 'file')}${named.length > 1 ? ', saved as a .zip' : ''}.`);
+  }
+
+  async print() {
+    await this.viewer.runTask('Preparing to print…', (progress) => printDocument(this.doc, progress));
+  }
+
+  async exportText() {
+    const text = await this.viewer.runTask('Extracting text…', (progress) => documentText(this.doc, progress));
+    if (text === undefined) return;
+    const fileName = `${baseName(this.doc.fileName)}.txt`;
+    downloadBytes(new TextEncoder().encode(text), fileName, 'text/plain;charset=utf-8');
+    const empty = text.replace(/--- Page \d+ ---/g, '').trim() === '';
+    this.viewer.notify(
+      empty
+        ? `Saved ${fileName}, but no text was found. This looks like a scanned document; text recognition (OCR) comes in a later version.`
+        : `Saved ${fileName} to your downloads.`,
+    );
   }
 }

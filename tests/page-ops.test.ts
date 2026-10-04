@@ -3,6 +3,9 @@ import type { PageRef } from '../src/lib/document.svelte';
 import { History } from '../src/lib/history.svelte';
 import {
   chunkAt,
+  marginsFromDisplayed,
+  marginsToDisplayed,
+  setCrop,
   chunkEvery,
   deletePages,
   formatPageRange,
@@ -99,5 +102,26 @@ describe('History', () => {
     edit(5);
     expect(h.canRedo).toBe(false);
     expect(h.undoLabel).toBe('set 5');
+  });
+});
+
+describe('crop margins', () => {
+  const m = { top: 1, right: 2, bottom: 3, left: 4 };
+  it('rotates clockwise: the left edge comes to the top at 90°', () => {
+    expect(marginsToDisplayed(m, 0)).toEqual(m);
+    expect(marginsToDisplayed(m, 90)).toEqual({ top: 4, right: 1, bottom: 2, left: 3 });
+    expect(marginsToDisplayed(m, 180)).toEqual({ top: 3, right: 4, bottom: 1, left: 2 });
+    expect(marginsToDisplayed(m, 270)).toEqual({ top: 2, right: 3, bottom: 4, left: 1 });
+  });
+  it('round-trips through displayed margins at every angle', () => {
+    for (const r of [0, 90, 180, 270, 450, -90]) expect(marginsFromDisplayed(marginsToDisplayed(m, r), r)).toEqual(m);
+  });
+  it('sets and clears crops on chosen pages only', () => {
+    const p = pages(2);
+    const cropped = setCrop(p, set('p1'), () => m);
+    expect(cropped[0]).toBe(p[0]);
+    expect(cropped[1].crop).toEqual(m);
+    const cleared = setCrop(cropped, set('p1'), () => ({ top: 0, right: 0, bottom: 0, left: 0 }));
+    expect(cleared[1].crop).toBeUndefined();
   });
 });
