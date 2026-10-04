@@ -12,6 +12,7 @@
   import { REPORT_PROBLEM_URL } from '../config';
   import CanvasView from '../editor/CanvasView.svelte';
   import HelpDialog, { type HelpTopic } from '../editor/HelpDialog.svelte';
+  import SignatureDialog from '../editor/SignatureDialog.svelte';
   import MenuBar from '../editor/MenuBar.svelte';
   import SidePanel from '../editor/SidePanel.svelte';
   import ThumbnailRail from '../editor/ThumbnailRail.svelte';
@@ -142,6 +143,7 @@
     // Tools
     'tools.merge': { run: () => openPanel('merge'), enabled: idle },
     'tools.split': { run: () => openPanel('split'), enabled: () => idle() && doc.pages.length > 1 },
+    'tools.flatten': { run: () => actions.flattenForms(), enabled: () => actions.canFlatten() },
 
     // Help
     'help.guide': { run: () => (help = 'guide') },
@@ -224,6 +226,7 @@
   </div>
 
   <HelpDialog topic={help} onClose={() => (help = null)} />
+  <SignatureDialog />
 
   <input
     bind:this={openInput}

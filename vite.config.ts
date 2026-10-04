@@ -13,6 +13,9 @@ export default defineConfig({
   plugins: [svelte(), pdfjsAssets(), licenses()],
   define: { __APP_VERSION__: JSON.stringify(version) },
   server: { port: Number(process.env.PORT) || 5173 },
+  // Pre-bundle the worker's dependencies up front: otherwise the dev server
+  // discovers them on first save and reloads the page, losing unsaved work.
+  optimizeDeps: { include: ['@cantoo/pdf-lib', '@cantoo/fontkit', 'fflate'] },
   build: {
     target: 'es2022',
   },

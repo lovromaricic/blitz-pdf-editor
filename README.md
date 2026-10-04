@@ -43,7 +43,7 @@ BASE_PATH=/tools/pdf/ npm run build
 ### What's in `dist/`
 
 - `THIRD_PARTY_LICENSES.txt`: license texts of every library shipped in the app, generated at build time by `build-tools/licenses.ts` (also shown in *Help › About*). Keep it with the app; Apache-2.0 and MIT require it.
-- `index.html` and `assets/`: the app. The PDF viewer (PDF.js) is a separate chunk loaded in the background after the Home screen appears. The PDF writer (pdf-lib, in a Web Worker) loads the first time you save, extract or split.
+- `index.html` and `assets/`: the app. Fonts (Noto, about 2.2 MB) load only when text tools or saving need them. The PDF viewer (PDF.js) is a separate chunk loaded in the background after the Home screen appears. The PDF writer (pdf-lib, in a Web Worker) loads the first time you save, extract or split.
 - `pdfjs/`: data PDF.js fetches only when a document needs it (CJK character maps, the 14 standard fonts, image-decoder WASM, colour profiles). Copied from `pdfjs-dist` at build time by `build-tools/pdfjs-assets.ts`. Upload it with everything else.
 
 ### Server headers
@@ -88,6 +88,10 @@ tests/                   Vitest unit tests (tests/tmp/ is a gitignored scratch a
 
 - Pages are kept as references into the original files, so editing is instant and undoable.
 - **Save** rebuilds the PDF from the first page's original file, keeping its metadata, bookmarks and form fields. Deleted pages are emptied and unreferenced data is dropped, so deleted content does not stay hidden in the file.
+- **Markup** (highlight, drawing, shapes, text, stamps, comments, signatures) is saved as standard PDF annotations with their own appearance, so other viewers show it identically and editors like Acrobat can still change it.
+- **Text, stamps and form values** use embedded Noto fonts (subset to the characters used), so č, ć, đ, Greek and Cyrillic work. Form values that fit the standard fonts keep using Helvetica.
+- **Fill form** writes the typed values into the form fields; **Flatten form** turns fields into page content on save.
+- **Signatures** are pictures of a signature (drawn, typed or uploaded), not certificate-based digital signatures. They are kept only in memory for the current tab.
 - **Crop** sets each page's crop box. The trimmed area is hidden, not removed (true removal is what Redact, planned for later, will do).
 - **Extract** and **Split** write fresh PDFs that contain only the chosen pages.
 - Saving a password-protected PDF produces an unprotected copy (the app warns about this). Re-protecting is the job of *Tools › Protect with password* (Phase 6).

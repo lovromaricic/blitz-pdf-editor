@@ -2,6 +2,12 @@
 // the app and directly in Node for tests, so it must not touch the DOM.
 import {
   degrees,
+  PDFCheckBox,
+  PDFDropdown,
+  PDFOptionList,
+  PDFRadioGroup,
+  PDFTextField,
+  StandardFonts,
   PDFArray,
   PDFDict,
   PDFDocument,
@@ -13,7 +19,8 @@ import {
   type PDFObject,
 } from '@cantoo/pdf-lib';
 import type { Annotation } from '../annotations';
-import { addAnnotations } from './write-annotations';
+import type { FieldValue } from '../forms';
+import { addAnnotations, type FontProvider } from './write-annotations';
 
 export interface SourceInput {
   id: string;
@@ -43,10 +50,20 @@ export type AssembleMode = 'preserve' | 'fresh';
 
 export class SourceOpenError extends Error {}
 
+export interface AssembleOptions {
+  /** Needed when the plan contains text, stamps or form values that need embedded fonts. */
+  fonts?: FontProvider;
+  /** Form values the user filled in, per source id. */
+  forms?: Record<string, FieldValue[]>;
+  /** Source ids whose form fields are flattened into page content. */
+  flatten?: string[];
+}
+
 export async function assemble(
   sources: readonly SourceInput[],
   plan: readonly PagePlan[],
   mode: AssembleMode,
+  options: AssembleOptions = {},
 ): Promise<Uint8Array> {
   if (plan.length === 0) throw new Error('A PDF needs at least one page.');
   const byId = new Map(sources.map((s) => [s.id, s]));
@@ -56,7 +73,10 @@ export async function assemble(
     if (!doc) {
       const src = byId.get(id);
       if (!src) throw new Error(`Unknown source ${id}`);
-      doc = openSource(src);
+      doc = openSource(src).then(async (d) => {
+        await applyForm(d, options.forms?.[id] ?? [], !!options.flatten?.includes(id), options.fonts ?? noFonts);
+        return d;
+      });
       cache.set(id, doc);
     }
     return doc;
@@ -105,7 +125,12 @@ export async function assemble(
     if (extra % 360 !== 0) {
       page.setRotation(degrees((((page.getRotation().angle + extra) % 360) + 360) % 360));
     }
-    if (plan[pos].annots?.length) addAnnotations(out, page, plan[pos].annots!);
+    if (plan[pos].annots?.length) {
+      if (!options.fonts && plan[pos].annots!.some((a) => a.type === 'text' || a.type === 'stamp')) {
+        throw new Error('Fonts are required to save text and stamps.');
+      }
+      await addAnnotations(out, page, plan[pos].annots!, options.fonts ?? noFonts);
+    }
     if (crop) {
       const box = page.getCropBox();
       const width = Math.max(1, box.width - crop.left - crop.right);
@@ -125,6 +150,53 @@ export async function assemble(
 
   // Don't regenerate form field appearances: keep them exactly as the file had them.
   return out.save({ useObjectStreams: true, updateFieldAppearances: false });
+}
+
+const noFonts: FontProvider = () => Promise.reject(new Error('No fonts available.'));
+
+// Characters the standard 14 fonts can show (WinAnsiEncoding): Latin-1 plus a few extras.
+const WIN_ANSI_EXTRA = new Set([...'€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–—˜™š›œžŸ'].map((c) => c.codePointAt(0)!));
+
+export function isWinAnsi(text: string) {
+  for (const ch of text) {
+    const cp = ch.codePointAt(0)!;
+    const ok = cp === 9 || cp === 10 || cp === 13 || (cp >= 0x20 && cp <= 0x7e) || (cp >= 0xa0 && cp <= 0xff) || WIN_ANSI_EXTRA.has(cp);
+    if (!ok) return false;
+  }
+  return true;
+}
+
+/** Write filled-in values into the form, regenerate their appearance, and optionally flatten. */
+async function applyForm(doc: PDFDocument, values: FieldValue[], flatten: boolean, fonts: FontProvider) {
+  if (values.length === 0 && !flatten) return;
+  const form = doc.getForm();
+  for (const v of values) {
+    try {
+      const field = form.getField(v.name);
+      if (field instanceof PDFTextField && typeof v.value === 'string') {
+        // Respect a field's maximum length rather than failing the whole save.
+        const max = field.getMaxLength();
+        field.setText(max !== undefined ? v.value.slice(0, max) : v.value);
+      } else if (field instanceof PDFCheckBox) {
+        if (v.value) field.check();
+        else field.uncheck();
+      } else if (field instanceof PDFRadioGroup && typeof v.value === 'string') {
+        field.select(v.value);
+      } else if ((field instanceof PDFDropdown || field instanceof PDFOptionList) && (typeof v.value === 'string' || Array.isArray(v.value))) {
+        field.select(v.value as string);
+      }
+    } catch {
+      // A field we can't write (renamed, unusual type) keeps its old value.
+    }
+  }
+  if (values.length > 0) {
+    // Helvetica covers Western European text; anything else (č, ć, đ, Cyrillic…)
+    // needs an embedded font. (pdf-lib silently writes "?" for characters Helvetica lacks.)
+    const strings = values.flatMap((v) => (typeof v.value === 'string' ? [v.value] : Array.isArray(v.value) ? v.value : []));
+    const font = strings.every(isWinAnsi) ? await doc.embedFont(StandardFonts.Helvetica) : await fonts(doc, 'sans');
+    form.updateFieldAppearances(font);
+  }
+  if (flatten) form.flatten({ updateFieldAppearances: false });
 }
 
 async function openSource(src: SourceInput): Promise<PDFDocument> {

@@ -2,6 +2,7 @@ import { mount } from 'svelte';
 import './styles/tokens.css';
 import './styles/global.css';
 import './styles/pdf-layers.css';
+import './styles/pdf-annotation-layer.css';
 import './editor/panels/panel.css';
 import App from './App.svelte';
 import { APP_NAME } from './config';

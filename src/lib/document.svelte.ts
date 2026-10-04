@@ -7,6 +7,7 @@ import type { OpenFile, RejectedFile } from './files';
 import { History } from './history.svelte';
 import type { Annotation } from './annotations';
 import { marginsToDisplayed, NO_MARGINS, type Margins } from './page-ops';
+import { hasFormFields } from './forms';
 import { loadPdf, PdfLoadError } from './pdf/pdfjs';
 
 export interface PageSize {
@@ -15,6 +16,8 @@ export interface PageSize {
 }
 
 export class Source {
+  /** True once we know the file has fillable form fields. */
+  hasForm = $state(false);
   /** Page sizes in points as the source displays them (its own /Rotate applied). */
   sizes = $state<PageSize[]>([]);
   /** Each page's own /Rotate, in degrees. */
@@ -48,6 +51,8 @@ export interface PageRef {
   readonly crop?: Margins;
   /** Markup added in the editor, in PDF user space of the source page. */
   readonly annots?: readonly Annotation[];
+  /** Form fields on this page are flattened into page content when saved. */
+  readonly flattenForm?: boolean;
 }
 
 export interface DocInfo {
@@ -72,6 +77,8 @@ export class EditorDocument {
   info = $state<DocInfo>({});
   readonly sources = new SvelteMap<string, Source>();
   readonly history = new History<readonly PageRef[]>();
+  /** Form fields were filled in since opening or the last save. */
+  formDirty = $state(false);
 
   /** Files the user opened or inserted (not generated blank pages). */
   get files(): Source[] {
@@ -88,7 +95,11 @@ export class EditorDocument {
 
   /** Unsaved changes since opening or the last save. */
   get dirty() {
-    return this.history.dirty;
+    return this.history.dirty || this.formDirty;
+  }
+
+  get hasForms() {
+    return this.files.some((s) => s.hasForm);
   }
 
   source(page: PageRef): Source {
@@ -138,6 +149,9 @@ export class EditorDocument {
 
   markSaved() {
     this.history.markSaved();
+    this.formDirty = false;
+    // Re-arm change tracking: PDF.js only reports the first change after a reset.
+    for (const s of this.sources.values()) s.pdf.annotationStorage.resetModified();
   }
 
   /** Load a file as a new source and return refs to all its pages (not yet inserted). */
@@ -145,6 +159,11 @@ export class EditorDocument {
     const { pdf, password } = await openWithPassword(file, askPassword);
     const source = new Source(file.id, file.name, file.size, file.bytes, pdf, password, kind);
     this.sources.set(source.id, source);
+    // Typed as null in PDF.js's declarations, but it's a callback slot.
+    (pdf.annotationStorage as unknown as { onSetModified: () => void }).onSetModified = () => {
+      this.formDirty = true;
+    };
+    if (kind === 'file') void hasFormFields(pdf).then((has) => (source.hasForm = has)).catch(() => {});
 
     // Use page 1's size for every page so the layout can render immediately,
     // then fill in real sizes in the background.

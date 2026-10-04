@@ -2,8 +2,9 @@
 // Works the same in every browser, and prints exactly what the editor shows
 // (order, rotation, crop), without saving first.
 import type { EditorDocument } from './document.svelte';
-import type { PageViewport } from 'pdfjs-dist';
-import type { Annotation, Point } from './annotations';
+import { AnnotationMode, type PageViewport } from 'pdfjs-dist';
+import { isBoxed, type Annotation, type Point } from './annotations';
+import { drawBoxed } from './boxed-canvas';
 import { primitivesToSvg, toPrimitives } from './annotation-view';
 import { viewportFor } from './pdf/render';
 
@@ -22,7 +23,8 @@ export async function printDocument(doc: EditorDocument, onProgress: (p: number)
       const full = document.createElement('canvas');
       full.width = Math.floor(viewport.width);
       full.height = Math.floor(viewport.height);
-      await pdfPage.render({ canvas: full, viewport, intent: 'print' }).promise;
+      // Form fields print with the values typed in.
+      await pdfPage.render({ canvas: full, viewport, intent: 'print', annotationMode: AnnotationMode.ENABLE_STORAGE }).promise;
       if (page.annots?.length) await drawAnnotations(full, page.annots, viewport);
 
       // Apply the crop by copying only the kept area.
@@ -98,6 +100,7 @@ async function drawAnnotations(canvas: HTMLCanvasElement, annots: readonly Annot
     ctx.drawImage(img, 0, 0);
   }
   ctx.globalCompositeOperation = 'source-over';
+  await drawBoxed(ctx, annots.filter(isBoxed), toScreen, viewport.scale, viewport.rotation);
 }
 
 function escapeHtml(s: string) {

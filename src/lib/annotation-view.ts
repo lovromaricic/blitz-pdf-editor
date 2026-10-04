@@ -60,6 +60,9 @@ export function toPrimitives(a: Annotation, toScreen: ToScreen, scale: number): 
         },
       ];
     }
+    default:
+      // Boxed annotations (text, stamps, comments, images) are drawn by drawBoxed / BoxedView.
+      return [];
   }
 }
 
@@ -89,4 +92,23 @@ export function primitivesToSvg(prims: Primitive[], width: number, height: numbe
     })
     .join('');
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">${body}</svg>`;
+}
+
+/**
+ * Where a boxed annotation sits on screen: the center of its box, its upright
+ * size in px, and how far its content is turned (clockwise degrees) because the
+ * page has been rotated since it was made.
+ */
+export function boxedGeometry(a: { rect: Rect; rotate: number }, toScreen: ToScreen, scale: number, pageRotation: number) {
+  const [x1, y1, x2, y2] = a.rect;
+  const b = screenBox([toScreen([x1, y1]), toScreen([x2, y2])]);
+  const w = a.rotate % 180 === 0 ? x2 - x1 : y2 - y1;
+  const h = a.rotate % 180 === 0 ? y2 - y1 : x2 - x1;
+  return {
+    cx: (b[0] + b[2]) / 2,
+    cy: (b[1] + b[3]) / 2,
+    w: w * scale,
+    h: h * scale,
+    turn: (((pageRotation - a.rotate) % 360) + 360) % 360,
+  };
 }

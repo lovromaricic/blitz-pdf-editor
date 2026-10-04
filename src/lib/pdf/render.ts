@@ -1,5 +1,12 @@
 // Rendering one page to a canvas, with a memory cap and cancellation.
-import { RenderingCancelledException, type PDFPageProxy, type PageViewport } from 'pdfjs-dist';
+import { AnnotationMode, RenderingCancelledException, type PDFPageProxy, type PageViewport } from 'pdfjs-dist';
+
+/**
+ * - `forms`: interactive fields are drawn by the HTML form layer, not the canvas.
+ * - `values`: fields are drawn on the canvas with the values typed so far
+ *   (thumbnails, print, flattened pages).
+ */
+export type FieldDrawing = 'forms' | 'values';
 
 /** Cap canvas backing stores at ~16 MP so high zoom on big pages can't exhaust memory. */
 const MAX_CANVAS_PIXELS = 4096 * 4096;
@@ -14,7 +21,7 @@ export interface RenderHandle {
 }
 
 /** Renders into a fresh canvas; resolves null if cancelled. */
-export function renderToCanvas(pdfPage: PDFPageProxy, viewport: PageViewport): RenderHandle {
+export function renderToCanvas(pdfPage: PDFPageProxy, viewport: PageViewport, fields: FieldDrawing = 'values'): RenderHandle {
   const canvas = document.createElement('canvas');
   let outputScale = window.devicePixelRatio || 1;
   const cssPixels = viewport.width * viewport.height;
@@ -30,6 +37,7 @@ export function renderToCanvas(pdfPage: PDFPageProxy, viewport: PageViewport): R
     canvas,
     viewport,
     transform: outputScale !== 1 ? [outputScale, 0, 0, outputScale, 0, 0] : undefined,
+    annotationMode: fields === 'forms' ? AnnotationMode.ENABLE_FORMS : AnnotationMode.ENABLE_STORAGE,
   });
 
   return {

@@ -215,6 +215,19 @@ export class Actions {
     );
   }
 
+  // --- Forms ----------------------------------------------------------------
+
+  canFlatten() {
+    return this.doc.hasForms && this.doc.pages.some((p) => !p.flattenForm && this.doc.source(p).hasForm);
+  }
+
+  /** Mark form fields for flattening on save (undoable until then). */
+  flattenForms() {
+    if (!this.canFlatten()) return;
+    this.doc.edit('Flatten form', this.doc.pages.map((p) => (p.flattenForm || !this.doc.source(p).hasForm ? p : { ...p, flattenForm: true })));
+    this.viewer.notify('The form will be flattened when you save. Until then you can undo with Ctrl+Z.');
+  }
+
   // --- Annotations --------------------------------------------------------
 
   findAnnot(pageId: string, id: string) {

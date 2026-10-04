@@ -4,6 +4,7 @@
   import { releaseCanvas, renderToCanvas, viewportFor } from '../lib/pdf/render';
   import { useViewer } from '../lib/viewer.svelte';
   import AnnotationLayer from './AnnotationLayer.svelte';
+  import FormLayer from './FormLayer.svelte';
 
   let {
     page,
@@ -57,7 +58,8 @@
 
     const timer = setTimeout(
       async () => {
-        renderHandle = renderToCanvas(p, vp);
+        // Interactive fields are drawn by the form layer; flattened pages show values on the canvas.
+        renderHandle = renderToCanvas(p, vp, page.flattenForm ? 'values' : 'forms');
         try {
           const next = await renderHandle.promise;
           if (!next || cancelled) return;
@@ -155,6 +157,7 @@
     </div>
   {/if}
   <div class="textLayer" bind:this={textHost}></div>
+  {#if viewport && pdfPage}<FormLayer {pdfPage} {viewport} {page} source={doc.source(page)} />{/if}
   {#if viewport}<AnnotationLayer {page} {viewport} />{/if}
   </div>
   {#if viewer.cropPreview?.ids.has(page.id)}

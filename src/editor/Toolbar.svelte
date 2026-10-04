@@ -10,17 +10,16 @@
     { id: 'edit.redo', label: 'Redo' },
   ];
 
-  // Tools not built yet stay disabled.
-  const tools: { id: Tool; label: string; built: boolean }[] = [
-    { id: 'select', label: 'Select', built: true },
-    { id: 'text', label: 'Text', built: false },
-    { id: 'highlight', label: 'Highlight', built: true },
-    { id: 'draw', label: 'Draw', built: true },
-    { id: 'shapes', label: 'Shapes', built: true },
-    { id: 'stamp', label: 'Stamp', built: false },
-    { id: 'comment', label: 'Comment', built: false },
-    { id: 'sign', label: 'Sign', built: false },
-    { id: 'form', label: 'Fill form', built: false },
+  const tools: { id: Tool; label: string }[] = [
+    { id: 'select', label: 'Select' },
+    { id: 'text', label: 'Text' },
+    { id: 'highlight', label: 'Highlight' },
+    { id: 'draw', label: 'Draw' },
+    { id: 'shapes', label: 'Shapes' },
+    { id: 'stamp', label: 'Stamp' },
+    { id: 'comment', label: 'Comment' },
+    { id: 'sign', label: 'Sign' },
+    { id: 'form', label: 'Fill form' },
   ];
 </script>
 
@@ -46,7 +45,6 @@
           class="tool"
           class:active={viewer.tool === t.id}
           aria-pressed={viewer.tool === t.id}
-          disabled={!t.built}
           onclick={() => viewer.setTool(t.id)}
         >
           <span class="icon" aria-hidden="true"></span>

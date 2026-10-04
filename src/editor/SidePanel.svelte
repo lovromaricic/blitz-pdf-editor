@@ -6,7 +6,12 @@
   import { useViewer } from '../lib/viewer.svelte';
   import CropPanel from './panels/CropPanel.svelte';
   import ExtractPanel from './panels/ExtractPanel.svelte';
+  import CommentPanel from './panels/CommentPanel.svelte';
+  import FormPanel from './panels/FormPanel.svelte';
   import MarkupPanel from './panels/MarkupPanel.svelte';
+  import SignPanel from './panels/SignPanel.svelte';
+  import StampPanel from './panels/StampPanel.svelte';
+  import TextPanel from './panels/TextPanel.svelte';
   import MergePanel from './panels/MergePanel.svelte';
   import PagesPanel from './panels/PagesPanel.svelte';
   import PanelHeader from './panels/PanelHeader.svelte';
@@ -16,6 +21,17 @@
 
   const viewer = useViewer();
   const doc = viewer.doc;
+
+  /** Which markup panel to show: the selected annotation's kind, else the active tool's. */
+  const markup = $derived.by(() => {
+    const key = actions.selectedAnnot?.annot.type ?? viewer.tool;
+    const map: Record<string, string> = {
+      highlight: 'vector', ink: 'vector', draw: 'vector', shape: 'vector', shapes: 'vector',
+      text: 'text', stamp: 'stamp', note: 'comment', comment: 'comment', image: 'sign', sign: 'sign',
+      form: 'form',
+    };
+    return map[key] ?? null;
+  });
 </script>
 
 <aside class="panel" aria-label="Properties">
@@ -27,8 +43,18 @@
     <MergePanel {actions} />
   {:else if viewer.panel === 'crop'}
     <CropPanel />
-  {:else if viewer.selectedAnnot || ['highlight', 'draw', 'shapes'].includes(viewer.tool)}
+  {:else if markup === 'vector'}
     <MarkupPanel />
+  {:else if markup === 'text'}
+    <TextPanel />
+  {:else if markup === 'stamp'}
+    <StampPanel />
+  {:else if markup === 'comment'}
+    <CommentPanel />
+  {:else if markup === 'sign'}
+    <SignPanel />
+  {:else if markup === 'form'}
+    <FormPanel {commands} />
   {:else if viewer.selection.size > 0}
     <PagesPanel {commands} />
   {:else}

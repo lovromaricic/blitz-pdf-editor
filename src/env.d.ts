@@ -7,3 +7,8 @@ declare module 'virtual:licenses' {
   const list: { name: string; version: string; license: string }[];
   export default list;
 }
+
+declare module '*.ttf?url' {
+  const url: string;
+  export default url;
+}

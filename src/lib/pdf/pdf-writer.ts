@@ -2,6 +2,8 @@
 import type { EditorDocument, PageRef } from '../document.svelte';
 import type { AssembleMode, PagePlan } from './assemble';
 import type { AssembleRequest, WorkerResponse } from './pdf-worker';
+import { FONT_URLS } from '../fonts';
+import { changedFieldValues, type FieldValue } from '../forms';
 
 let worker: Worker | null = null;
 let nextId = 0;
@@ -23,13 +25,21 @@ export function planFor(pages: readonly PageRef[]): PagePlan[] {
 }
 
 /** Build one PDF per page list. `onProgress` reports finished outputs. */
-export function writePdfs(
+export async function writePdfs(
   doc: EditorDocument,
   outputs: (readonly PageRef[])[],
   mode: AssembleMode,
   onProgress?: (done: number, total: number) => void,
 ): Promise<Uint8Array[]> {
   const used = new Set(outputs.flatMap((pages) => pages.map((p) => p.sourceId)));
+  // Form values typed in the editor, and which files have their forms flattened.
+  const forms: Record<string, FieldValue[]> = {};
+  for (const id of used) {
+    const values = await changedFieldValues(doc.sources.get(id)!.pdf);
+    if (values.length) forms[id] = values;
+  }
+  const flatten = [...new Set(outputs.flat().filter((p) => p.flattenForm).map((p) => p.sourceId))];
+
   const sources = [...doc.sources.values()]
     .filter((s) => used.has(s.id))
     // Structured clone copies the bytes, so the originals stay with us.
@@ -59,7 +69,7 @@ export function writePdfs(
     };
     w.addEventListener('message', onMessage);
     w.addEventListener('error', onError);
-    const req: AssembleRequest = { id, sources, outputs: outputs.map(planFor), mode };
+    const req: AssembleRequest = { id, sources, outputs: outputs.map(planFor), mode, fontUrls: FONT_URLS, forms, flatten };
     w.postMessage(req);
   });
 }

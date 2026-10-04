@@ -42,7 +42,97 @@ export interface ShapeAnnotation extends Base {
   fill: Rgb | null;
 }
 
-export type Annotation = HighlightAnnotation | InkAnnotation | ShapeAnnotation;
+export type FontFamily = 'sans' | 'serif' | 'mono';
+
+/**
+ * Annotations with upright content in a box (text, stamps, comments, images).
+ * `rotate` is the page's total rotation when the annotation was made: the
+ * content was drawn upright for that view, and turns with the page afterwards.
+ */
+interface Boxed extends Base {
+  rect: Rect;
+  rotate: number;
+}
+
+export interface TextAnnotation extends Boxed {
+  type: 'text';
+  text: string;
+  /** Line breaks as laid out in the editor; screen, print and PDF all use these. */
+  lines: string[];
+  font: FontFamily;
+  /** Points. */
+  size: number;
+}
+
+export interface StampAnnotation extends Boxed {
+  type: 'stamp';
+  label: string;
+}
+
+/** A sticky-note comment, shown as an icon. */
+export interface NoteAnnotation extends Boxed {
+  type: 'note';
+  text: string;
+}
+
+export interface ImageAnnotation extends Boxed {
+  type: 'image';
+  /** PNG data URL. */
+  dataUrl: string;
+  role: 'signature' | 'image';
+}
+
+export type BoxedAnnotation = TextAnnotation | StampAnnotation | NoteAnnotation | ImageAnnotation;
+
+export type Annotation = HighlightAnnotation | InkAnnotation | ShapeAnnotation | BoxedAnnotation;
+
+export function isBoxed(a: Annotation): a is BoxedAnnotation {
+  return a.type === 'text' || a.type === 'stamp' || a.type === 'note' || a.type === 'image';
+}
+
+/** Size of a note icon, in points. */
+export const NOTE_SIZE = 22;
+
+/** Width and height of a boxed annotation's content, upright. */
+export function uprightSize(a: { rect: Rect; rotate: number }): [number, number] {
+  const w = a.rect[2] - a.rect[0];
+  const h = a.rect[3] - a.rect[1];
+  return a.rotate % 180 === 0 ? [w, h] : [h, w];
+}
+
+/**
+ * PDF-space rectangle for upright content of size w x h whose upright top-left
+ * corner is at `topLeft`, on a page shown with total rotation `rotate`
+ * (clockwise, like /Rotate).
+ */
+export function rectFromUpright(topLeft: Point, w: number, h: number, rotate: number): Rect {
+  const [x, y] = topLeft;
+  switch (((rotate % 360) + 360) % 360) {
+    case 90:
+      return [x, y, x + h, y + w];
+    case 180:
+      return [x - w, y, x, y + h];
+    case 270:
+      return [x - h, y - w, x, y];
+    default:
+      return [x, y - h, x + w, y];
+  }
+}
+
+/** The PDF-space point that is the upright top-left corner of a boxed annotation. */
+export function uprightTopLeft(a: { rect: Rect; rotate: number }): Point {
+  const [x1, y1, x2, y2] = a.rect;
+  switch (((a.rotate % 360) + 360) % 360) {
+    case 90:
+      return [x1, y1];
+    case 180:
+      return [x2, y1];
+    case 270:
+      return [x2, y2];
+    default:
+      return [x1, y2];
+  }
+}
 
 let counter = 0;
 export function newAnnotationId() {
@@ -50,6 +140,13 @@ export function newAnnotationId() {
 }
 
 // --- Colours (placeholders until the visual design is decided) -----------
+
+export const NOTE_COLORS: { name: string; rgb: Rgb }[] = [
+  { name: 'Yellow', rgb: [1, 0.85, 0.2] },
+  { name: 'Green', rgb: [0.55, 0.85, 0.35] },
+  { name: 'Blue', rgb: [0.4, 0.75, 1] },
+  { name: 'Pink', rgb: [1, 0.55, 0.75] },
+];
 
 export const HIGHLIGHT_COLORS: { name: string; rgb: Rgb }[] = [
   { name: 'Yellow', rgb: [1, 0.92, 0.23] },
@@ -97,6 +194,8 @@ export function bounds(a: Annotation): Rect {
       const extra = a.shape === 'arrow' ? arrowSize(a.width) : 0;
       return pad(r, a.width / 2 + extra);
     }
+    default:
+      return a.rect;
   }
 }
 
@@ -137,6 +236,8 @@ export function translate(a: Annotation, dx: number, dy: number): Annotation {
       return { ...a, paths: a.paths.map((path) => path.map(mv)) };
     case 'shape':
       return { ...a, from: mv(a.from), to: mv(a.to) };
+    default:
+      return { ...a, rect: [round(a.rect[0] + dx), round(a.rect[1] + dy), round(a.rect[2] + dx), round(a.rect[3] + dy)] };
   }
 }
 
@@ -152,6 +253,8 @@ export function remap(a: Annotation, src: Rect, dst: Rect): Annotation {
       return { ...a, paths: a.paths.map((path) => path.map(map)) };
     case 'shape':
       return { ...a, from: map(a.from), to: map(a.to) };
+    default:
+      return { ...a, rect: normRect(map([a.rect[0], a.rect[1]]), map([a.rect[2], a.rect[3]])) };
   }
 }
 
@@ -196,7 +299,35 @@ export function simplifyPath(points: Point[], minDist: number): Point[] {
 }
 
 export function describe(a: Annotation): string {
-  if (a.type === 'highlight') return 'Highlight';
-  if (a.type === 'ink') return 'Drawing';
-  return { rect: 'Rectangle', ellipse: 'Ellipse', line: 'Line', arrow: 'Arrow' }[a.shape];
+  switch (a.type) {
+    case 'highlight':
+      return 'Highlight';
+    case 'ink':
+      return 'Drawing';
+    case 'shape':
+      return { rect: 'Rectangle', ellipse: 'Ellipse', line: 'Line', arrow: 'Arrow' }[a.shape];
+    case 'text':
+      return 'Text';
+    case 'stamp':
+      return 'Stamp';
+    case 'note':
+      return 'Comment';
+    case 'image':
+      return a.role === 'signature' ? 'Signature' : 'Image';
+  }
 }
+
+// --- Stamps ------------------------------------------------------------------
+
+export const STAMPS: { label: string; color: Rgb }[] = [
+  { label: 'APPROVED', color: [0.1, 0.55, 0.2] },
+  { label: 'COMPLETED', color: [0.1, 0.55, 0.2] },
+  { label: 'FOR REVIEW', color: [0.1, 0.35, 0.8] },
+  { label: 'DRAFT', color: [0.35, 0.35, 0.35] },
+  { label: 'CONFIDENTIAL', color: [0.8, 0.1, 0.1] },
+  { label: 'REJECTED', color: [0.8, 0.1, 0.1] },
+  { label: 'VOID', color: [0.8, 0.1, 0.1] },
+];
+
+/** Stamp text size relative to the stamp's height. */
+export const STAMP_TEXT_RATIO = 0.5;

@@ -1,7 +1,8 @@
 <script lang="ts">
   // Non-interactive rendering of a page's markup (thumbnails).
   import type { PageViewport } from 'pdfjs-dist';
-  import type { Annotation, Point } from '../lib/annotations';
+  import { isBoxed, type Annotation, type Point } from '../lib/annotations';
+  import BoxedView from './BoxedView.svelte';
   import { pointsAttr, toPrimitives } from '../lib/annotation-view';
 
   let { annots, viewport }: { annots: readonly Annotation[]; viewport: PageViewport } = $props();
@@ -12,6 +13,10 @@
     { multiply: false, prims: annots.filter((a) => a.type !== 'highlight').flatMap((a) => toPrimitives(a, toScreen, viewport.scale)) },
   ]);
 </script>
+
+{#each annots.filter(isBoxed) as a (a.id)}
+  <BoxedView {a} {toScreen} scale={viewport.scale} pageRotation={viewport.rotation} />
+{/each}
 
 {#each groups as g, gi (gi)}
   {#if g.prims.length}

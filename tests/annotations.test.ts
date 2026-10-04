@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { PDFDocument } from '@cantoo/pdf-lib';
+import { PDFDocument, PDFName } from '@cantoo/pdf-lib';
 import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import {
   bounds,
@@ -10,6 +10,20 @@ import {
   type Annotation,
 } from '../src/lib/annotations';
 import { assemble } from '../src/lib/pdf/assemble';
+import { createFontProvider } from '../src/lib/pdf/font-provider';
+import { readFileSync } from 'node:fs';
+import { rectFromUpright, uprightSize, uprightTopLeft } from '../src/lib/annotations';
+
+const FONT_FILES = {
+  sans: 'node_modules/@expo-google-fonts/noto-sans/400Regular/NotoSans_400Regular.ttf',
+  'sans-bold': 'node_modules/@expo-google-fonts/noto-sans/700Bold/NotoSans_700Bold.ttf',
+  serif: 'node_modules/@expo-google-fonts/noto-serif/400Regular/NotoSerif_400Regular.ttf',
+  mono: 'node_modules/@expo-google-fonts/noto-sans-mono/400Regular/NotoSansMono_400Regular.ttf',
+};
+const fonts = createFontProvider(async (key) => new Uint8Array(readFileSync(FONT_FILES[key])));
+
+// 1x1 red PNG
+const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==';
 
 const yellow: [number, number, number] = [1, 0.92, 0.23];
 
@@ -61,6 +75,53 @@ describe('saving annotations', () => {
     const loaded = await PDFDocument.load(out);
     expect(loaded.getPage(0).node.Annots()).toBeUndefined();
     expect(loaded.getPage(1).node.Annots()?.size()).toBe(1);
+  });
+});
+
+describe('saving text, stamps, comments and images', () => {
+  const boxed: Annotation[] = [
+    { id: 't1', type: 'text', color: [0, 0, 0], opacity: 1, rect: [50, 700, 250, 740], rotate: 0, text: 'Čestitamo, Đurđa! Ćevapi i žličnjaci.', lines: ['Čestitamo, Đurđa!', 'Ćevapi i žličnjaci.'], font: 'sans', size: 12 },
+    { id: 'st1', type: 'stamp', color: [0.1, 0.55, 0.2], opacity: 1, rect: [300, 700, 420, 730], rotate: 0, label: 'APPROVED' },
+    { id: 'n1', type: 'note', color: [1, 0.85, 0.2], opacity: 1, rect: [500, 700, 522, 722], rotate: 0, text: 'Please check this paragraph.' },
+    { id: 'i1', type: 'image', color: [0, 0, 0], opacity: 1, rect: [100, 100, 250, 150], rotate: 90, dataUrl: PNG, role: 'signature' },
+  ];
+
+  it('writes FreeText, Stamp, Text and image Stamp annotations with embedded subset fonts', async () => {
+    const out = await assemble([{ id: 'a', bytes: await onePage() }], [{ sourceId: 'a', index: 0, rotation: 0, annots: boxed }], 'preserve', { fonts });
+    const pdf = await getDocument({ data: out.slice(), isEvalSupported: false } as never).promise;
+    const annots = await (await pdf.getPage(1)).getAnnotations();
+    expect(annots.map((a: { subtype: string }) => a.subtype)).toEqual(['FreeText', 'Stamp', 'Text', 'Stamp']);
+    const free = annots[0] as { contentsObj: { str: string }; hasAppearance: boolean };
+    expect(free.contentsObj.str).toBe('Čestitamo, Đurđa! Ćevapi i žličnjaci.');
+    expect(free.hasAppearance).toBe(true);
+    expect((annots[2] as { contentsObj: { str: string } }).contentsObj.str).toBe('Please check this paragraph.');
+    await pdf.loadingTask.destroy();
+
+    // Both fonts are embedded, and only as subsets: each full font file is over 600 KB.
+    const loaded = await PDFDocument.load(out);
+    const fontNames = loaded.context
+      .enumerateIndirectObjects()
+      .map(([, obj]) => (obj as { get?: (k: unknown) => unknown }).get?.(PDFName.of('FontName'))?.toString())
+      .filter(Boolean);
+    expect(fontNames.some((f) => f!.startsWith('/NotoSans-Regular'))).toBe(true);
+    expect(fontNames.some((f) => f!.startsWith('/NotoSans-Bold'))).toBe(true);
+    expect(out.length).toBeLessThan(150_000);
+  });
+
+  it('refuses to save text without a font provider rather than writing broken text', async () => {
+    await expect(
+      assemble([{ id: 'a', bytes: await onePage() }], [{ sourceId: 'a', index: 0, rotation: 0, annots: [boxed[0]] }], 'preserve'),
+    ).rejects.toThrow(/Fonts are required/);
+  });
+});
+
+describe('upright boxes on rotated pages', () => {
+  it('round-trips the upright top-left corner at every rotation', () => {
+    for (const rotate of [0, 90, 180, 270]) {
+      const rect = rectFromUpright([100, 200], 80, 30, rotate);
+      expect(uprightTopLeft({ rect, rotate })).toEqual([100, 200]);
+      expect(uprightSize({ rect, rotate })).toEqual([80, 30]);
+    }
   });
 });
 

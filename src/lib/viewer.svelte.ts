@@ -2,7 +2,8 @@
 import { getContext, setContext, tick } from 'svelte';
 import type { EditorDocument, PageRef } from './document.svelte';
 import type { Margins } from './page-ops';
-import { HIGHLIGHT_COLORS, INK_COLORS, type Rgb, type ShapeKind } from './annotations';
+import { HIGHLIGHT_COLORS, INK_COLORS, NOTE_COLORS, STAMPS, type FontFamily, type Rgb, type ShapeKind } from './annotations';
+import { loadFonts } from './fonts';
 import { computeLayout, indexAtY, pagesPerRow, rowAtY, rowStartOf, type ViewMode } from './layout';
 import { CSS_UNITS } from './pdf/pdfjs';
 import { Search } from './search.svelte';
@@ -31,6 +32,17 @@ export interface ToolProps {
   highlight: { color: Rgb; opacity: number; wholeLine: boolean };
   draw: { color: Rgb; width: number; opacity: number };
   shapes: { shape: ShapeKind; color: Rgb; fill: Rgb | null; width: number; opacity: number };
+  text: { font: FontFamily; size: number; color: Rgb; opacity: number };
+  stamp: { label: string; color: Rgb };
+  comment: { color: Rgb };
+}
+
+/** The user's signature for this session only (never stored). */
+export interface Signature {
+  dataUrl: string;
+  /** Pixel size, for the aspect ratio. */
+  width: number;
+  height: number;
 }
 
 export interface AnnotRef {
@@ -50,7 +62,15 @@ export class Viewer {
     highlight: { color: HIGHLIGHT_COLORS[0].rgb, opacity: 0.5, wholeLine: false },
     draw: { color: INK_COLORS[0].rgb, width: 2, opacity: 1 },
     shapes: { shape: 'rect', color: INK_COLORS[1].rgb, fill: null, width: 2, opacity: 1 },
+    text: { font: 'sans', size: 12, color: INK_COLORS[0].rgb, opacity: 1 },
+    stamp: { label: STAMPS[0].label, color: STAMPS[0].color },
+    comment: { color: NOTE_COLORS[0].rgb },
   });
+  signature = $state.raw<Signature | null>(null);
+  /** Set to open the signature dialog. */
+  signatureDialog = $state(false);
+  /** A comment just placed: the panel focuses its text box. */
+  focusNoteText = $state(false);
   /** The annotation selected with the Select tool. */
   selectedAnnot = $state<AnnotRef | null>(null);
 
@@ -143,6 +163,8 @@ export class Viewer {
   }
 
   setTool(tool: Tool) {
+    if (tool === 'text' || tool === 'stamp') void loadFonts();
+    if (tool === 'sign' && !this.signature) this.signatureDialog = true;
     this.tool = tool;
     this.selectedAnnot = null;
     this.panel = null;

@@ -1,10 +1,18 @@
 <script lang="ts">
-  // Markup on one page: draws annotations and handles the Highlight, Draw,
-  // Shapes and Select tools. Coordinates are converted between screen and PDF
+  import { capturePointer } from '../lib/dom';
+  // Markup on one page: draws annotations and handles the markup tools
+  // (Highlight, Draw, Shapes, Text, Stamp, Comment, Sign) and Select. Coordinates are converted between screen and PDF
   // space with the page viewport, so rotation and zoom need no special cases.
   import type { PageViewport } from 'pdfjs-dist';
+  import { tick } from 'svelte';
   import {
     describe,
+    isBoxed,
+    NOTE_SIZE,
+    rectFromUpright,
+    uprightTopLeft,
+    type BoxedAnnotation,
+    type TextAnnotation,
     mergeLineRects,
     newAnnotationId,
     normRect,
@@ -17,7 +25,10 @@
     type Point,
     type Rect,
   } from '../lib/annotations';
-  import { pointsAttr, screenBox, toPrimitives } from '../lib/annotation-view';
+  import { boxedGeometry, pointsAttr, screenBox, toPrimitives } from '../lib/annotation-view';
+  import { CSS_FAMILY, LINE_HEIGHT, loadFonts, TEXT_PADDING } from '../lib/fonts';
+  import { DEFAULT_TEXT_WIDTH, layoutText, makeStamp, topLeftForCenter } from '../lib/text-layout';
+  import BoxedView from './BoxedView.svelte';
   import { useActions } from '../lib/actions.svelte';
   import type { PageRef } from '../lib/document.svelte';
   import { useViewer } from '../lib/viewer.svelte';
@@ -47,11 +58,14 @@
   const annots = $derived((page.annots ?? []).map((a) => (preview && a.id === preview.id ? preview : a)));
   const all = $derived(draft ? [...annots, draft] : annots);
   const highlights = $derived(all.filter((a) => a.type === 'highlight'));
-  const others = $derived(all.filter((a) => a.type !== 'highlight'));
+  const others = $derived(all.filter((a) => a.type !== 'highlight' && !isBoxed(a)));
+  const boxes = $derived(all.filter(isBoxed));
+  const pageRotation = $derived(viewer.doc.totalRotation(page));
   const selectedId = $derived(viewer.selectedAnnot?.pageId === page.id ? viewer.selectedAnnot.id : null);
   const selected = $derived(annots.find((a) => a.id === selectedId) ?? null);
   const selecting = $derived(viewer.tool === 'select');
-  const capturing = $derived(viewer.tool === 'draw' || viewer.tool === 'shapes');
+  const placing = $derived(['text', 'stamp', 'comment', 'sign'].includes(viewer.tool));
+  const capturing = $derived(viewer.tool === 'draw' || viewer.tool === 'shapes' || placing);
 
   // --- Draw and Shapes ------------------------------------------------------
 
@@ -60,7 +74,11 @@
   function onCaptureDown(e: PointerEvent) {
     if (e.button !== 0) return;
     e.preventDefault();
-    (e.currentTarget as Element).setPointerCapture(e.pointerId);
+    if (placing) {
+      void place(clientToPdf(e.clientX, e.clientY));
+      return;
+    }
+    capturePointer(e.currentTarget as Element, e.pointerId);
     const start = clientToPdf(e.clientX, e.clientY);
     drawing = { pointerId: e.pointerId, start, raw: [start] };
     viewer.selectAnnot(null);
@@ -109,6 +127,134 @@
     return [round(from[0] + len * Math.cos(angle)), round(from[1] + len * Math.sin(angle))];
   }
 
+  // --- Text, Stamp, Comment, Sign: click to place ---------------------------------
+
+  async function place(at: Point) {
+    viewer.selectAnnot(null);
+    switch (viewer.tool) {
+      case 'text': {
+        // Clicking an existing text box edits it; anywhere else starts a new one.
+        const existing = annots.find(
+          (a): a is TextAnnotation => a.type === 'text' && at[0] >= a.rect[0] && at[0] <= a.rect[2] && at[1] >= a.rect[1] && at[1] <= a.rect[3],
+        );
+        if (existing) return startEdit(existing, false);
+        const t = $state.snapshot(viewer.toolProps.text);
+        const h = t.size * LINE_HEIGHT + 2 * TEXT_PADDING;
+        // The box starts at the click, with the first line's middle on it.
+        const shifted = topLeftForCenter(at, 0, h, pageRotation);
+        return startEdit(
+          {
+            id: newAnnotationId(),
+            type: 'text',
+            color: t.color,
+            opacity: t.opacity,
+            font: t.font,
+            size: t.size,
+            text: '',
+            lines: [''],
+            rotate: pageRotation,
+            rect: rectFromUpright(shifted, DEFAULT_TEXT_WIDTH, h, pageRotation),
+          },
+          true,
+        );
+      }
+      case 'stamp': {
+        await loadFonts();
+        const t = $state.snapshot(viewer.toolProps.stamp);
+        actions.addAnnotation(page.id, makeStamp(t.label, t.color, at, pageRotation));
+        return;
+      }
+      case 'comment': {
+        const note: BoxedAnnotation = {
+          id: newAnnotationId(),
+          type: 'note',
+          color: $state.snapshot(viewer.toolProps.comment.color),
+          opacity: 1,
+          text: '',
+          rotate: pageRotation,
+          rect: rectFromUpright(topLeftForCenter(at, NOTE_SIZE, NOTE_SIZE, pageRotation), NOTE_SIZE, NOTE_SIZE, pageRotation),
+        };
+        actions.addAnnotation(page.id, note);
+        viewer.setTool('select');
+        viewer.selectAnnot({ pageId: page.id, id: note.id });
+        viewer.focusNoteText = true;
+        return;
+      }
+      case 'sign': {
+        const sig = viewer.signature;
+        if (!sig) {
+          viewer.signatureDialog = true;
+          return;
+        }
+        const w = 150;
+        const h = (w * sig.height) / sig.width;
+        const image: BoxedAnnotation = {
+          id: newAnnotationId(),
+          type: 'image',
+          role: 'signature',
+          color: [0, 0, 0],
+          opacity: 1,
+          dataUrl: sig.dataUrl,
+          rotate: pageRotation,
+          rect: rectFromUpright(topLeftForCenter(at, w, h, pageRotation), w, h, pageRotation),
+        };
+        actions.addAnnotation(page.id, image);
+        viewer.setTool('select');
+        viewer.selectAnnot({ pageId: page.id, id: image.id });
+        return;
+      }
+    }
+  }
+
+  // Editing a text box in place.
+  let editing = $state<{ annot: TextAnnotation; isNew: boolean } | null>(null);
+  let editText = $state('');
+  let editor = $state<HTMLTextAreaElement | null>(null);
+
+  async function startEdit(a: TextAnnotation, isNew: boolean) {
+    await commitEdit();
+    await loadFonts();
+    editing = { annot: a, isNew };
+    editText = a.text;
+    await tick();
+    editor?.focus();
+    autoSize();
+  }
+
+  async function commitEdit() {
+    const e = editing;
+    if (!e) return;
+    editing = null;
+    const text = editText.replace(/\s+$/, '');
+    if (!text.trim()) {
+      if (!e.isNew) actions.deleteAnnotation(page.id, e.annot.id);
+      return;
+    }
+    if (!e.isNew && text === e.annot.text) return;
+    const laid = layoutText({ ...e.annot, text });
+    if (e.isNew) actions.addAnnotation(page.id, laid);
+    else actions.updateAnnotation(page.id, laid, 'Edit text');
+  }
+
+  function autoSize() {
+    if (!editor) return;
+    editor.style.height = 'auto';
+    editor.style.height = `${editor.scrollHeight}px`;
+  }
+
+  const editGeom = $derived.by(() => {
+    if (!editing) return null;
+    const a = editing.annot;
+    const [x, y] = toScreen(uprightTopLeft(a));
+    const g = boxedGeometry(a, toScreen, viewer.scale, pageRotation);
+    return { x, y, w: g.w, turn: g.turn };
+  });
+
+  // Leaving the Text tool (or the page) finishes the edit.
+  $effect(() => {
+    if (viewer.tool !== 'text' && viewer.tool !== 'select') void commitEdit();
+  });
+
   // --- Highlight --------------------------------------------------------------
 
   // Text: select text normally, the highlight is made when the mouse is released.
@@ -123,7 +269,7 @@
       const target = e.target as Element;
       if (target.closest('.textLayer span')) return; // native text selection
       e.preventDefault();
-      host.setPointerCapture(e.pointerId);
+      capturePointer(host, e.pointerId);
       const start = clientToPdf(e.clientX, e.clientY);
       area = { pointerId: e.pointerId, start };
       draft = newHighlight([normRect(start, start)]);
@@ -241,7 +387,10 @@
     const wasResize = !!moving.resize;
     moving = null;
     preview = null;
-    if (done) actions.updateAnnotation(page.id, done, `${wasResize ? 'Resize' : 'Move'} ${describe(done).toLowerCase()}`);
+    if (!done) return;
+    // Text re-wraps to its new width.
+    const final = done.type === 'text' && wasResize ? layoutText(done) : done;
+    actions.updateAnnotation(page.id, final, `${wasResize ? 'Resize' : 'Move'} ${describe(done).toLowerCase()}`);
   }
 
   // Clicking the page outside any annotation deselects.
@@ -257,6 +406,8 @@
 
   /** Geometry rectangle used for resizing (without stroke). */
   function geomRect(a: Annotation): Rect | null {
+    if (a.type === 'note') return null; // comments have a fixed icon size
+    if (isBoxed(a)) return a.rect;
     if (a.type === 'shape' && (a.shape === 'rect' || a.shape === 'ellipse')) return normRect(a.from, a.to);
     if (a.type === 'ink') return unionRects(a.paths.flat().map((p) => [p[0], p[1], p[0], p[1]] as Rect));
     return null;
@@ -281,15 +432,29 @@
       [r[0], r[3]],
     ];
     const original = a;
+    // Stamps and images keep their proportions.
+    const keepAspect = a.type === 'stamp' || a.type === 'image';
     return corners.map((c, i) => {
       const fixed = corners[(i + 2) % 4];
-      return { at: toScreen(c), cursor: 'nwse-resize', resize: (p: Point) => remap(original, r, normRect(fixed, p)) };
+      const resize = (p: Point) => {
+        if (!keepAspect) return remap(original, r, normRect(fixed, p));
+        const w = r[2] - r[0];
+        const h = r[3] - r[1];
+        const k = Math.max(Math.abs(p[0] - fixed[0]) / w, Math.abs(p[1] - fixed[1]) / h, 0.1);
+        const to: Point = [fixed[0] + Math.sign(c[0] - fixed[0]) * w * k, fixed[1] + Math.sign(c[1] - fixed[1]) * h * k];
+        return remap(original, r, normRect(fixed, to));
+      };
+      return { at: toScreen(c), cursor: 'nwse-resize', resize };
     });
   });
 
   const selectionBox = $derived.by(() => {
     const a = preview ?? selected;
     if (!a) return null;
+    if (isBoxed(a)) {
+      const b = screenBox([toScreen([a.rect[0], a.rect[1]]), toScreen([a.rect[2], a.rect[3]])]);
+      return [b[0] - 3, b[1] - 3, b[2] + 3, b[3] + 3];
+    }
     const prims = toPrimitives(a, toScreen, viewer.scale);
     const pts = prims.flatMap((p) => (p.kind === 'ellipse' ? [[p.cx - p.rx, p.cy - p.ry], [p.cx + p.rx, p.cy + p.ry]] as Point[] : p.points));
     const b = screenBox(pts);
@@ -298,7 +463,9 @@
   });
 
   function onAnnotKey(e: KeyboardEvent, a: Annotation) {
-    if (e.key === 'Delete' || e.key === 'Backspace') {
+    if (e.key === 'Enter' && a.type === 'text') {
+      void startEdit(a, false);
+    } else if (e.key === 'Delete' || e.key === 'Backspace') {
       actions.deleteAnnotation(page.id, a.id);
     } else if (e.key === 'Escape') {
       viewer.selectAnnot(null);
@@ -356,6 +523,64 @@
   {@render shapes(others)}
 </svg>
 
+<div class="layer boxes" aria-hidden={!selecting}>
+  {#each boxes as a (a.id)}
+    <BoxedView {a} {toScreen} scale={viewer.scale} {pageRotation} hidden={editing?.annot.id === a.id} />
+  {/each}
+  {#if selecting}
+    {#each boxes as a (a.id)}
+      {@const g = boxedGeometry(a, toScreen, viewer.scale, pageRotation)}
+      <div
+        class="box-hit annot"
+        class:selected={a.id === selectedId}
+        role="button"
+        tabindex="0"
+        aria-label="{describe(a)}{a.type === 'text' ? ': ' + a.text.slice(0, 60) : a.type === 'note' && a.text ? ': ' + a.text.slice(0, 60) : ''}. {a.type === 'text' ? 'Enter to edit, ' : ''}Delete to remove, arrow keys to move."
+        title={a.type === 'note' ? a.text || 'Empty comment' : undefined}
+        style:left="{g.cx}px"
+        style:top="{g.cy}px"
+        style:width="{g.w}px"
+        style:height="{g.h}px"
+        style:transform="translate(-50%, -50%) rotate({g.turn}deg)"
+        onpointerdown={(e) => onAnnotDown(e, a)}
+        onkeydown={(e) => onAnnotKey(e, a)}
+        onfocus={() => select(a)}
+        ondblclick={() => a.type === 'text' && startEdit(a, false)}
+      ></div>
+    {/each}
+  {/if}
+</div>
+
+{#if editing && editGeom}
+  {@const a = editing.annot}
+  <textarea
+    bind:this={editor}
+    bind:value={editText}
+    class="text-editor"
+    aria-label="Text"
+    spellcheck="true"
+    style:left="{editGeom.x}px"
+    style:top="{editGeom.y}px"
+    style:width="{editGeom.w}px"
+    style:transform="rotate({editGeom.turn}deg)"
+    style:font-family={CSS_FAMILY[a.font]}
+    style:font-size="{a.size * viewer.scale}px"
+    style:line-height={LINE_HEIGHT}
+    style:padding="{TEXT_PADDING * viewer.scale}px"
+    style:color="rgb({a.color.map((c) => Math.round(c * 255)).join(' ')})"
+    oninput={autoSize}
+    onblur={() => void commitEdit()}
+    onpointerdown={(e) => e.stopPropagation()}
+    onkeydown={(e) => {
+      e.stopPropagation();
+      if (e.key === 'Escape' || (e.key === 'Enter' && (e.metaKey || e.ctrlKey))) {
+        e.preventDefault();
+        editor?.blur();
+      }
+    }}
+  ></textarea>
+{/if}
+
 <svg bind:this={ui} class="layer ui" width={viewport.width} height={viewport.height} aria-hidden="true">
   {#if selectionBox}
     <rect
@@ -384,7 +609,7 @@
 {#if capturing}
   <div
     class="capture"
-    class:shapes={viewer.tool === 'shapes'}
+    class:placing
     onpointerdown={onCaptureDown}
     onpointermove={onCaptureMove}
     onpointerup={onCaptureUp}
@@ -398,7 +623,7 @@
     position: absolute;
     top: 0;
     left: 0;
-    z-index: 3;
+    z-index: 4;
     overflow: visible;
     pointer-events: none;
   }
@@ -406,7 +631,7 @@
     mix-blend-mode: multiply;
   }
   .ui {
-    z-index: 4;
+    z-index: 5;
   }
   .live .annot {
     pointer-events: visiblePainted;
@@ -439,8 +664,38 @@
   .capture {
     position: absolute;
     inset: 0;
-    z-index: 5;
+    z-index: 6;
     cursor: crosshair;
     touch-action: none;
+  }
+  .capture.placing {
+    cursor: copy;
+  }
+  .boxes {
+    width: 100%;
+    height: 100%;
+  }
+  .box-hit {
+    position: absolute;
+    pointer-events: auto;
+    cursor: move;
+  }
+  .box-hit:focus-visible {
+    outline: 2px solid var(--color-focus);
+    outline-offset: 2px;
+  }
+  .text-editor {
+    position: absolute;
+    z-index: 7;
+    box-sizing: border-box;
+    min-height: 1em;
+    margin: 0;
+    border: 1px dashed var(--color-accent);
+    background: rgb(255 255 255 / 0.85);
+    resize: none;
+    overflow: hidden;
+    white-space: pre-wrap;
+    transform-origin: 0 0;
+    outline: none;
   }
 </style>
