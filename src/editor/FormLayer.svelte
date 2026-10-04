@@ -133,6 +133,13 @@
     --scale-round-y: 1px;
     z-index: 3;
   }
+  /* One focus ring, the app's own, instead of PDF.js's border plus outline. */
+  /* Specific enough to beat PDF.js's per-widget :focus and :hover rules (its nested CSS weighs more than it looks). */
+  .annotationLayer.annotationLayer :global(section:is(.textWidgetAnnotation, .choiceWidgetAnnotation, .buttonWidgetAnnotation) :is(input, textarea, select):focus) {
+    border-color: transparent;
+    outline: var(--focus-ring);
+    outline-offset: 1px;
+  }
   /* The Fill form tool makes empty fields easier to spot. */
   .fill-mode :global(:is(input, textarea, select):not(:focus)) {
     outline: 1px dashed var(--border);

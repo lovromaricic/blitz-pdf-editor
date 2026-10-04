@@ -91,6 +91,15 @@
     display: flex;
     align-items: center;
     min-width: 0;
+    border-radius: var(--radius-md);
+  }
+  /* One focus ring, around the whole box (icon included), for keyboard and mouse alike. */
+  .field:focus-within {
+    outline: var(--focus-ring);
+    outline-offset: var(--focus-offset);
+  }
+  .field input:focus-visible {
+    outline: none;
   }
   .field :global(.icon) {
     position: absolute;

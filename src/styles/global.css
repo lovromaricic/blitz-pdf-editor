@@ -144,6 +144,9 @@ textarea {
   color: var(--text);
   transition: border-color var(--transition-fast), background var(--transition-fast);
 }
+/* Focused fields turn white. The focus ring itself is the global :focus-visible
+   outline (text fields show it for mouse clicks too); the border stays neutral so
+   there is only one ring. */
 input[type='text']:focus,
 input[type='search']:focus,
 input[type='number']:focus,
@@ -151,7 +154,6 @@ input[type='password']:focus,
 select:focus,
 textarea:focus {
   background: var(--surface);
-  border-color: var(--accent);
 }
 
 a {
