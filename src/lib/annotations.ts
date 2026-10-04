@@ -42,7 +42,8 @@ export interface ShapeAnnotation extends Base {
   fill: Rgb | null;
 }
 
-export type FontFamily = 'sans' | 'serif' | 'mono';
+/** A font id from font-catalog.ts, or one of the built-in 'sans' | 'serif' | 'mono'. */
+export type FontFamily = string;
 
 /**
  * Annotations with upright content in a box (text, stamps, comments, images).
@@ -60,6 +61,8 @@ export interface TextAnnotation extends Boxed {
   /** Line breaks as laid out in the editor; screen, print and PDF all use these. */
   lines: string[];
   font: FontFamily;
+  bold?: boolean;
+  italic?: boolean;
   /** Points. */
   size: number;
 }

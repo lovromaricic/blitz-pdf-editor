@@ -1,13 +1,12 @@
 // Turning drawn, typed or uploaded signatures into a trimmed, transparent PNG.
 
-/** Handwriting font for typed signatures (bundled Dancing Script; content, not theme). */
-export const SIGNATURE_FONT = '"Dancing Script", cursive';
+import type { Rgb } from './annotations';
 
-/** Ink colours for drawn and typed signatures (content, not theme). */
-export const SIGNATURE_INKS = [
-  { name: 'Black', css: 'rgb(17 17 17)' },
-  { name: 'Blue', css: 'rgb(26 63 176)' },
-] as const;
+/** Ink colours for drawn and typed signatures (content, not theme). More via the custom color picker. */
+export const SIGNATURE_INKS: { name: string; rgb: Rgb }[] = [
+  { name: 'Black', rgb: [17 / 255, 17 / 255, 17 / 255] },
+  { name: 'Blue', rgb: [26 / 255, 63 / 255, 176 / 255] },
+];
 
 export interface SignatureImage {
   dataUrl: string;

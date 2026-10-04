@@ -1,8 +1,12 @@
 <script lang="ts">
   import { capturePointer } from '../lib/dom';
-  import '@fontsource/dancing-script/400.css';
   import { tick } from 'svelte';
-  import { fileToCanvas, removeWhiteBackground, SIGNATURE_FONT, SIGNATURE_INKS, trimCanvas } from '../lib/signature';
+  import { rgbToCss, type Rgb } from '../lib/annotations';
+  import { HANDWRITING } from '../lib/font-catalog';
+  import { cssFamily, cssFontFor, ensureFont, loadFontPreviews, type FontPreviews } from '../lib/fonts';
+  import FontName from '../components/FontName.svelte';
+  import { fileToCanvas, removeWhiteBackground, SIGNATURE_INKS, trimCanvas } from '../lib/signature';
+  import Swatches from '../components/Swatches.svelte';
   import { useViewer } from '../lib/viewer.svelte';
 
   const viewer = useViewer();
@@ -15,7 +19,24 @@
   let uploaded = $state<HTMLCanvasElement | null>(null);
   let uploadPreview = $state<string | null>(null);
   let removeBg = $state(true);
-  let inkColor = $state<string>(SIGNATURE_INKS[0].css);
+  let ink = $state<Rgb>(SIGNATURE_INKS[0].rgb);
+  const inkColor = $derived(rgbToCss(ink));
+  /** Handwriting font for typed signatures; fetched when chosen. */
+  let typedFont = $state('dancing-script');
+  let typedFontReady = $state(false);
+  let previews = $state.raw<FontPreviews | null>(null);
+
+  $effect(() => {
+    if (tab !== 'type') return;
+    void loadFontPreviews().then((p) => (previews = p));
+    const font = typedFont;
+    typedFontReady = false;
+    void ensureFont(font).then((ok) => {
+      if (font !== typedFont) return;
+      typedFontReady = ok;
+      if (!ok) error = "Couldn't load this font. Try another one.";
+    });
+  });
   let error = $state('');
 
   const PAD_W = 520;
@@ -127,16 +148,21 @@
     if (tab === 'draw') {
       source = pad;
     } else if (tab === 'type') {
-      await document.fonts.load(`64px ${SIGNATURE_FONT}`);
+      if (!(await ensureFont(typedFont))) {
+        error = "Couldn't load this font. Try another one.";
+        return;
+      }
+      // Drawn large so the signature stays sharp when printed.
+      const SIZE = 160;
       const c = document.createElement('canvas');
       const ctx = c.getContext('2d')!;
-      ctx.font = `96px ${SIGNATURE_FONT}`;
-      c.width = Math.ceil(ctx.measureText(typed).width) + 40;
-      c.height = 160;
-      ctx.font = `96px ${SIGNATURE_FONT}`;
+      ctx.font = cssFontFor({ font: typedFont }, SIZE);
+      c.width = Math.ceil(ctx.measureText(typed).width) + SIZE;
+      c.height = Math.ceil(SIZE * 2);
+      ctx.font = cssFontFor({ font: typedFont }, SIZE);
       ctx.fillStyle = inkColor;
       ctx.textBaseline = 'middle';
-      ctx.fillText(typed, 20, 80);
+      ctx.fillText(typed, SIZE / 2, SIZE);
       source = c;
     } else {
       source = uploadCanvas;
@@ -196,7 +222,20 @@
     {:else if tab === 'type'}
       <label for="sig-typed">Type your name</label>
       <input id="sig-typed" type="text" bind:value={typed} autocomplete="name" maxlength="60" />
-      <div class="typed-preview" style:color={inkColor} style:font-family={SIGNATURE_FONT}>{typed || ' '}</div>
+      <fieldset class="fonts">
+        <legend>Style</legend>
+        <div class="font-choices">
+          {#each HANDWRITING as f (f.id)}
+            <label class="font-choice" class:selected={typedFont === f.id}>
+              <input type="radio" name="sig-font" value={f.id} bind:group={typedFont} />
+              <FontName font={f.id} label={f.label} {previews} />
+            </label>
+          {/each}
+        </div>
+      </fieldset>
+      <div class="typed-preview" style:color={inkColor} style:font-family={typedFontReady ? `"${cssFamily(typedFont)}"` : undefined}>
+        {typed || ' '}
+      </div>
     {:else}
       <label for="sig-file">Photo or scan of your signature (PNG or JPG)</label>
       <input id="sig-file" type="file" accept="image/png,image/jpeg,image/webp" onchange={(e) => onFile(e.currentTarget.files?.[0])} />
@@ -210,12 +249,10 @@
     {/if}
 
     {#if tab !== 'upload'}
-      <fieldset class="ink">
-        <legend>Ink</legend>
-        {#each SIGNATURE_INKS as ink (ink.css)}
-          <label class="option"><input type="radio" name="ink" value={ink.css} bind:group={inkColor} /> {ink.name}</label>
-        {/each}
-      </fieldset>
+      <div class="ink">
+        <span class="ink-label" id="sig-ink">Ink</span>
+        <Swatches label="Ink color" colors={SIGNATURE_INKS} value={ink} onChange={(c) => c && (ink = c)} />
+      </div>
     {/if}
 
     {#if error}<p class="error" role="alert">{error}</p>{/if}
@@ -332,16 +369,44 @@
     margin: 0 auto;
   }
   .ink {
-    display: flex;
-    gap: var(--space-4);
+    display: grid;
+    gap: var(--space-2);
+  }
+  .ink-label,
+  .fonts legend {
+    font-weight: 600;
+  }
+  .fonts {
     margin: 0;
     padding: 0;
     border: 0;
   }
-  .ink legend {
-    float: left;
-    margin-right: var(--space-3);
-    font-weight: 600;
+  .fonts legend {
+    margin-bottom: var(--space-2);
+  }
+  .font-choices {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--space-2);
+  }
+  .font-choice {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-height: var(--touch-target);
+    padding: 0 var(--space-3);
+    border: var(--border-width) solid var(--border);
+    border-radius: var(--radius-md);
+    font-size: var(--font-size-base);
+    cursor: pointer;
+  }
+  .font-choice.selected {
+    border-color: var(--accent);
+  }
+  @media (max-width: 720px) {
+    .font-choices {
+      grid-template-columns: 1fr;
+    }
   }
   .option {
     display: flex;

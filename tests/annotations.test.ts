@@ -14,7 +14,7 @@ import { createFontProvider } from '../src/lib/pdf/font-provider';
 import { readFileSync } from 'node:fs';
 import { rectFromUpright, uprightSize, uprightTopLeft } from '../src/lib/annotations';
 
-const FONT_FILES = {
+const FONT_FILES: Record<string, string> = {
   sans: 'node_modules/@expo-google-fonts/noto-sans/400Regular/NotoSans_400Regular.ttf',
   'sans-bold': 'node_modules/@expo-google-fonts/noto-sans/700Bold/NotoSans_700Bold.ttf',
   serif: 'node_modules/@expo-google-fonts/noto-serif/400Regular/NotoSerif_400Regular.ttf',

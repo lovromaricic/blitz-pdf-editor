@@ -27,7 +27,7 @@
     type Rect,
   } from '../lib/annotations';
   import { boxedGeometry, pointsAttr, screenBox, toPrimitives } from '../lib/annotation-view';
-  import { CSS_FAMILY, LINE_HEIGHT, loadFonts, TEXT_PADDING } from '../lib/fonts';
+  import { cssFamily, ensureFont, LINE_HEIGHT, loadFonts, resolveStyle, TEXT_PADDING } from '../lib/fonts';
   import { DEFAULT_TEXT_WIDTH, layoutText, makeStamp, topLeftForCenter } from '../lib/text-layout';
   import BoxedView from './BoxedView.svelte';
   import { useActions } from '../lib/actions.svelte';
@@ -163,6 +163,8 @@
             color: t.color,
             opacity: t.opacity,
             font: t.font,
+            bold: t.bold,
+            italic: t.italic,
             size: t.size,
             text: '',
             lines: [''],
@@ -227,7 +229,7 @@
 
   async function startEdit(a: TextAnnotation, isNew: boolean) {
     await commitEdit();
-    await loadFonts();
+    await Promise.all([loadFonts(), ensureFont(a.font)]);
     editing = { annot: a, isNew };
     editText = a.text;
     await tick();
@@ -630,7 +632,9 @@
     style:top="{editGeom.y}px"
     style:width="{editGeom.w}px"
     style:transform="rotate({editGeom.turn}deg)"
-    style:font-family={CSS_FAMILY[a.font]}
+    style:font-family={cssFamily(a.font)}
+    style:font-weight={resolveStyle(a).bold ? 700 : 400}
+    style:font-style={resolveStyle(a).italic ? 'italic' : 'normal'}
     style:font-size="{a.size * viewer.scale}px"
     style:line-height={LINE_HEIGHT}
     style:padding="{TEXT_PADDING * viewer.scale}px"

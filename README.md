@@ -45,7 +45,7 @@ BASE_PATH=/tools/pdf/ npm run build
 ### What's in `dist/`
 
 - `THIRD_PARTY_LICENSES.txt`: license texts of every library shipped in the app, generated at build time by `build-tools/licenses.ts` (also shown in *Help › About*). Keep it with the app; Apache-2.0 and MIT require it.
-- `index.html` and `assets/`: the app. Fonts (Noto, about 2.2 MB) load only when text tools or saving need them. The PDF viewer (PDF.js) is a separate chunk loaded in the background after the Home screen appears. The PDF writer (pdf-lib, in a Web Worker) loads the first time you save, extract or split.
+- `index.html` and `assets/`: the app. Fonts load only when needed: Noto (about 2.2 MB) for stamps and saving; the 15 text fonts (53 files, about 16 MB in all, typically 130–330 KB per style) one family at a time when chosen. The PDF viewer (PDF.js) is a separate chunk loaded in the background after the Home screen appears. The PDF writer (pdf-lib, in a Web Worker) loads the first time you save, extract or split.
 - `pdfjs/`: data PDF.js fetches only when a document needs it (CJK character maps, the 14 standard fonts, image-decoder WASM, colour profiles). Copied from `pdfjs-dist` at build time by `build-tools/pdfjs-assets.ts`. Upload it with everything else.
 - `tesseract/`: the text-recognition (OCR) engine, its worker and the English and Croatian language data (about 7 MB in total). Loaded only when someone runs *Make text searchable*, never from a CDN, and never cached in browser storage. Also copied by `build-tools/pdfjs-assets.ts`.
 
@@ -97,7 +97,8 @@ tests/                   Vitest unit tests (tests/tmp/ is a gitignored scratch a
 - Pages are kept as references into the original files, so editing is instant and undoable.
 - **Save** rebuilds the PDF from the first page's original file, keeping its metadata, bookmarks and form fields. Deleted pages are emptied and unreferenced data is dropped, so deleted content does not stay hidden in the file.
 - **Markup** (highlight, drawing, shapes, text, stamps, comments, signatures) is saved as standard PDF annotations with their own appearance, so other viewers show it identically and editors like Acrobat can still change it.
-- **Text, stamps and form values** use embedded Noto fonts (subset to the characters used), so č, ć, đ, Greek and Cyrillic work. Form values that fit the standard fonts keep using Helvetica.
+- **Text** uses one of 15 bundled open-source fonts (SIL OFL; see `THIRD_PARTY_LICENSES.md`) with bold and italic where the font has them. Each font file is fetched from the app's own server only when the font is chosen or hovered in the picker; the picker shows names using drawn previews made at build time (`build-tools/font-previews.ts`). The chosen font is embedded as a subset of the characters used. Text boxes are saved as editable annotations and also as invisible page text underneath, so search, selection and copying work in every viewer.
+- **Stamps, page numbers, watermarks and form values** use embedded Noto fonts (subset to the characters used), so č, ć, đ, Greek and Cyrillic work. Noto also backs text from before the font picker, and is the fallback if a font can't be loaded. Form values that fit the standard fonts keep using Helvetica.
 - **Fill form** writes the typed values into the form fields; **Flatten form** turns fields into page content on save.
 - **Signatures** are pictures of a signature (drawn, typed or uploaded), not certificate-based digital signatures. They are kept only in memory for the current tab.
 - **Watermark and page numbers** are drawn into the page content when saving (they follow the page order).

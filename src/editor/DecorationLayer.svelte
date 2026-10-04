@@ -2,7 +2,7 @@
   // Preview of the watermark and page number, exactly where they'll be saved.
   import { rgbToCss } from '../lib/annotations';
   import { layoutDecoration, type PageDecoration } from '../lib/decorations';
-  import { CSS_FAMILY, measure } from '../lib/fonts';
+  import { cssFamily, measure } from '../lib/fonts';
 
   let { deco, width, height, scale }: { deco: PageDecoration; width: number; height: number; scale: number } = $props();
 
@@ -15,7 +15,7 @@
     <text
       x={it.x * scale}
       y={it.y * scale}
-      font-family={CSS_FAMILY.sans}
+      font-family={cssFamily('sans')}
       font-weight={it.bold ? 700 : 400}
       font-size={it.size * scale}
       fill={rgbToCss(it.color)}

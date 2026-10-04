@@ -3,6 +3,7 @@ import { svelte } from '@sveltejs/vite-plugin-svelte';
 import { readFileSync } from 'node:fs';
 import { licenses } from './build-tools/licenses.ts';
 import { pdfjsAssets } from './build-tools/pdfjs-assets.ts';
+import { fontPreviews } from './build-tools/font-previews.ts';
 
 const { version } = JSON.parse(readFileSync('package.json', 'utf8'));
 
@@ -10,7 +11,7 @@ const { version } = JSON.parse(readFileSync('package.json', 'utf8'));
 // The default './' (relative) works from any folder without rebuilding.
 export default defineConfig({
   base: process.env.BASE_PATH || './',
-  plugins: [svelte(), pdfjsAssets(), licenses()],
+  plugins: [svelte(), pdfjsAssets(), licenses(), fontPreviews()],
   define: { __APP_VERSION__: JSON.stringify(version) },
   server: { port: Number(process.env.PORT) || 5173 },
   // Pre-bundle the worker's dependencies up front: otherwise the dev server

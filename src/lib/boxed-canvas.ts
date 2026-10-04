@@ -2,7 +2,8 @@
 // Mirrors the saved PDF appearance (write-annotations.ts) and the on-screen view.
 import { NOTE_OUTLINE, rgbToCss, STAMP_TEXT_RATIO, type BoxedAnnotation, type Point } from './annotations';
 import { boxedGeometry } from './annotation-view';
-import { cssFont, LINE_HEIGHT, loadFonts, TEXT_PADDING } from './fonts';
+import { cssFont, cssFontFor, ensureFontsFor, LINE_HEIGHT, loadFonts, TEXT_PADDING } from './fonts';
+import { firstBaseline } from './font-catalog';
 
 const ASCENT = 1.069;
 const DESCENT = 0.293;
@@ -14,7 +15,8 @@ export async function drawBoxed(
   scale: number,
   pageRotation: number,
 ) {
-  if (annots.some((a) => a.type === 'text' || a.type === 'stamp')) await loadFonts();
+  if (annots.some((a) => a.type === 'stamp')) await loadFonts();
+  await ensureFontsFor(annots.flatMap((a) => (a.type === 'text' ? [a] : [])));
   for (const a of annots) {
     const g = boxedGeometry(a, toScreen, scale, pageRotation);
     ctx.save();
@@ -25,10 +27,10 @@ export async function drawBoxed(
     if (a.type === 'text') {
       const size = a.size * scale;
       const lineH = size * LINE_HEIGHT;
-      ctx.font = cssFont(a.font, size);
+      ctx.font = cssFontFor(a, size);
       ctx.fillStyle = rgbToCss(a.color);
       ctx.textBaseline = 'alphabetic';
-      const first = TEXT_PADDING * scale + (lineH - (ASCENT + DESCENT) * size) / 2 + ASCENT * size;
+      const first = firstBaseline(a.font, a.size, LINE_HEIGHT, TEXT_PADDING) * scale;
       a.lines.forEach((line, i) => ctx.fillText(line, TEXT_PADDING * scale, first + i * lineH));
     } else if (a.type === 'stamp') {
       const inset = Math.max(1.5, g.h * 0.06);

@@ -3,7 +3,7 @@
   // The box follows the page; content made for another page rotation turns with it.
   import { NOTE_OUTLINE, rgbToCss, type BoxedAnnotation, type Point } from '../lib/annotations';
   import { boxedGeometry } from '../lib/annotation-view';
-  import { CSS_FAMILY, LINE_HEIGHT, TEXT_PADDING } from '../lib/fonts';
+  import { cssFamily, LINE_HEIGHT, resolveStyle, TEXT_PADDING } from '../lib/fonts';
   import { STAMP_TEXT_RATIO } from '../lib/annotations';
 
   let {
@@ -30,7 +30,9 @@
   {#if a.type === 'text'}
     <div
       class="text"
-      style:font-family={CSS_FAMILY[a.font]}
+      style:font-family={cssFamily(a.font)}
+      style:font-weight={resolveStyle(a).bold ? 700 : 400}
+      style:font-style={resolveStyle(a).italic ? 'italic' : 'normal'}
       style:font-size="{a.size * scale}px"
       style:line-height={LINE_HEIGHT}
       style:padding="{TEXT_PADDING * scale}px"
@@ -46,7 +48,7 @@
       style:border-color={rgbToCss(a.color)}
       style:color={rgbToCss(a.color)}
       style:font-size="{box.h * STAMP_TEXT_RATIO}px"
-      style:font-family={CSS_FAMILY['sans-bold']}
+      style:font-family={cssFamily('sans')}
     >
       {a.label}
     </div>

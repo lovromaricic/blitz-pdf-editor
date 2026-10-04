@@ -3,7 +3,7 @@ import { getContext, setContext, tick } from 'svelte';
 import type { EditorDocument, PageRef } from './document.svelte';
 import type { Margins } from './page-ops';
 import { HIGHLIGHT_COLORS, INK_COLORS, NOTE_COLORS, STAMPS, type FontFamily, type Rgb, type ShapeKind } from './annotations';
-import { loadFonts } from './fonts';
+import { lastTextStyle, loadFonts } from './fonts';
 import { decorationResolver } from './pdf/pdf-writer';
 import { computeLayout, indexAtY, pagesPerRow, rowAtY, rowStartOf, type ViewMode } from './layout';
 import { CSS_UNITS } from './pdf/pdfjs';
@@ -57,7 +57,7 @@ export interface ToolProps {
   highlight: { color: Rgb; opacity: number; wholeLine: boolean };
   draw: { color: Rgb; width: number; opacity: number };
   shapes: { shape: ShapeKind; color: Rgb; fill: Rgb | null; width: number; opacity: number };
-  text: { font: FontFamily; size: number; color: Rgb; opacity: number };
+  text: { font: FontFamily; bold: boolean; italic: boolean; size: number; color: Rgb; opacity: number };
   stamp: { label: string; color: Rgb };
   comment: { color: Rgb };
 }
@@ -87,7 +87,8 @@ export class Viewer {
     highlight: { color: HIGHLIGHT_COLORS[0].rgb, opacity: 0.5, wholeLine: false },
     draw: { color: INK_COLORS[0].rgb, width: 2, opacity: 1 },
     shapes: { shape: 'rect', color: INK_COLORS[1].rgb, fill: null, width: 2, opacity: 1 },
-    text: { font: 'sans', size: 12, color: INK_COLORS[0].rgb, opacity: 1 },
+    // The last font used in this session (memory only).
+    text: { ...lastTextStyle, size: 12, color: INK_COLORS[0].rgb, opacity: 1 },
     stamp: { label: STAMPS[0].label, color: STAMPS[0].color },
     comment: { color: NOTE_COLORS[0].rgb },
   });

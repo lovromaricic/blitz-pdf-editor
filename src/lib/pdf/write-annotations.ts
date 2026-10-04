@@ -1,7 +1,27 @@
 // Writes markup as standard PDF annotations (Highlight, Ink, Square, Circle,
 // Line, FreeText, Stamp, Text), each with an appearance stream so every viewer
 // draws it the same way and other editors can still select and change it.
-import { PDFDocument, PDFFont, PDFHexString, PDFName, PDFPage, PDFRef, PDFString } from '@cantoo/pdf-lib';
+import { faceKey, firstBaseline } from '../font-catalog';
+import {
+  beginText,
+  concatTransformationMatrix,
+  endText,
+  popGraphicsState,
+  pushGraphicsState,
+  setFontAndSize,
+  setTextMatrix,
+  setTextRenderingMode,
+  showText,
+  TextRenderingMode,
+  PDFDocument,
+  PDFFont,
+  PDFHexString,
+  PDFName,
+  PDFOperator,
+  PDFPage,
+  PDFRef,
+  PDFString,
+} from '@cantoo/pdf-lib';
 import {
   arrowHead,
   arrowSize,
@@ -11,19 +31,20 @@ import {
   uprightSize,
   type Annotation,
   type BoxedAnnotation,
-  type FontFamily,
+  type TextAnnotation,
   type Rect,
   type Rgb,
 } from '../annotations';
 
-export type FontKey = FontFamily | 'sans-bold';
+/** A font face key from font-catalog.ts faceKey(), e.g. "roboto-bold" or "sans". */
+export type FontKey = string;
 /** Supplies an embedded font for the document (fonts are fetched and subset on demand). */
 export type FontProvider = (doc: PDFDocument, key: FontKey) => Promise<PDFFont>;
 
 // Must match the editor's layout (fonts.ts).
 const LINE_HEIGHT = 1.25;
 const TEXT_PADDING = 3;
-// Noto's vertical metrics (per 1 em), used to place baselines like CSS does.
+// Noto's vertical metrics (per 1 em), for stamps (text uses each font's own, font-catalog.ts).
 const ASCENT = 1.069;
 const DESCENT = 0.293;
 
@@ -37,7 +58,42 @@ export async function addAnnotations(doc: PDFDocument, page: PDFPage, annots: re
   for (const a of annots) {
     const ref = doc.context.register(await buildAnnotation(doc, a, fonts));
     page.node.addAnnot(ref);
+    if (a.type === 'text') await addSearchableText(doc, page, a, fonts);
   }
+}
+
+/**
+ * Most viewers don't search or select text inside annotations. So text boxes
+ * also get the same words written invisibly (render mode 3) into the page,
+ * exactly under the annotation, like OCR text: search, selection and copying
+ * work everywhere, and the annotation stays editable in apps that support it.
+ */
+async function addSearchableText(doc: PDFDocument, page: PDFPage, a: TextAnnotation, fonts: FontProvider) {
+  if (!a.lines.some((l) => l.trim())) return;
+  const font = await fonts(doc, faceKey(a.font, a.bold, a.italic));
+  const key = page.node.newFontDictionary('BlitzText', font.ref);
+  const [w, h] = uprightSize(a);
+  // Same placement a viewer uses for the appearance: its rotated box moved onto Rect.
+  const rad = (a.rotate * Math.PI) / 180;
+  const [ma, mb, mc, md] = [Math.cos(rad), Math.sin(rad), -Math.sin(rad), Math.cos(rad)];
+  const corners = [[0, 0], [w, 0], [0, h], [w, h]].map(([x, y]) => [ma * x + mc * y, mb * x + md * y]);
+  const e = a.rect[0] - Math.min(...corners.map((c) => c[0]));
+  const f = a.rect[1] - Math.min(...corners.map((c) => c[1]));
+  const lineH = a.size * LINE_HEIGHT;
+  const first = firstBaseline(a.font, a.size, LINE_HEIGHT, TEXT_PADDING);
+  const ops: PDFOperator[] = [
+    pushGraphicsState(),
+    concatTransformationMatrix(ma, mb, mc, md, e, f),
+    beginText(),
+    setTextRenderingMode(TextRenderingMode.Invisible),
+    setFontAndSize(key, a.size),
+  ];
+  a.lines.forEach((line, i) => {
+    // A trailing space keeps lines apart when the text is copied or searched.
+    if (line) ops.push(setTextMatrix(1, 0, 0, 1, TEXT_PADDING, h - first - i * lineH), showText(font.encodeText(`${line} `)));
+  });
+  ops.push(endText(), popGraphicsState());
+  page.pushOperators(...ops);
 }
 
 interface Appearance {
@@ -166,9 +222,9 @@ async function boxedAppearance(doc: PDFDocument, a: BoxedAnnotation, fonts: Font
 
   switch (a.type) {
     case 'text': {
-      const font = await fonts(doc, a.font);
+      const font = await fonts(doc, faceKey(a.font, a.bold, a.italic));
       const lineH = a.size * LINE_HEIGHT;
-      const first = TEXT_PADDING + (lineH - (ASCENT + DESCENT) * a.size) / 2 + ASCENT * a.size;
+      const first = firstBaseline(a.font, a.size, LINE_HEIGHT, TEXT_PADDING);
       const runs = a.lines
         .map((line, i) => (line ? `1 0 0 1 ${n(TEXT_PADDING)} ${n(h - first - i * lineH)} Tm ${font.encodeText(line).toString()} Tj` : ''))
         .filter(Boolean)

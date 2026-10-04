@@ -17,7 +17,7 @@ export const STAMP_HEIGHT = 30;
 
 /** Re-wrap text to the box width (or `width`) and fit the box height to the lines. */
 export function layoutText(a: TextAnnotation, width = uprightSize(a)[0]): TextAnnotation {
-  const lines = wrapText(a.text, a.font, a.size, Math.max(a.size, width - 2 * TEXT_PADDING));
+  const lines = wrapText(a.text, a, a.size, Math.max(a.size, width - 2 * TEXT_PADDING));
   const height = lines.length * a.size * LINE_HEIGHT + 2 * TEXT_PADDING;
   return { ...a, lines, rect: rectFromUpright(uprightTopLeft(a), width, height, a.rotate) };
 }
