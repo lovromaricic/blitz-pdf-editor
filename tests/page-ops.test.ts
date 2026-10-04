@@ -79,6 +79,22 @@ describe('page ranges', () => {
 });
 
 describe('History', () => {
+  it('coalesces quick edits with the same key into one undo step', () => {
+    const h = new History<number>();
+    let state = 0;
+    for (const v of [1, 2, 3]) {
+      h.push('Opacity', state, 'opacity:a1');
+      state = v;
+    }
+    h.push('Move', state);
+    state = 4;
+    state = h.undo(state)!;
+    expect(state).toBe(3);
+    state = h.undo(state)!;
+    expect(state).toBe(0);
+    expect(h.canUndo).toBe(false);
+  });
+
   it('undoes and redoes, and tracks unsaved changes', () => {
     const h = new History<number>();
     let state = 0;

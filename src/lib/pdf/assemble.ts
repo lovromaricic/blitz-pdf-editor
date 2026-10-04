@@ -12,6 +12,8 @@ import {
   PDFStream,
   type PDFObject,
 } from '@cantoo/pdf-lib';
+import type { Annotation } from '../annotations';
+import { addAnnotations } from './write-annotations';
 
 export interface SourceInput {
   id: string;
@@ -27,6 +29,8 @@ export interface PagePlan {
   rotation: number;
   /** Margins (points, PDF user space) to trim from the page's current crop box. */
   crop?: { top: number; right: number; bottom: number; left: number };
+  /** Markup added in the editor, written as PDF annotations. */
+  annots?: readonly Annotation[];
 }
 
 /**
@@ -101,6 +105,7 @@ export async function assemble(
     if (extra % 360 !== 0) {
       page.setRotation(degrees((((page.getRotation().angle + extra) % 360) + 360) % 360));
     }
+    if (plan[pos].annots?.length) addAnnotations(out, page, plan[pos].annots!);
     if (crop) {
       const box = page.getCropBox();
       const width = Math.max(1, box.width - crop.left - crop.right);

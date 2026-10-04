@@ -1,7 +1,8 @@
 <script lang="ts">
   import { untrack } from 'svelte';
   import { app, closeDocument } from '../lib/app-state.svelte';
-  import { Actions } from '../lib/actions.svelte';
+  import { Actions, provideActions } from '../lib/actions.svelte';
+  import { describe } from '../lib/annotations';
   import { CommandRegistry } from '../lib/commands';
   import type { EditorDocument } from '../lib/document.svelte';
   import { openFiles } from '../lib/open-files.svelte';
@@ -24,6 +25,7 @@
   provideViewer(viewer);
   // svelte-ignore state_referenced_locally
   const actions = new Actions(doc, viewer);
+  provideActions(actions);
 
   let openInput: HTMLInputElement;
   let insertInput: HTMLInputElement;
@@ -94,10 +96,23 @@
     // Until markup objects exist (Phase 5), Select all selects all pages.
     'edit.selectAll': { run: () => viewer.selectAll(), label: () => 'Select all pages' },
     // Delete acts on selected pages until markup objects exist (Phase 5).
+    // Cut/Copy only take over when an annotation is selected; otherwise the browser copies selected text.
+    'edit.cut': { run: () => actions.cutAnnotation(), enabled: () => !!viewer.selectedAnnot },
+    'edit.copy': { run: () => actions.copyAnnotation(), enabled: () => !!viewer.selectedAnnot },
+    'edit.paste': { run: () => actions.pasteAnnotation(), enabled: () => actions.canPaste() },
     'edit.delete': {
-      run: () => actions.delete(),
-      enabled: () => viewer.selection.size > 0 && actions.canDelete(),
-      label: () => (viewer.selection.size > 0 ? `Delete ${viewer.selection.size === 1 ? 'page' : `${viewer.selection.size} pages`}` : 'Delete'),
+      run: () => {
+        const sel = viewer.selectedAnnot;
+        if (sel) actions.deleteAnnotation(sel.pageId, sel.id);
+        else actions.delete();
+      },
+      enabled: () => !!viewer.selectedAnnot || (viewer.selection.size > 0 && actions.canDelete()),
+      label: () => {
+        const sel = actions.selectedAnnot;
+        if (sel) return `Delete ${describe(sel.annot).toLowerCase()}`;
+        const n = viewer.selection.size;
+        return n > 0 ? `Delete ${n === 1 ? 'page' : `${n} pages`}` : 'Delete';
+      },
     },
     'edit.find': { run: () => focusById('doc-search') },
 
@@ -163,6 +178,17 @@
     });
   });
 
+  function onKeyDown(e: KeyboardEvent) {
+    if (commands.handleKey(e)) return;
+    // Esc steps back: deselect the annotation, then return to the Select tool.
+    if (e.key === 'Escape' && !e.defaultPrevented && !document.querySelector('dialog[open]')) {
+      const target = e.target as HTMLElement;
+      if (target.closest('input, textarea, [role="menu"]')) return;
+      if (viewer.selectedAnnot) viewer.selectAnnot(null);
+      else if (viewer.tool !== 'select') viewer.setTool('select');
+    }
+  }
+
   function onBeforeUnload(e: BeforeUnloadEvent) {
     if (!doc.dirty) return;
     e.preventDefault();
@@ -171,7 +197,7 @@
   }
 </script>
 
-<svelte:window onkeydown={(e) => commands.handleKey(e)} onbeforeunload={onBeforeUnload} />
+<svelte:window onkeydown={onKeyDown} onbeforeunload={onBeforeUnload} />
 <svelte:document onfullscreenchange={() => (isFullscreen = !!document.fullscreenElement)} />
 
 <div class="editor" class:no-rail={!viewer.showThumbnails} class:no-panel={!viewer.showPanel}>

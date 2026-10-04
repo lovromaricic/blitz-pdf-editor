@@ -1,5 +1,7 @@
 // Document actions. Each feature is implemented once here and invoked from
 // menus, the thumbnail context menu, keyboard shortcuts and panels alike.
+import { getContext, setContext } from 'svelte';
+import { describe, newAnnotationId, translate, type Annotation } from './annotations';
 import { baseName, loadFiles, newPageId, type EditorDocument, type PageRef } from './document.svelte';
 import { confirmDiscard, promptText } from './dialogs.svelte';
 import { downloadBytes, downloadZip, pdfFileName } from './download';
@@ -12,6 +14,9 @@ import { writePdf, writePdfs } from './pdf/pdf-writer';
 import type { Viewer } from './viewer.svelte';
 
 let blankCounter = 0;
+
+/** In-memory clipboard for annotations (never the system clipboard: nothing leaves the tab). */
+let annotClipboard: Annotation | null = null;
 
 /** "page 5" or "pages 1-3,7" for file names. */
 function pagesLabel(indexes: readonly number[]) {
@@ -209,4 +214,75 @@ export class Actions {
         : `Saved ${fileName} to your downloads.`,
     );
   }
+
+  // --- Annotations --------------------------------------------------------
+
+  findAnnot(pageId: string, id: string) {
+    const page = this.doc.pages.find((p) => p.id === pageId);
+    const annot = page?.annots?.find((a) => a.id === id);
+    return page && annot ? { page, annot } : null;
+  }
+
+  get selectedAnnot() {
+    const ref = this.viewer.selectedAnnot;
+    return ref ? this.findAnnot(ref.pageId, ref.id) : null;
+  }
+
+  private editAnnots(pageId: string, label: string, fn: (list: readonly Annotation[]) => readonly Annotation[], coalesceKey?: string) {
+    const next = this.doc.pages.map((p) => (p.id === pageId ? { ...p, annots: fn(p.annots ?? []) } : p));
+    this.doc.edit(label, next, coalesceKey);
+  }
+
+  addAnnotation(pageId: string, annot: Annotation) {
+    this.editAnnots(pageId, `Add ${describe(annot).toLowerCase()}`, (list) => [...list, annot]);
+  }
+
+  /** Replace an annotation. Pass `coalesceKey` for continuous edits (sliders, nudges). */
+  updateAnnotation(pageId: string, annot: Annotation, label = `Edit ${describe(annot).toLowerCase()}`, coalesceKey?: string) {
+    this.editAnnots(pageId, label, (list) => list.map((a) => (a.id === annot.id ? annot : a)), coalesceKey);
+  }
+
+  deleteAnnotation(pageId: string, id: string) {
+    const found = this.findAnnot(pageId, id);
+    if (!found) return;
+    this.editAnnots(pageId, `Delete ${describe(found.annot).toLowerCase()}`, (list) => list.filter((a) => a.id !== id));
+    if (this.viewer.selectedAnnot?.id === id) this.viewer.selectedAnnot = null;
+  }
+
+  copyAnnotation() {
+    const sel = this.selectedAnnot;
+    if (sel) annotClipboard = sel.annot;
+  }
+
+  cutAnnotation() {
+    const sel = this.selectedAnnot;
+    if (!sel) return;
+    annotClipboard = sel.annot;
+    this.deleteAnnotation(sel.page.id, sel.annot.id);
+  }
+
+  canPaste() {
+    return annotClipboard !== null && this.doc.pages.length > 0;
+  }
+
+  /** Paste onto the current page, offset so the copy is visible next to the original. */
+  pasteAnnotation() {
+    const page = this.doc.pages[this.viewer.currentIndex];
+    if (!annotClipboard || !page) return;
+    const copy = { ...translate(annotClipboard, 12, -12), id: newAnnotationId() };
+    annotClipboard = copy;
+    this.editAnnots(page.id, `Paste ${describe(copy).toLowerCase()}`, (list) => [...list, copy]);
+    this.viewer.setTool('select');
+    this.viewer.selectAnnot({ pageId: page.id, id: copy.id });
+  }
+}
+
+const ACTIONS_KEY = Symbol('actions');
+
+export function provideActions(a: Actions) {
+  setContext(ACTIONS_KEY, a);
+}
+
+export function useActions(): Actions {
+  return getContext<Actions>(ACTIONS_KEY);
 }

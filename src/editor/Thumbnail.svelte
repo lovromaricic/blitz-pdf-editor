@@ -3,6 +3,8 @@
   import type { PageRef } from '../lib/document.svelte';
   import { releaseCanvas, renderToCanvas, thumbnailQueue, viewportFor } from '../lib/pdf/render';
   import { useViewer } from '../lib/viewer.svelte';
+  import type { PageViewport } from 'pdfjs-dist';
+  import AnnotationPreview from './AnnotationPreview.svelte';
 
   let {
     page,
@@ -32,6 +34,7 @@
   let host: HTMLSpanElement;
   let canvas: HTMLCanvasElement | null = null;
   let rendered = $state(false);
+  let viewport = $state.raw<PageViewport | null>(null);
 
   $effect(() => {
     const rotation = page.rotation;
@@ -45,7 +48,9 @@
       try {
         const pdfPage = await viewer.doc.source(page).pdf.getPage(page.sourceIndex + 1);
         if (signal.cancelled) return;
-        const handle = renderToCanvas(pdfPage, viewportFor(pdfPage, s, rotation));
+        const vp = viewportFor(pdfPage, s, rotation);
+        viewport = vp;
+        const handle = renderToCanvas(pdfPage, vp);
         cancelRender = handle.cancel;
         const next = await handle.promise;
         if (!next || signal.cancelled) return;
@@ -92,7 +97,9 @@
       style:width="{full.width * scale}px"
       style:height="{full.height * scale}px"
       style:transform={page.crop ? `translate(${-crop.left * scale}px, ${-crop.top * scale}px)` : undefined}
-    ></span>
+    >
+      {#if viewport && page.annots?.length}<AnnotationPreview annots={page.annots} {viewport} />{/if}
+    </span>
     {#if !rendered}<span class="placeholder" aria-hidden="true"></span>{/if}
   </span>
   <span class="num" aria-hidden="true">{index + 1}</span>

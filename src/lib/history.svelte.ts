@@ -4,7 +4,12 @@ interface Entry<T> {
   label: string;
   state: T;
   version: number;
+  /** Edits with the same key in quick succession share one undo step. */
+  key?: string;
+  time?: number;
 }
+
+const COALESCE_MS = 1500;
 
 const LIMIT = 200;
 
@@ -31,9 +36,18 @@ export class History<T> {
     return this.version !== this.savedVersion;
   }
 
-  /** Record `previous` (the state before an edit) under `label`. */
-  push(label: string, previous: T) {
-    this.past = [...this.past, { label, state: previous, version: this.version }].slice(-LIMIT);
+  /**
+   * Record `previous` (the state before an edit) under `label`. With a
+   * `coalesceKey`, a burst of edits (e.g. dragging a slider) is one undo step.
+   */
+  push(label: string, previous: T, coalesceKey?: string) {
+    const last = this.past.at(-1);
+    const now = Date.now();
+    if (coalesceKey && last?.key === coalesceKey && this.future.length === 0 && now - (last.time ?? 0) < COALESCE_MS) {
+      last.time = now;
+    } else {
+      this.past = [...this.past, { label, state: previous, version: this.version, key: coalesceKey, time: now }].slice(-LIMIT);
+    }
     this.future = [];
     this.version = this.nextVersion++;
   }

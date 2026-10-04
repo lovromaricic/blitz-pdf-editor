@@ -10,13 +10,13 @@
     { id: 'edit.redo', label: 'Redo' },
   ];
 
-  // Tools not yet built are disabled until Phase 5.
+  // Tools not built yet stay disabled.
   const tools: { id: Tool; label: string; built: boolean }[] = [
     { id: 'select', label: 'Select', built: true },
     { id: 'text', label: 'Text', built: false },
-    { id: 'highlight', label: 'Highlight', built: false },
-    { id: 'draw', label: 'Draw', built: false },
-    { id: 'shapes', label: 'Shapes', built: false },
+    { id: 'highlight', label: 'Highlight', built: true },
+    { id: 'draw', label: 'Draw', built: true },
+    { id: 'shapes', label: 'Shapes', built: true },
     { id: 'stamp', label: 'Stamp', built: false },
     { id: 'comment', label: 'Comment', built: false },
     { id: 'sign', label: 'Sign', built: false },
@@ -47,7 +47,7 @@
           class:active={viewer.tool === t.id}
           aria-pressed={viewer.tool === t.id}
           disabled={!t.built}
-          onclick={() => (viewer.tool = t.id)}
+          onclick={() => viewer.setTool(t.id)}
         >
           <span class="icon" aria-hidden="true"></span>
           <span>{t.label}</span>

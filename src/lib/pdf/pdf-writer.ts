@@ -12,7 +12,14 @@ function getWorker() {
 }
 
 export function planFor(pages: readonly PageRef[]): PagePlan[] {
-  return pages.map((p) => ({ sourceId: p.sourceId, index: p.sourceIndex, rotation: p.rotation, crop: p.crop }));
+  return pages.map((p) => ({
+    sourceId: p.sourceId,
+    index: p.sourceIndex,
+    rotation: p.rotation,
+    crop: p.crop && { ...p.crop },
+    // Plain JSON data only: anything reactive can't cross into the worker.
+    annots: p.annots && (JSON.parse(JSON.stringify(p.annots)) as typeof p.annots),
+  }));
 }
 
 /** Build one PDF per page list. `onProgress` reports finished outputs. */

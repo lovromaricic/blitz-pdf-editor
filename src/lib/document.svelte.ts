@@ -5,6 +5,7 @@ import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { SvelteMap } from 'svelte/reactivity';
 import type { OpenFile, RejectedFile } from './files';
 import { History } from './history.svelte';
+import type { Annotation } from './annotations';
 import { marginsToDisplayed, NO_MARGINS, type Margins } from './page-ops';
 import { loadPdf, PdfLoadError } from './pdf/pdfjs';
 
@@ -45,6 +46,8 @@ export interface PageRef {
   readonly rotation: number;
   /** Crop margins in points, in PDF user space (unrotated), relative to the page's crop box. */
   readonly crop?: Margins;
+  /** Markup added in the editor, in PDF user space of the source page. */
+  readonly annots?: readonly Annotation[];
 }
 
 export interface DocInfo {
@@ -117,9 +120,9 @@ export class EditorDocument {
   }
 
   /** Apply an undoable edit to the page list. */
-  edit(label: string, next: readonly PageRef[]) {
+  edit(label: string, next: readonly PageRef[], coalesceKey?: string) {
     if (next === this.pages) return;
-    this.history.push(label, this.pages);
+    this.history.push(label, this.pages, coalesceKey);
     this.pages = next;
   }
 

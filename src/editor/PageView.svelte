@@ -3,6 +3,7 @@
   import type { PageRef } from '../lib/document.svelte';
   import { releaseCanvas, renderToCanvas, viewportFor } from '../lib/pdf/render';
   import { useViewer } from '../lib/viewer.svelte';
+  import AnnotationLayer from './AnnotationLayer.svelte';
 
   let {
     page,
@@ -154,6 +155,7 @@
     </div>
   {/if}
   <div class="textLayer" bind:this={textHost}></div>
+  {#if viewport}<AnnotationLayer {page} {viewport} />{/if}
   </div>
   {#if viewer.cropPreview?.ids.has(page.id)}
     {@const m = viewer.cropPreview.margins}

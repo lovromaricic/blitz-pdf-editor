@@ -6,6 +6,7 @@
   import { useViewer } from '../lib/viewer.svelte';
   import CropPanel from './panels/CropPanel.svelte';
   import ExtractPanel from './panels/ExtractPanel.svelte';
+  import MarkupPanel from './panels/MarkupPanel.svelte';
   import MergePanel from './panels/MergePanel.svelte';
   import PagesPanel from './panels/PagesPanel.svelte';
   import PanelHeader from './panels/PanelHeader.svelte';
@@ -26,6 +27,8 @@
     <MergePanel {actions} />
   {:else if viewer.panel === 'crop'}
     <CropPanel />
+  {:else if viewer.selectedAnnot || ['highlight', 'draw', 'shapes'].includes(viewer.tool)}
+    <MarkupPanel />
   {:else if viewer.selection.size > 0}
     <PagesPanel {commands} />
   {:else}

@@ -2,6 +2,7 @@
 import { getContext, setContext, tick } from 'svelte';
 import type { EditorDocument, PageRef } from './document.svelte';
 import type { Margins } from './page-ops';
+import { HIGHLIGHT_COLORS, INK_COLORS, type Rgb, type ShapeKind } from './annotations';
 import { computeLayout, indexAtY, pagesPerRow, rowAtY, rowStartOf, type ViewMode } from './layout';
 import { CSS_UNITS } from './pdf/pdfjs';
 import { Search } from './search.svelte';
@@ -25,6 +26,18 @@ export interface Task {
 
 export type Tool = 'select' | 'text' | 'highlight' | 'draw' | 'shapes' | 'stamp' | 'comment' | 'sign' | 'form';
 
+/** Settings each markup tool uses for new annotations. */
+export interface ToolProps {
+  highlight: { color: Rgb; opacity: number; wholeLine: boolean };
+  draw: { color: Rgb; width: number; opacity: number };
+  shapes: { shape: ShapeKind; color: Rgb; fill: Rgb | null; width: number; opacity: number };
+}
+
+export interface AnnotRef {
+  pageId: string;
+  id: string;
+}
+
 export class Viewer {
   zoom = $state(1);
   fit = $state<FitMode>('width');
@@ -33,6 +46,13 @@ export class Viewer {
   showPanel = $state(true);
   tool = $state<Tool>('select');
   mode = $state<ViewMode>('continuous');
+  toolProps = $state<ToolProps>({
+    highlight: { color: HIGHLIGHT_COLORS[0].rgb, opacity: 0.5, wholeLine: false },
+    draw: { color: INK_COLORS[0].rgb, width: 2, opacity: 1 },
+    shapes: { shape: 'rect', color: INK_COLORS[1].rgb, fill: null, width: 2, opacity: 1 },
+  });
+  /** The annotation selected with the Select tool. */
+  selectedAnnot = $state<AnnotRef | null>(null);
 
   /** Page ids selected in the thumbnail rail. */
   selection = $state.raw<ReadonlySet<string>>(new Set());
@@ -92,6 +112,7 @@ export class Viewer {
   /** single: only this page; toggle: add/remove (Ctrl/Cmd); range: from the anchor (Shift). */
   select(id: string, mode: 'single' | 'toggle' | 'range' = 'single') {
     const pages = this.doc.pages;
+    this.selectedAnnot = null;
     if (mode === 'range' && this.anchorId) {
       const a = pages.findIndex((p) => p.id === this.anchorId);
       const b = pages.findIndex((p) => p.id === id);
@@ -121,6 +142,21 @@ export class Viewer {
     this.anchorId = null;
   }
 
+  setTool(tool: Tool) {
+    this.tool = tool;
+    this.selectedAnnot = null;
+    this.panel = null;
+    window.getSelection()?.removeAllRanges();
+  }
+
+  selectAnnot(ref: AnnotRef | null) {
+    this.selectedAnnot = ref;
+    if (ref) {
+      this.selection = new Set();
+      this.panel = null;
+    }
+  }
+
   /** Pages an action applies to: the selection (in document order), else the current page. */
   targetPages(): PageRef[] {
     const pages = this.doc.pages;
@@ -136,6 +172,10 @@ export class Viewer {
       this.selection = new Set([...this.selection].filter((id) => ids.has(id)));
     }
     if (this.currentIndex > this.pageCount - 1) this.currentIndex = Math.max(0, this.pageCount - 1);
+    const sel = this.selectedAnnot;
+    if (sel && !this.doc.pages.find((p) => p.id === sel.pageId)?.annots?.some((a) => a.id === sel.id)) {
+      this.selectedAnnot = null;
+    }
   }
 
   // --- Feedback ---------------------------------------------------------

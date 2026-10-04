@@ -2,6 +2,9 @@
 // Works the same in every browser, and prints exactly what the editor shows
 // (order, rotation, crop), without saving first.
 import type { EditorDocument } from './document.svelte';
+import type { PageViewport } from 'pdfjs-dist';
+import type { Annotation, Point } from './annotations';
+import { primitivesToSvg, toPrimitives } from './annotation-view';
 import { viewportFor } from './pdf/render';
 
 const PRINT_DPI = 150;
@@ -20,6 +23,7 @@ export async function printDocument(doc: EditorDocument, onProgress: (p: number)
       full.width = Math.floor(viewport.width);
       full.height = Math.floor(viewport.height);
       await pdfPage.render({ canvas: full, viewport, intent: 'print' }).promise;
+      if (page.annots?.length) await drawAnnotations(full, page.annots, viewport);
 
       // Apply the crop by copying only the kept area.
       const m = doc.displayedCrop(page);
@@ -74,6 +78,26 @@ export async function printDocument(doc: EditorDocument, onProgress: (p: number)
   setTimeout(remove, 5 * 60_000);
   frame.contentWindow!.focus();
   frame.contentWindow!.print();
+}
+
+/** Draw editor markup onto a rendered page (highlights multiply, like on screen). */
+async function drawAnnotations(canvas: HTMLCanvasElement, annots: readonly Annotation[], viewport: PageViewport) {
+  const ctx = canvas.getContext('2d')!;
+  const toScreen = (p: Point) => viewport.convertToViewportPoint(p[0], p[1]) as Point;
+  const groups: [GlobalCompositeOperation, readonly Annotation[]][] = [
+    ['multiply', annots.filter((a) => a.type === 'highlight')],
+    ['source-over', annots.filter((a) => a.type !== 'highlight')],
+  ];
+  for (const [op, list] of groups) {
+    if (!list.length) continue;
+    const svg = primitivesToSvg(list.flatMap((a) => toPrimitives(a, toScreen, viewport.scale)), canvas.width, canvas.height);
+    const img = new Image();
+    img.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+    await img.decode();
+    ctx.globalCompositeOperation = op;
+    ctx.drawImage(img, 0, 0);
+  }
+  ctx.globalCompositeOperation = 'source-over';
 }
 
 function escapeHtml(s: string) {
