@@ -13,7 +13,7 @@ export const opening = $state({
   password: null as PasswordRequest | null,
 });
 
-function askPassword(fileName: string, retry: boolean) {
+export function askPassword(fileName: string, retry: boolean) {
   return new Promise<string | null>((resolve) => {
     opening.password = {
       fileName,

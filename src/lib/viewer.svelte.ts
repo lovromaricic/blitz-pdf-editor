@@ -1,6 +1,6 @@
 // View state for one open document: zoom, page layout, scrolling and navigation.
 import { getContext, setContext, tick } from 'svelte';
-import type { EditorDocument } from './document.svelte';
+import type { EditorDocument, PageRef } from './document.svelte';
 import { CSS_UNITS } from './pdf/pdfjs';
 import { Search } from './search.svelte';
 
@@ -12,6 +12,15 @@ export const MAX_ZOOM = ZOOM_STEPS[ZOOM_STEPS.length - 1];
 export const PAGE_GAP = 16;
 
 export type FitMode = 'width' | 'page' | null;
+/** Tool panels shown in the right-hand panel (opened from menus). */
+export type ToolPanel = 'extract' | 'split' | 'merge';
+
+export interface Task {
+  label: string;
+  /** 0..1, or null when unknown. */
+  progress: number | null;
+}
+
 export type Tool = 'select' | 'text' | 'highlight' | 'draw' | 'shapes' | 'stamp' | 'comment' | 'sign' | 'form';
 
 interface PageBox {
@@ -27,6 +36,13 @@ export class Viewer {
   showThumbnails = $state(true);
   showPanel = $state(true);
   tool = $state<Tool>('select');
+
+  /** Page ids selected in the thumbnail rail. */
+  selection = $state.raw<ReadonlySet<string>>(new Set());
+  private anchorId: string | null = null;
+  panel = $state<ToolPanel | null>(null);
+  task = $state<Task | null>(null);
+  notice = $state<{ text: string; id: number } | null>(null);
 
   /** Mirrors of the scroll container's geometry, for virtualized rendering. */
   scrollTop = $state(0);
@@ -69,6 +85,80 @@ export class Viewer {
 
   get pageCount() {
     return this.doc.pages.length;
+  }
+
+  // --- Selection --------------------------------------------------------
+
+  /** single: only this page; toggle: add/remove (Ctrl/Cmd); range: from the anchor (Shift). */
+  select(id: string, mode: 'single' | 'toggle' | 'range' = 'single') {
+    const pages = this.doc.pages;
+    if (mode === 'range' && this.anchorId) {
+      const a = pages.findIndex((p) => p.id === this.anchorId);
+      const b = pages.findIndex((p) => p.id === id);
+      if (a >= 0 && b >= 0) {
+        const [lo, hi] = a < b ? [a, b] : [b, a];
+        this.selection = new Set(pages.slice(lo, hi + 1).map((p) => p.id));
+        return;
+      }
+    }
+    if (mode === 'toggle') {
+      const next = new Set(this.selection);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      this.selection = next;
+    } else {
+      this.selection = new Set([id]);
+    }
+    this.anchorId = id;
+  }
+
+  selectAll() {
+    this.selection = new Set(this.doc.pages.map((p) => p.id));
+  }
+
+  clearSelection() {
+    this.selection = new Set();
+    this.anchorId = null;
+  }
+
+  /** Pages an action applies to: the selection (in document order), else the current page. */
+  targetPages(): PageRef[] {
+    const pages = this.doc.pages;
+    if (this.selection.size > 0) return pages.filter((p) => this.selection.has(p.id));
+    const current = pages[this.currentIndex];
+    return current ? [current] : [];
+  }
+
+  /** Keep selection and current page valid after the page list changes. */
+  syncAfterEdit() {
+    const ids = new Set(this.doc.pages.map((p) => p.id));
+    if ([...this.selection].some((id) => !ids.has(id))) {
+      this.selection = new Set([...this.selection].filter((id) => ids.has(id)));
+    }
+    if (this.currentIndex > this.pageCount - 1) this.currentIndex = Math.max(0, this.pageCount - 1);
+  }
+
+  // --- Feedback ---------------------------------------------------------
+
+  private noticeTimer: ReturnType<typeof setTimeout> | undefined;
+
+  notify(text: string) {
+    clearTimeout(this.noticeTimer);
+    this.notice = { text, id: Date.now() };
+    this.noticeTimer = setTimeout(() => (this.notice = null), 6000);
+  }
+
+  /** Run a slow job with a progress indicator; errors become a notice. */
+  async runTask<T>(label: string, job: (progress: (p: number) => void) => Promise<T>): Promise<T | undefined> {
+    this.task = { label, progress: null };
+    try {
+      return await job((p) => this.task && (this.task.progress = p));
+    } catch (e) {
+      this.notify(e instanceof Error ? e.message : String(e));
+      return undefined;
+    } finally {
+      this.task = null;
+    }
   }
 
   // --- Navigation -------------------------------------------------------

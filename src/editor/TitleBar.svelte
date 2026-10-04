@@ -15,6 +15,7 @@
   </div>
   <span class="divider" aria-hidden="true"></span>
   <h1 class="file-name" title={viewer.doc.name}>{viewer.doc.name}</h1>
+  {#if viewer.doc.dirty}<span class="edited">Edited</span>{/if}
   <div class="spacer"></div>
   <SearchBox {onReveal} />
 </header>
@@ -63,6 +64,14 @@
     font-weight: 400;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  .edited {
+    flex-shrink: 0;
+    padding: 0 var(--space-2);
+    border: var(--border-width) solid var(--color-border-strong);
+    border-radius: var(--radius-sm);
+    color: var(--color-text-muted);
+    font-size: var(--font-size-xs);
   }
   .spacer {
     flex: 1;

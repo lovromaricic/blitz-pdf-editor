@@ -3,6 +3,7 @@
   import { loadEditorModules } from './lib/open-files.svelte';
   import Home from './screens/Home.svelte';
   import PasswordDialog from './components/PasswordDialog.svelte';
+  import DialogHost from './components/DialogHost.svelte';
 
   // The editor (and PDF.js inside it) is a separate chunk, fetched in the background
   // once the Home screen is up so it's ready by the time a file is chosen.
@@ -25,3 +26,4 @@
 {/if}
 
 <PasswordDialog />
+<DialogHost />

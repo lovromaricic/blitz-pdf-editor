@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { HTMLButtonAttributes } from 'svelte/elements';
   import type { PageRef } from '../lib/document.svelte';
   import { releaseCanvas, renderToCanvas, thumbnailQueue, viewportFor } from '../lib/pdf/render';
   import { useViewer } from '../lib/viewer.svelte';
@@ -10,7 +11,9 @@
     width,
     height,
     current,
-    onSelect,
+    selected,
+    dimmed = false,
+    ...rest
   }: {
     page: PageRef;
     index: number;
@@ -18,8 +21,9 @@
     width: number;
     height: number;
     current: boolean;
-    onSelect: () => void;
-  } = $props();
+    selected: boolean;
+    dimmed?: boolean;
+  } & HTMLButtonAttributes = $props();
 
   const viewer = useViewer();
   let host: HTMLSpanElement;
@@ -70,9 +74,13 @@
   type="button"
   class="thumb"
   class:current
-  aria-label="Page {index + 1}"
+  class:selected
+  class:dimmed
+  aria-label="Page {index + 1}{page.rotation ? `, rotated ${page.rotation}°` : ''}"
   aria-current={current ? 'page' : undefined}
-  onclick={onSelect}
+  aria-pressed={selected}
+  data-thumb-index={index}
+  {...rest}
 >
   <span class="frame" style:width="{width}px" style:height="{height}px">
     <span class="canvas-host" bind:this={host}></span>
@@ -91,6 +99,9 @@
     border: 0;
     border-radius: var(--radius-sm);
     background: none;
+    touch-action: pan-y;
+    user-select: none;
+    -webkit-user-select: none;
   }
   .frame {
     position: relative;
@@ -101,8 +112,14 @@
   .thumb:hover .frame {
     box-shadow: 0 0 0 2px var(--color-border-strong);
   }
+  .thumb.selected {
+    background: var(--color-active-bg);
+  }
   .thumb.current .frame {
     box-shadow: 0 0 0 3px var(--color-accent);
+  }
+  .thumb.dimmed {
+    opacity: 0.35;
   }
   .canvas-host,
   .placeholder {

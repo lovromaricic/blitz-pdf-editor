@@ -1,5 +1,7 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import { app, closeDocument } from '../lib/app-state.svelte';
+  import { Actions } from '../lib/actions.svelte';
   import { CommandRegistry } from '../lib/commands';
   import type { EditorDocument } from '../lib/document.svelte';
   import { openFiles } from '../lib/open-files.svelte';
@@ -18,8 +20,11 @@
   // svelte-ignore state_referenced_locally (the editor is re-created per document)
   const viewer = new Viewer(doc);
   provideViewer(viewer);
+  // svelte-ignore state_referenced_locally
+  const actions = new Actions(doc, viewer);
 
-  let fileInput: HTMLInputElement;
+  let openInput: HTMLInputElement;
+  let insertInput: HTMLInputElement;
 
   function focusById(id: string) {
     const el = document.getElementById(id) as HTMLInputElement | null;
@@ -45,17 +50,39 @@
     if (x < el.scrollLeft || x > el.scrollLeft + el.clientWidth - 40) el.scrollLeft = x - el.clientWidth / 3;
   }
 
+  let isFullscreen = $state(false);
+
   async function toggleFullscreen() {
     if (document.fullscreenElement) await document.exitFullscreen();
     else await document.documentElement.requestFullscreen().catch(() => {});
   }
 
-  let isFullscreen = $state(false);
+  function openPanel(panel: NonNullable<Viewer['panel']>) {
+    viewer.panel = panel;
+    viewer.showPanel = true;
+  }
+
+  const idle = () => !viewer.task;
 
   const commands = new CommandRegistry({
-    'file.open': { run: () => fileInput.click() },
-    'file.close': { run: closeDocument },
+    // File
+    'file.open': { run: () => openInput.click() },
+    'file.save': { run: () => void actions.save(), enabled: idle },
+    'file.saveCopy': { run: () => void actions.saveCopy(), enabled: idle },
+    'file.close': {
+      run: async () => {
+        if (await actions.confirmLeave('close it')) closeDocument();
+      },
+    },
+
+    // Edit
+    'edit.undo': { run: () => doc.undo(), enabled: () => doc.history.canUndo && idle() },
+    'edit.redo': { run: () => doc.redo(), enabled: () => doc.history.canRedo && idle() },
+    // Delete acts on selected pages until markup objects exist (Phase 5).
+    'edit.delete': { run: () => actions.delete(), enabled: () => viewer.selection.size > 0 && actions.canDelete() },
     'edit.find': { run: () => focusById('doc-search') },
+
+    // View
     'view.zoomIn': { run: () => viewer.zoomIn() },
     'view.zoomOut': { run: () => viewer.zoomOut() },
     'view.fitWidth': { run: () => viewer.fitWidth(), checked: () => viewer.fit === 'width' },
@@ -65,18 +92,54 @@
     'view.thumbnails': { run: () => (viewer.showThumbnails = !viewer.showThumbnails), checked: () => viewer.showThumbnails },
     'view.panel': { run: () => (viewer.showPanel = !viewer.showPanel), checked: () => viewer.showPanel },
     'view.fullscreen': { run: toggleFullscreen, checked: () => isFullscreen },
+
+    // Page (selection, or the current page when nothing is selected)
+    'page.rotateLeft': { run: () => actions.rotate(-90) },
+    'page.rotateRight': { run: () => actions.rotate(90) },
+    'page.delete': { run: () => actions.delete(), enabled: () => actions.canDelete() },
+    'page.extract': { run: () => openPanel('extract'), enabled: idle },
+    'page.insertBlank': { run: () => void actions.insertBlank() },
+    'page.insertFromFile': { run: () => insertInput.click(), enabled: idle },
     'page.goTo': { run: () => focusById('page-number-input') },
+
+    // Tools
+    'tools.merge': { run: () => openPanel('merge'), enabled: idle },
+    'tools.split': { run: () => openPanel('split'), enabled: () => idle() && doc.pages.length > 1 },
   });
 
-  async function onPickFiles(files: FileList | null) {
-    if (!files?.length) return;
-    const rejected = await openFiles(Array.from(files));
+  async function onPickOpen(files: FileList | null) {
+    const list = files ? Array.from(files) : [];
+    openInput.value = '';
+    if (!list.length || !(await actions.confirmLeave('open another file'))) return;
+    const rejected = await openFiles(list);
     if (rejected.length) app.openWarnings = rejected;
-    fileInput.value = '';
+  }
+
+  async function onPickInsert(files: FileList | null) {
+    const list = files ? Array.from(files) : [];
+    insertInput.value = '';
+    if (list.length) await actions.insertFromFiles(list);
+  }
+
+  // After any page edit (including undo/redo): keep selection valid and refresh search hits.
+  $effect(() => {
+    void doc.pages;
+    untrack(() => {
+      viewer.syncAfterEdit();
+      const q = viewer.search.query;
+      if (q) void viewer.search.run(q, viewer.currentIndex, () => {});
+    });
+  });
+
+  function onBeforeUnload(e: BeforeUnloadEvent) {
+    if (!doc.dirty) return;
+    e.preventDefault();
+    // Older browsers need returnValue set to show the prompt.
+    e.returnValue = '';
   }
 </script>
 
-<svelte:window onkeydown={(e) => commands.handleKey(e)} />
+<svelte:window onkeydown={(e) => commands.handleKey(e)} onbeforeunload={onBeforeUnload} />
 <svelte:document onfullscreenchange={() => (isFullscreen = !!document.fullscreenElement)} />
 
 <div class="editor" class:no-rail={!viewer.showThumbnails} class:no-panel={!viewer.showPanel}>
@@ -97,20 +160,30 @@
   {/if}
 
   <div class="main">
-    {#if viewer.showThumbnails}<ThumbnailRail />{/if}
+    {#if viewer.showThumbnails}<ThumbnailRail {commands} {actions} />{/if}
     <CanvasView />
-    {#if viewer.showPanel}<SidePanel />{/if}
+    {#if viewer.showPanel}<SidePanel {commands} {actions} />{/if}
   </div>
 
   <input
-    bind:this={fileInput}
+    bind:this={openInput}
     class="visually-hidden"
     type="file"
     accept="application/pdf,.pdf"
     multiple
     tabindex="-1"
     aria-hidden="true"
-    onchange={(e) => onPickFiles(e.currentTarget.files)}
+    onchange={(e) => onPickOpen(e.currentTarget.files)}
+  />
+  <input
+    bind:this={insertInput}
+    class="visually-hidden"
+    type="file"
+    accept="application/pdf,.pdf"
+    multiple
+    tabindex="-1"
+    aria-hidden="true"
+    onchange={(e) => onPickInsert(e.currentTarget.files)}
   />
 </div>
 

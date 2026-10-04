@@ -42,7 +42,7 @@ BASE_PATH=/tools/pdf/ npm run build
 
 ### What's in `dist/`
 
-- `index.html` and `assets/`: the app. The PDF engine (PDF.js) is a separate chunk loaded in the background after the Home screen appears.
+- `index.html` and `assets/`: the app. The PDF viewer (PDF.js) is a separate chunk loaded in the background after the Home screen appears. The PDF writer (pdf-lib, in a Web Worker) loads the first time you save, extract or split.
 - `pdfjs/`: data PDF.js fetches only when a document needs it (CJK character maps, the 14 standard fonts, image-decoder WASM, colour profiles). Copied from `pdfjs-dist` at build time by `build-tools/pdfjs-assets.ts`. Upload it with everything else.
 
 ### Server headers
@@ -64,15 +64,26 @@ src/
   App.svelte             Switches between Home and Editor (lazy-loaded)
   lib/
     commands.ts          Command registry: every action has one id, used by menus and shortcuts
+    actions.svelte.ts    Feature implementations (rotate, delete, insert, merge, extract, split, save)
     document.svelte.ts   Open document: pages are references into source PDFs
+    history.svelte.ts    Undo/redo and unsaved-changes tracking
+    page-ops.ts          Pure page-list operations and page-range parsing
     viewer.svelte.ts     Zoom, layout, scrolling, navigation
     search.svelte.ts     Full-text search
     open-files.svelte.ts The single "open PDFs" entry point (Home + File > Open)
-    pdf/                 PDF.js setup and page rendering
+    pdf/                 PDF.js setup and rendering; assemble.ts + pdf-worker.ts write PDFs (pdf-lib)
   screens/               Home.svelte, Editor.svelte
   editor/                Editor parts: title bar, menu bar, toolbar, thumbnails, canvas, panel
-  components/            Shared UI (password dialog)
+  editor/panels/         Right-panel content: page actions, Extract, Split, Merge
+  components/            Shared UI (dialogs, context menu)
   styles/tokens.css      Design tokens (colors, spacing, radii). Restyle here.
 build-tools/             Vite plugin that ships PDF.js runtime assets
 tests/                   Vitest unit tests (tests/tmp/ is a gitignored scratch area for sample PDFs)
 ```
+
+## How saving works
+
+- Pages are kept as references into the original files, so editing is instant and undoable.
+- **Save** rebuilds the PDF from the first page's original file, keeping its metadata, bookmarks and form fields. Deleted pages are emptied and unreferenced data is dropped, so deleted content does not stay hidden in the file.
+- **Extract** and **Split** write fresh PDFs that contain only the chosen pages.
+- Saving a password-protected PDF produces an unprotected copy (the app warns about this). Re-protecting is the job of *Tools › Protect with password* (Phase 6).
