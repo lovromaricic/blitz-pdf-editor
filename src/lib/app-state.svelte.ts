@@ -6,6 +6,11 @@ export const app = $state({
   doc: null as EditorDocument | null,
   /** Files that failed to open alongside ones that succeeded, shown in the editor. */
   openWarnings: [] as RejectedFile[],
+  /**
+   * The landing screen's opening transition is still playing: Home stays on top
+   * (the editor may already be mounted underneath) until the page fills the window.
+   */
+  landingHold: false,
 });
 
 export function setDocument(doc: EditorDocument, warnings: RejectedFile[] = []) {

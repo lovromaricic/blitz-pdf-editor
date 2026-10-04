@@ -87,3 +87,53 @@ describe('accepted files', () => {
     expect(dragLooksValid([{ kind: 'file', type: '' }])).toBe(true);
   });
 });
+
+describe('absorb timeline', async () => {
+  const { ABSORB, AbsorbTimeline } = await import('../src/lib/landing/absorb-timeline');
+
+  it('reaches its finished state and calls back exactly once', () => {
+    let calls = 0;
+    const tl = new AbsorbTimeline(() => calls++);
+    for (let t = 0; t < 2; t += 1 / 60) tl.advance(1 / 60);
+    expect(tl.finished).toBe(true);
+    expect(calls).toBe(1);
+    tl.advance(1);
+    tl.advance(0);
+    expect(calls).toBe(1);
+  });
+
+  it('finishes once even when one big step jumps past the end', () => {
+    let calls = 0;
+    const tl = new AbsorbTimeline(() => calls++);
+    tl.advance(5);
+    tl.advance(5);
+    expect(tl.finished).toBe(true);
+    expect(calls).toBe(1);
+  });
+
+  it('is not finished before about 1.2 s', () => {
+    let calls = 0;
+    const tl = new AbsorbTimeline(() => calls++);
+    tl.advance(ABSORB.doneAt - 0.01);
+    expect(tl.finished).toBe(false);
+    expect(calls).toBe(0);
+  });
+
+  it('follows the prototype timings: stagger, travel, top page growth, fade', () => {
+    const tl = new AbsorbTimeline(() => {});
+    tl.advance(0.1);
+    expect(tl.sheet(0, 46)).toBeGreaterThan(0); // sheet 0 starts at once
+    expect(tl.sheet(45, 46)).toBe(0); // the last waits for the stagger (about 0.2 s)
+    tl.advance(0.6); // t = 0.7
+    expect(tl.sheet(0, 46)).toBe(1); // 0.5 s travel
+    expect(tl.sheet(45, 46)).toBeGreaterThan(0.9);
+    expect(tl.hero).toBe(0); // growth starts at 0.72 s
+    expect(tl.fade).toBe(0);
+    tl.advance(0.12); // t = 0.82
+    expect(tl.fade).toBeCloseTo(0.5, 5); // others fade over 0.2 s
+    expect(tl.hero).toBeCloseTo(0.25, 5); // the top page grows over 0.4 s
+    tl.advance(0.31); // t = 1.13 (growth ends at 1.12 s)
+    expect(tl.hero).toBe(1);
+    expect(tl.fade).toBe(1);
+  });
+});

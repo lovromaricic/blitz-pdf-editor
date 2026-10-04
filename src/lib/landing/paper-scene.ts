@@ -1,6 +1,8 @@
-// The landing screen's background: paper sheets falling in 3D. Loaded lazily
-// (its own chunk with Three.js) after first paint; Home works without it.
-// Reacts to a dragged file (sheets gather into a ring) and to a drop (burst).
+// The landing screen's background: paper sheets falling in 3D. A port of the
+// approved prototype (docs/reference/blitz-landing-prototype.html): its look and
+// motion numbers are copied 1:1. Three.js r128 is pinned because the prototype's
+// lights and colors were tuned on it (newer versions change both).
+// Loaded lazily (its own chunk) after first paint; Home works without it.
 import {
   AmbientLight,
   CanvasTexture,
@@ -13,26 +15,29 @@ import {
   PerspectiveCamera,
   PlaneGeometry,
   Scene,
-  SRGBColorSpace,
   WebGLRenderer,
   type BufferAttribute,
 } from 'three';
+import { AbsorbTimeline, smoothstep } from './absorb-timeline';
 
 export interface PaperScene {
-  /** A file is (or isn't) being dragged over the window. */
+  /** A file is (or isn't) being dragged over the window: sheets gather into a ring. */
   setCharged(on: boolean): void;
-  /** Files were dropped: sheets burst outward from the ring. */
-  burst(): void;
+  /**
+   * Files were chosen: sheets rush into one stack and the top page grows to fill
+   * the window. `onFilled` is called once, when the page fills the window.
+   */
+  absorb(onFilled: () => void): void;
+  /** Back to falling (only when opening failed or was cancelled). */
+  reset(): void;
   dispose(): void;
-  /** Measured average frame time (ms) of the last 2-second window, for reporting. */
-  stats(): { frameMs: number; workMs: number; sheets: number; pixelRatio: number };
+  stats(): { frameMs: number; absorbFps: number; absorbSeconds: number; finished: boolean; sheets: number; pixelRatio: number };
 }
 
 export interface SceneOptions {
   /** Called once the first frame is drawn (fade the canvas in then). */
   onReady?: () => void;
   reducedMotion: boolean;
-  small: boolean;
 }
 
 // Drawings on the decorative pages: document content (like ink colors), not theme.
@@ -41,14 +46,14 @@ const PAGE = {
   edge: '#DDE2EA',
   title: '#C9D1DE',
   line: '#E1E6EE',
-  highlight: 'rgba(255, 214, 10, 0.65)',
+  highlight: 'rgba(255,214,10,0.65)',
   picture: '#A9C0F5',
   ink: '#1F2733',
   stamp: '#1E8A4C',
 };
 
-/** Paper texture variants: 0 plain, 1 highlighted line, 2 picture and signature, 3 "DONE" stamp. */
-function pageTexture(variant: number): CanvasTexture {
+/** Page textures: 0 plain, 1 highlighted line, 2 picture and signature, 3 "DONE" stamp. */
+function makeTexture(variant: number): CanvasTexture {
   const c = document.createElement('canvas');
   c.width = 256;
   c.height = 362;
@@ -65,7 +70,8 @@ function pageTexture(variant: number): CanvasTexture {
   if (variant === 1) {
     g.fillStyle = PAGE.highlight;
     g.fillRect(22, 64 + 2 * 18 - 4, 150, 14);
-  } else if (variant === 2) {
+  }
+  if (variant === 2) {
     g.fillStyle = PAGE.picture;
     g.fillRect(160, 20, 72, 34);
     g.strokeStyle = PAGE.ink;
@@ -77,7 +83,8 @@ function pageTexture(variant: number): CanvasTexture {
     g.bezierCurveTo(62, 340, 76, 310, 86, 318);
     g.bezierCurveTo(100, 330, 110, 300, 128, 314);
     g.stroke();
-  } else if (variant === 3) {
+  }
+  if (variant === 3) {
     g.strokeStyle = PAGE.stamp;
     g.lineWidth = 4;
     g.strokeRect(120, 262, 104, 36);
@@ -85,25 +92,26 @@ function pageTexture(variant: number): CanvasTexture {
     g.font = '600 20px sans-serif';
     g.fillText('DONE', 138, 288);
   }
-  const t = new CanvasTexture(c);
-  t.colorSpace = SRGBColorSpace;
-  return t;
+  return new CanvasTexture(c);
 }
 
 interface Sheet {
-  mesh: Mesh;
+  m: Mesh;
   geo: PlaneGeometry;
   /** Flat vertex positions. */
-  flat: Float32Array;
-  x: number;
+  orig: Float32Array;
+  s: number;
+  /** Hidden by adaptive quality. */
+  off: boolean;
+  /** Final z rotation in the stack (about ±3°). */
+  jit: number;
+  /** Horizontal position as a fraction of the visible half-width. */
+  xf: number;
+  ox: number;
   y: number;
   z: number;
-  /** Offset from a burst, decaying back to 0 velocity. */
-  ox: number;
-  vx: number;
-  vy: number;
   fall: number;
-  phase: number;
+  ph: number;
   sway: number;
   rx: number;
   ry: number;
@@ -111,56 +119,55 @@ interface Sheet {
   wx: number;
   wy: number;
   wz: number;
+  vx: number;
+  vy: number;
+  /** Last bend and flutter, eased to zero during the absorb. */
+  lb: number;
+  lf: number;
+  /** Position and rotation when the absorb started. */
+  sp: [number, number, number] | null;
+  sr: [number, number, number] | null;
 }
 
-const rand = (a: number, b: number) => a + Math.random() * (b - a);
-const wrapAngle = (a: number) => ((((a + Math.PI) % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2)) - Math.PI;
+const wrap = (a: number) => ((((a + Math.PI) % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2)) - Math.PI;
 const lerp = (a: number, b: number, p: number) => a + (b - a) * p;
-const smooth = (x: number) => x * x * (3 - 2 * x);
+const clamp = (x: number) => Math.max(0, Math.min(1, x));
 
+/** The battery: never more than 60 frames a second. */
 const FPS_CAP = 60;
-/**
- * Adaptive quality, over 2-second windows: lighten the scene when frames average
- * slower than SLOW_FRAME_MS and our own work per frame is a real part of it
- * (WORK_MS). Throttled frames (background tab, 30 Hz low-power mode) alone don't count.
- */
+/** Adaptive quality: if frames average slower than this over 2 s, keep 20 sheets and pixel ratio 1. */
 const SLOW_FRAME_MS = 24;
-const WORK_MS = 8;
-const MIN_SHEETS = 20;
-const TOP = 4.6;
+const KEEP_SHEETS = 20;
 
 /** Returns null if WebGL isn't available (the page shows its static fallback). */
 export function createPaperScene(canvas: HTMLCanvasElement, opts: SceneOptions): PaperScene | null {
   let renderer: WebGLRenderer;
   try {
-    renderer = new WebGLRenderer({ canvas, antialias: true, powerPreference: 'low-power' });
+    renderer = new WebGLRenderer({ canvas, antialias: true });
   } catch {
     return null;
   }
-  if (!renderer.getContext()) return null;
-
-  // The page background exactly, from the design tokens (sRGB in, sRGB out: no shift).
-  const bg = new Color(getComputedStyle(document.documentElement).getPropertyValue('--bg').trim() || '#F5F7FA');
-  let pixelRatio = Math.min(window.devicePixelRatio || 1, opts.small ? 1.5 : 2);
+  const reduced = opts.reducedMotion;
+  const small = window.innerWidth < 700;
+  const N = small ? 18 : 46;
+  let pixelRatio = Math.min(window.devicePixelRatio || 1, small ? 1.5 : 2);
   renderer.setPixelRatio(pixelRatio);
+  // The page background exactly, from the design tokens.
+  const bg = new Color(getComputedStyle(document.documentElement).getPropertyValue('--bg').trim() || '#F5F7FA');
   renderer.setClearColor(bg, 1);
-
   const scene = new Scene();
   scene.fog = new Fog(bg, 7, 15);
   const camera = new PerspectiveCamera(45, 1, 0.1, 50);
   camera.position.set(0, 0, 8);
-  // Ambient 0.58 and directional 0.65 in the old ("legacy") light units the design was
-  // tuned with; Three.js r155+ lights need π times more for the same look.
-  scene.add(new AmbientLight(0xffffff, 0.58 * Math.PI));
-  const sun = new DirectionalLight(0xffffff, 0.65 * Math.PI);
-  sun.position.set(3, 5, 6);
-  scene.add(sun);
+  scene.add(new AmbientLight(0xffffff, 0.58));
+  const dl = new DirectionalLight(0xffffff, 0.65);
+  dl.position.set(3, 5, 6);
+  scene.add(dl);
 
-  /** Half the visible width at z = 0, for placing sheets and the ring. */
   let halfW = 5.3;
   function resize() {
-    const w = canvas.clientWidth || window.innerWidth;
-    const h = canvas.clientHeight || window.innerHeight;
+    const w = window.innerWidth;
+    const h = window.innerHeight;
     renderer.setSize(w, h, false);
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
@@ -168,152 +175,211 @@ export function createPaperScene(canvas: HTMLCanvasElement, opts: SceneOptions):
   }
   resize();
 
-  const textures = [0, 1, 2, 3].map(pageTexture);
-  const materials = textures.map((map) => new MeshLambertMaterial({ map, side: DoubleSide }));
-  const count = opts.small ? 18 : 46;
+  const texs = [makeTexture(0), makeTexture(1), makeTexture(2), makeTexture(3)];
   const sheets: Sheet[] = [];
-  for (let i = 0; i < count; i++) {
+  for (let i = 0; i < N; i++) {
     const geo = new PlaneGeometry(1, 1.414, 10, 14);
-    const mesh = new Mesh(geo, materials[i % 4]);
-    const s = rand(0.8, 1.3);
-    mesh.scale.set(s, s, s);
+    const orig = new Float32Array(geo.attributes.position.array as Float32Array);
+    // One material per sheet, as in the prototype: the absorb fades sheets individually.
+    const m = new Mesh(geo, new MeshLambertMaterial({ map: texs[i % 4], side: DoubleSide }));
+    const s = 0.8 + Math.random() * 0.5;
     const far = Math.random() < 0.35;
-    // Near sheets keep clear of the text in the middle.
-    const minX = Math.min(2.4, halfW * 0.55);
     const side = Math.random() < 0.5 ? -1 : 1;
     sheets.push({
-      mesh,
+      m,
       geo,
-      flat: new Float32Array(geo.attributes.position.array),
-      x: far ? rand(-1.3, 1.3) * halfW : side * rand(minX, Math.max(minX + 0.5, halfW * 1.25)),
-      y: rand(-TOP, TOP),
-      z: far ? rand(-6.5, -3.5) : rand(-2, 1.4),
+      orig,
+      s,
+      off: false,
+      jit: (Math.random() - 0.5) * 0.12,
+      xf: far ? (Math.random() * 2 - 1) * 1.3 : side * (0.45 + Math.random() * 0.78),
       ox: 0,
+      y: (Math.random() * 2 - 1) * 5,
+      z: far ? -3.5 - Math.random() * 3 : -2 + Math.random() * 3.4,
+      fall: 0.25 + Math.random() * 0.35,
+      ph: Math.random() * 6.28,
+      sway: 0.2 + Math.random() * 0.4,
+      rx: Math.random() * 6.28,
+      ry: Math.random() * 6.28,
+      rz: Math.random() * 6.28,
+      wx: (Math.random() - 0.5) * 0.9,
+      wy: (Math.random() - 0.5) * 0.9,
+      wz: (Math.random() - 0.5) * 0.5,
       vx: 0,
       vy: 0,
-      fall: rand(0.25, 0.6),
-      phase: rand(0, Math.PI * 2),
-      sway: rand(0.2, 0.6),
-      rx: rand(0, Math.PI * 2),
-      ry: rand(0, Math.PI * 2),
-      rz: rand(0, Math.PI * 2),
-      wx: rand(-0.45, 0.45),
-      wy: rand(-0.45, 0.45),
-      wz: rand(-0.25, 0.25),
+      lb: 0,
+      lf: 0,
+      sp: null,
+      sr: null,
     });
-    scene.add(mesh);
+    m.scale.set(s, s, s);
+    scene.add(m);
   }
-  let active = count;
 
-  let time = 0;
+  let T = 0;
   let charge = 0;
   let target = 0;
-  let pointerX = 0;
-  let pointerY = 0;
+  let px = 0;
+  let py = 0;
+  let mode: 'fall' | 'absorb' = 'fall';
+  let timeline: AbsorbTimeline | null = null;
 
-  /** Slot k of the ring (an ellipse of 4.9 x 2.6 units, narrower on small screens), slowly turning. */
-  function ring(k: number) {
-    const a = (k / active) * Math.PI * 2 + time * 0.12;
-    return { a, x: Math.cos(a) * Math.min(4.9, halfW * 0.92), y: Math.sin(a) * 2.6, z: -0.8 };
+  function ringPos(k: number) {
+    const a = (k / N) * Math.PI * 2 + T * 0.12;
+    return { a, x: Math.cos(a) * 0.92 * halfW, y: Math.sin(a) * 2.6, z: -0.8 };
+  }
+
+  function bend(sh: Sheet, b: number, f: number) {
+    const pos = sh.geo.attributes.position as BufferAttribute;
+    const arr = pos.array as Float32Array;
+    const o = sh.orig;
+    for (let j = 0; j < arr.length; j += 3) {
+      const u = o[j];
+      const v = o[j + 1];
+      arr[j + 2] = b * u * u * 1.1 + f * Math.sin(v * 4 + T * 2.2 + sh.ph) * 0.06 * (0.6 + u * u);
+    }
+    pos.needsUpdate = true;
+    sh.geo.computeVertexNormals();
+  }
+
+  function stepAbsorb(dt: number) {
+    const tl = timeline!;
+    tl.advance(dt);
+    const cz = 0.3;
+    const heroP = tl.hero;
+    const fade = tl.fade;
+    // Scale at which the top page covers the whole window, plus 10%.
+    const visH = 2 * Math.tan((22.5 * Math.PI) / 180) * (8 - cz);
+    const need = Math.max(visH / 1.414, visH * camera.aspect) * 1.1;
+    for (let k = 0; k < N; k++) {
+      const sh = sheets[k];
+      if (!sh.m.visible) continue;
+      const e = tl.sheet(k, N);
+      const tz = cz + (N - k) * 0.004;
+      const sp = sh.sp!;
+      const sr = sh.sr!;
+      // A slight swirl: an offset perpendicular to the path, largest halfway.
+      const dx = sp[0];
+      const dy = sp[1];
+      const sw = 0.35 * Math.sin(Math.PI * e);
+      sh.m.position.set(lerp(sp[0], 0, e) + -dy * sw, lerp(sp[1], 0, e) + dx * sw, lerp(sp[2], tz, e));
+      sh.m.rotation.set(lerp(sr[0], 0, e), lerp(sr[1], 0, e), lerp(sr[2], sh.jit, e));
+      bend(sh, sh.lb * (1 - e), sh.lf * (1 - e));
+      const material = sh.m.material as MeshLambertMaterial;
+      if (k === 0) {
+        const sc = lerp(sh.s, need, heroP * heroP);
+        sh.m.scale.set(sc, sc, sc);
+        sh.m.position.z = lerp(tz, tz + 1.2, heroP);
+        sh.m.position.x *= 1 - heroP;
+        sh.m.position.y *= 1 - heroP;
+        sh.m.rotation.z = lerp(sh.jit, 0, heroP);
+      } else if (fade > 0) {
+        material.transparent = true;
+        material.opacity = 1 - fade;
+      }
+    }
+    // The parallax drift stops.
+    camera.position.x *= 0.9;
+    camera.position.y *= 0.9;
+    camera.lookAt(0, 0, 0);
+    renderer.render(scene, camera);
   }
 
   function step(dt: number) {
-    time += dt;
-    // Ease toward the ring in about 400 ms (95%), and back.
-    charge += (target - charge) * (1 - Math.exp(-7.5 * dt));
-    const c = smooth(Math.min(1, Math.max(0, charge)));
-    if (!opts.reducedMotion) {
-      camera.position.x += (pointerX * 0.7 - camera.position.x) * 0.05;
-      camera.position.y += (pointerY * 0.4 - camera.position.y) * 0.05;
+    T += dt;
+    if (mode === 'absorb') {
+      stepAbsorb(dt);
+      return;
     }
+    charge += (target - charge) * Math.min(1, dt * 4);
+    const c = smoothstep(clamp(charge));
+    camera.position.x += (px * 0.7 - camera.position.x) * 0.05;
+    camera.position.y += (py * 0.4 - camera.position.y) * 0.05;
     camera.lookAt(0, 0, 0);
-    const decay = Math.pow(0.97, dt * 60);
-    for (let k = 0; k < active; k++) {
-      const s = sheets[k];
-      s.y -= s.fall * dt;
-      s.vx *= decay;
-      s.vy *= decay;
-      s.ox += s.vx * dt;
-      s.y += s.vy * dt;
-      if (s.y < -TOP) {
-        s.y = TOP;
-        s.vx = s.vy = 0;
+    for (let k = 0; k < N; k++) {
+      const sh = sheets[k];
+      if (!sh.m.visible) continue;
+      sh.y -= sh.fall * dt;
+      sh.vx *= 0.97;
+      sh.vy *= 0.97;
+      sh.ox += sh.vx * dt;
+      sh.y += sh.vy * dt;
+      if (sh.y < -4.6) {
+        sh.y = 4.6;
+        sh.vx = 0;
+        sh.vy = 0;
       }
-      s.rx += s.wx * dt;
-      s.ry += s.wy * dt;
-      s.rz += s.wz * dt;
-      const fx = s.x + s.ox + Math.sin(time * 0.6 + s.phase) * s.sway;
-      const r = ring(k);
-      s.mesh.position.set(lerp(fx, r.x, c), lerp(s.y, r.y, c), lerp(s.z, r.z, c));
-      s.mesh.rotation.set(wrapAngle(s.rx) * (1 - c), wrapAngle(s.ry) * (1 - c), wrapAngle(s.rz) * (1 - c) + Math.sin(r.a) * 0.25 * c);
-      // Curl and flutter, fading to nearly flat in the ring.
-      const bend = Math.sin(time * 0.5 + s.phase) * 0.6 * (1 - c * 0.9);
-      const flutter = 0.8 * (1 - c * 0.9);
-      const pos = s.geo.attributes.position as BufferAttribute;
-      const arr = pos.array as Float32Array;
-      const flat = s.flat;
-      for (let j = 0; j < arr.length; j += 3) {
-        const u = flat[j];
-        const v = flat[j + 1];
-        arr[j + 2] = bend * u * u * 1.1 + flutter * Math.sin(v * 4 + time * 2.2 + s.phase) * 0.06 * (0.6 + u * u);
-      }
-      pos.needsUpdate = true;
-      s.geo.computeVertexNormals();
+      sh.rx += sh.wx * dt;
+      sh.ry += sh.wy * dt;
+      sh.rz += sh.wz * dt;
+      const sx = sh.xf * halfW + sh.ox + Math.sin(T * 0.6 + sh.ph) * sh.sway;
+      const r = ringPos(k);
+      sh.m.position.set(lerp(sx, r.x, c), lerp(sh.y, r.y, c), lerp(sh.z, r.z, c));
+      sh.m.rotation.set(wrap(sh.rx) * (1 - c), wrap(sh.ry) * (1 - c), wrap(sh.rz) * (1 - c) + Math.sin(r.a) * 0.25 * c);
+      sh.lb = Math.sin(T * 0.5 + sh.ph) * 0.6 * (1 - c * 0.9);
+      sh.lf = 0.8 * (1 - c);
+      bend(sh, sh.lb, sh.lf);
     }
     renderer.render(scene, camera);
   }
 
-  // --- Loop: capped at 60 fps, paused when hidden or off screen -------------------
+  // --- Loop: at most 60 fps, paused when hidden or off screen, stopped when done ---
 
   let raf = 0;
   let last = 0;
-  let onScreen = true;
+  let visible = true;
   let frames = 0;
-  let frameTime = 0;
-  let workTime = 0;
+  let acc = 0;
   let lastAvg = 0;
-  let lastWork = 0;
-  let adapted = false;
+  let absorbFrames = 0;
+  let absorbTime = 0;
+  let disposed = false;
 
-  function frame(now: number) {
+  const running = () => !disposed && !reduced && visible && !document.hidden && !(mode === 'absorb' && timeline?.finished);
+
+  function loop(now: number) {
     raf = 0;
     if (!running()) return;
-    raf = requestAnimationFrame(frame);
+    raf = requestAnimationFrame(loop);
     const elapsed = now - last;
     if (elapsed < 1000 / FPS_CAP - 1) return;
     last = now;
     const dt = Math.min(0.05, elapsed / 1000);
-    const t0 = performance.now();
     step(dt);
-    // Frame time = time between frames we drew (what the user sees); work = our share of it.
-    frames++;
-    frameTime += elapsed;
-    workTime += performance.now() - t0;
-    if (frameTime >= 2000) {
-      lastAvg = frameTime / frames;
-      lastWork = workTime / frames;
-      if (lastAvg > SLOW_FRAME_MS && lastWork > WORK_MS && !adapted) lighten();
-      frames = 0;
-      frameTime = 0;
-      workTime = 0;
+    if (mode === 'fall') {
+      frames++;
+      acc += dt;
+      if (acc >= 2) {
+        lastAvg = (acc / frames) * 1000;
+        if (lastAvg > SLOW_FRAME_MS) lighten();
+        frames = 0;
+        acc = 0;
+      }
+    } else {
+      absorbFrames++;
+      absorbTime += dt;
     }
   }
 
-  /** Fewer sheets and a lower pixel ratio, once, when frames are slow. */
   function lighten() {
-    adapted = true;
-    for (let k = MIN_SHEETS; k < active; k++) sheets[k].mesh.visible = false;
-    active = Math.min(active, MIN_SHEETS);
+    let shown = 0;
+    for (const sh of sheets) {
+      if (!sh.m.visible) continue;
+      shown++;
+      if (shown > KEEP_SHEETS) {
+        sh.m.visible = false;
+        sh.off = true;
+      }
+    }
     pixelRatio = 1;
     renderer.setPixelRatio(1);
     resize();
   }
 
-  const running = () => !opts.reducedMotion && onScreen && !document.hidden;
   function start() {
     if (raf || !running()) return;
     last = performance.now();
-    raf = requestAnimationFrame(frame);
+    raf = requestAnimationFrame(loop);
   }
   function stop() {
     if (raf) cancelAnimationFrame(raf);
@@ -326,66 +392,78 @@ export function createPaperScene(canvas: HTMLCanvasElement, opts: SceneOptions):
     if (!raf) renderer.render(scene, camera);
   };
   const onPointer = (e: PointerEvent) => {
-    pointerX = (e.clientX / window.innerWidth) * 2 - 1;
-    pointerY = -((e.clientY / window.innerHeight) * 2 - 1);
+    px = (e.clientX / window.innerWidth) * 2 - 1;
+    py = -((e.clientY / window.innerHeight) * 2 - 1);
   };
-  const io = new IntersectionObserver(([e]) => {
-    onScreen = e.isIntersecting;
-    if (onScreen) start();
+  const io = new IntersectionObserver(([entry]) => {
+    visible = entry.isIntersecting;
+    if (visible) start();
     else stop();
   });
   io.observe(canvas);
   document.addEventListener('visibilitychange', onVisibility);
   window.addEventListener('resize', onResize);
-  if (!opts.reducedMotion) window.addEventListener('pointermove', onPointer);
+  if (!reduced) window.addEventListener('pointermove', onPointer);
 
-  // Settle the scene before showing it, then fade in.
+  // Settle the scene before showing it (reduced motion: this is the one still frame).
   for (let i = 0; i < 40; i++) step(0.05);
   opts.onReady?.();
   start();
 
   return {
     setCharged(on) {
-      target = on ? 1 : 0;
-      if (opts.reducedMotion) {
-        // No motion: jump to the ring (or back) in one still frame.
-        charge = target;
-        step(0);
-      }
+      // Reduced motion: no ring, the text change is the whole charged state.
+      if (!reduced && mode === 'fall') target = on ? 1 : 0;
     },
-    burst() {
-      if (opts.reducedMotion) {
-        // No burst: back to the still frame.
-        charge = target = 0;
-        step(0);
-        return;
-      }
-      for (let k = 0; k < active; k++) {
-        const s = sheets[k];
-        const r = ring(k);
-        s.x = r.x;
-        s.ox = 0;
-        s.y = r.y;
-        s.z = r.z;
-        s.vx = Math.cos(r.a) * 3.2;
-        s.vy = Math.sin(r.a) * 2.4 + 1.2;
-        s.rx = s.ry = s.rz = 0;
-        s.wx = rand(-1.1, 1.1);
-        s.wy = rand(-1.1, 1.1);
-      }
-      charge = 0;
+    absorb(onFilled) {
+      if (mode === 'absorb' || reduced) return;
       target = 0;
+      mode = 'absorb';
+      absorbFrames = 0;
+      absorbTime = 0;
+      // The page fills the window: the loop stops by itself after this frame (nothing moves now).
+      timeline = new AbsorbTimeline(onFilled);
+      for (const sh of sheets) {
+        sh.sp = [sh.m.position.x, sh.m.position.y, sh.m.position.z];
+        sh.sr = [sh.m.rotation.x, sh.m.rotation.y, sh.m.rotation.z];
+      }
+      start();
     },
-    stats: () => ({ frameMs: Math.round(lastAvg * 10) / 10, workMs: Math.round(lastWork * 10) / 10, sheets: active, pixelRatio }),
+    reset() {
+      mode = 'fall';
+      timeline = null;
+      charge = target = 0;
+      for (const sh of sheets) {
+        const material = sh.m.material as MeshLambertMaterial;
+        material.transparent = false;
+        material.opacity = 1;
+        sh.m.visible = !sh.off;
+        sh.m.scale.set(sh.s, sh.s, sh.s);
+        sh.y = 4.6 + Math.random() * 3;
+        sh.vx = sh.vy = sh.ox = 0;
+      }
+      start();
+    },
+    stats: () => ({
+      frameMs: Math.round(lastAvg * 10) / 10,
+      absorbFps: absorbTime > 0 ? Math.round(absorbFrames / absorbTime) : 0,
+      absorbSeconds: Math.round((timeline?.t ?? 0) * 1000) / 1000,
+      finished: !!timeline?.finished,
+      sheets: sheets.filter((s) => s.m.visible).length,
+      pixelRatio,
+    }),
     dispose() {
+      disposed = true;
       stop();
       io.disconnect();
       document.removeEventListener('visibilitychange', onVisibility);
       window.removeEventListener('resize', onResize);
       window.removeEventListener('pointermove', onPointer);
-      for (const s of sheets) s.geo.dispose();
-      for (const m of materials) m.dispose();
-      for (const t of textures) t.dispose();
+      for (const sh of sheets) {
+        sh.geo.dispose();
+        (sh.m.material as MeshLambertMaterial).dispose();
+      }
+      for (const t of texs) t.dispose();
       renderer.dispose();
       renderer.forceContextLoss();
     },

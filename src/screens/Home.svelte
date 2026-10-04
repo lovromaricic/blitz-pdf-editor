@@ -12,6 +12,7 @@
   import { acceptAttr, dragLooksValid, splitFiles } from '../lib/landing/accepted-files';
   import { carriesFiles, IDLE, isOver, nextDrag, type DragState } from '../lib/landing/drag-state';
   import type { PaperScene } from '../lib/landing/paper-scene';
+  import { ABSORB } from '../lib/landing/absorb-timeline';
 
   let input: HTMLInputElement;
   let canvas: HTMLCanvasElement;
@@ -30,7 +31,7 @@
 
   const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-  // Tell the scene (if it's there yet) whether a file is over the window.
+  // Tell the scene (if it's there yet) whether a file is over the window (the ring).
   $effect(() => {
     const on = charged;
     scene?.setCharged(on);
@@ -46,11 +47,7 @@
         try {
           const { createPaperScene } = await import('../lib/landing/paper-scene');
           if (disposed) return;
-          scene = createPaperScene(canvas, {
-            reducedMotion,
-            small: window.innerWidth < 700 || window.matchMedia('(pointer: coarse)').matches,
-            onReady: () => (sceneState = 'ready'),
-          });
+          scene = createPaperScene(canvas, { reducedMotion, onReady: () => (sceneState = 'ready') });
           if (!scene) sceneState = 'fallback';
           else scene.setCharged(charged);
           if (import.meta.env.DEV) Object.assign(window, { __paperScene: scene });
@@ -62,31 +59,61 @@
     return () => {
       disposed = true;
       cancelAnimationFrame(raf);
+      clearTimeout(fillTimer);
       scene?.dispose();
       scene = null;
+      app.landingHold = false;
     };
   });
 
+  /** The opening transition is playing: the panel has faded and takes no input. */
+  let absorbing = $state(false);
+  /** The top page fills the window (shown with "Opening…" if the file isn't ready yet). */
+  let filled = $state(false);
+  let fillTimer: ReturnType<typeof setTimeout> | undefined;
+
   async function intake(list: File[]) {
-    if (list.length === 0 || busy) return;
+    if (list.length === 0 || busy || absorbing) return;
     message = '';
     rejected = [];
     const { accepted, rejected: unsupported } = splitFiles(list, heic);
     if (accepted.length === 0) {
-      // No burst for files we can't open: back to idle, calmly.
+      // No animation for files we can't open: back to idle, calmly.
       message = T.unsupported;
       return;
     }
-    // Start reading at once; the burst plays alongside, never in the way.
-    scene?.burst();
+    // The absorb plays while the files load; Home stays on top until the page fills the
+    // window, with the editor mounting underneath as soon as it's ready.
+    const animate = !!scene && !reducedMotion;
+    if (animate) {
+      absorbing = true;
+      filled = false;
+      app.landingHold = true;
+      const markFilled = () => {
+        clearTimeout(fillTimer);
+        if (filled) return;
+        filled = true;
+        app.landingHold = false;
+      };
+      scene!.absorb(markFilled);
+      // Never let the animation hold the editor back (e.g. frames paused in a background tab).
+      fillTimer = setTimeout(markFilled, (ABSORB.doneAt + 0.3) * 1000);
+    }
+    // Start reading at once, in parallel with the animation.
     const problems = await openFiles(accepted);
     const skipped = unsupported.map((f) => ({ name: f.name, reason: T.unsupported }));
     if (app.doc) {
       // Opened: anything skipped is listed in the editor's notice.
       if (skipped.length) app.openWarnings = [...app.openWarnings, ...skipped];
-    } else {
-      rejected = [...skipped, ...problems];
+      return;
     }
+    // Not opened (damaged, cancelled…): back to the landing screen as it was.
+    clearTimeout(fillTimer);
+    app.landingHold = false;
+    if (animate) scene?.reset();
+    absorbing = false;
+    filled = false;
+    rejected = [...skipped, ...problems];
   }
 
   function onPick(files: FileList | null) {
@@ -145,7 +172,7 @@
   {/if}
 
   <main class="center">
-    <div class="panel">
+    <div class="panel" class:away={absorbing} inert={absorbing}>
       <div class="wordmark">
         <svg class="bolt" viewBox="0 0 24 24" aria-hidden="true">
           <path d="M13 2L4 14h7l-1 8 9-12h-7z" />
@@ -183,6 +210,10 @@
       {/if}
     </div>
   </main>
+  {#if filled && busy}
+    <!-- The page fills the window but the file is still loading. -->
+    <p class="waiting" role="status">{T.opening}</p>
+  {/if}
   <p class="visually-hidden" aria-live="polite">{charged ? T.chargedAnnouncement : ''}</p>
 </div>
 
@@ -242,6 +273,29 @@
     border-radius: 18px;
     background: var(--landing-panel);
     text-align: center;
+  }
+  /* The opening transition: the panel fades out the moment it starts. */
+  .panel.away {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+  .panel {
+    transition:
+      opacity 300ms ease,
+      transform 300ms ease;
+  }
+  .waiting {
+    position: absolute;
+    left: 50%;
+    bottom: var(--space-7);
+    margin: 0;
+    padding: var(--space-2) var(--space-4);
+    transform: translateX(-50%);
+    border: var(--border-width) solid var(--border);
+    border-radius: var(--radius-pill);
+    background: var(--surface);
+    color: var(--muted);
+    font-size: var(--font-size-sm);
   }
   .wordmark {
     display: flex;
@@ -336,7 +390,8 @@
     word-break: break-all;
   }
   @media (prefers-reduced-motion: reduce) {
-    .scene {
+    .scene,
+    .panel {
       transition: none;
     }
   }
