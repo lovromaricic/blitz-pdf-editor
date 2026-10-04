@@ -8,22 +8,20 @@
   import X from '@lucide/svelte/icons/x';
   import { fade } from 'svelte/transition';
   import { tick } from 'svelte';
+  import { focusEditorLandmark } from './lib/focus-editor';
 
   installGlobalErrorHandlers();
 
   const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-  // When the editor takes over from the landing screen, move focus into the document.
+  // When the editor takes over from the landing screen, move focus to its <main> landmark:
+  // not the scrolling canvas, which would show its keyboard focus ring.
   $effect(() => {
     if (!app.doc || app.landingHold) return;
     // The editor may still be rendering: try for a few frames.
     let tries = 0;
     const focusDocument = () => {
-      const view = document.getElementById('document-view');
-      const active = document.activeElement;
-      if (active && active !== document.body && !active.closest('.landing')) return;
-      if (view) view.focus({ preventScroll: true });
-      else if (++tries < 30) requestAnimationFrame(focusDocument);
+      if (!focusEditorLandmark() && ++tries < 30) requestAnimationFrame(focusDocument);
     };
     void tick().then(focusDocument);
   });

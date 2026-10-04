@@ -155,9 +155,17 @@
   }
 
   let announced = $state('');
+  /** First announcement: what was opened. After that, the current page as it changes. */
+  let opened = true;
   $effect(() => {
-    const text = `Page ${viewer.currentIndex + 1} of ${viewer.pageCount}`;
-    const t = setTimeout(() => (announced = text), 700);
+    const n = viewer.pageCount;
+    const text = opened
+      ? `${doc.name} opened, ${n} ${n === 1 ? 'page' : 'pages'}`
+      : `Page ${viewer.currentIndex + 1} of ${n}`;
+    const t = setTimeout(() => {
+      announced = text;
+      opened = false;
+    }, 700);
     return () => clearTimeout(t);
   });
 

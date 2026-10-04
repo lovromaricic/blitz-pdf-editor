@@ -291,7 +291,7 @@
   {/if}
 
   {#if phone.current}
-    <main class="m-canvas"><CanvasView mobile /></main>
+    <main class="m-canvas" id="editor-main" tabindex="-1"><CanvasView mobile /></main>
     {#if sheetVisible}
       <Sheet label="Properties" tall={!!viewer.panel}><SidePanel {commands} {actions} inSheet /></Sheet>
     {/if}
@@ -299,7 +299,7 @@
     <MobileMenu {commands} open={menuOpen} onClose={() => (menuOpen = false)} />
     <PagesSheet {commands} {actions} open={pagesOpen} onClose={() => (pagesOpen = false)} />
   {:else}
-    <main class="main">
+    <main class="main" id="editor-main" tabindex="-1">
       {#if viewer.showThumbnails}<ThumbnailRail {commands} {actions} />{/if}
       <CanvasView>
         {#snippet toolbar()}<Toolbar {commands} />{/snippet}
@@ -354,6 +354,10 @@
     height: 100dvh;
     overflow: hidden;
     background: var(--bg);
+  }
+  /* Receives focus when the editor opens (a landmark, not a control): never draws a ring. */
+  #editor-main:focus {
+    outline: none;
   }
   .main {
     display: grid;

@@ -143,12 +143,9 @@
     border-left: var(--border-width) solid var(--border);
     background: var(--surface);
   }
+  /* Focused by code when a tool opens (never by Tab: tabindex -1), so no ring on the whole panel. */
   .panel:focus {
     outline: none;
-  }
-  .panel:focus-visible {
-    outline: var(--focus-ring);
-    outline-offset: -2px;
   }
   .panel.in-sheet {
     padding: 0;
