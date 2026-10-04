@@ -158,3 +158,33 @@ describe('annotation geometry', () => {
     expect(simplifyPath(pts, 1)).toEqual([[0, 0], [5, 0], [5.1, 0]]);
   });
 });
+
+describe('custom colors', () => {
+  // Picker output is quantized to 8-bit steps; these are typical custom picks.
+  const c = (hex: string) => [0, 2, 4].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255) as [number, number, number];
+  const picks = { highlight: c('22AA99'), ink: c('C63838'), stroke: c('3F6FE0'), fill: c('F2C94C'), text: c('6B2FA3'), stamp: c('0E7C66'), note: c('FF8A65') };
+  const annots: Annotation[] = [
+    { id: 'h', type: 'highlight', color: picks.highlight, opacity: 0.5, rects: [[50, 700, 200, 712]] },
+    { id: 'i', type: 'ink', color: picks.ink, opacity: 1, width: 2, paths: [[[100, 100], [120, 130]]] },
+    { id: 's', type: 'shape', shape: 'rect', color: picks.stroke, opacity: 1, width: 3, fill: picks.fill, from: [300, 300], to: [400, 350] },
+    { id: 't', type: 'text', color: picks.text, opacity: 1, rect: [50, 600, 250, 640], rotate: 0, text: 'Hello', lines: ['Hello'], font: 'sans', size: 12 },
+    { id: 'st', type: 'stamp', color: picks.stamp, opacity: 1, rect: [300, 600, 420, 630], rotate: 0, label: 'APPROVED' },
+    { id: 'n', type: 'note', color: picks.note, opacity: 1, rect: [500, 600, 522, 622], rotate: 0, text: 'Note' },
+  ];
+
+  it('are saved as the exact 8-bit RGB values that were picked', async () => {
+    const out = await assemble([{ id: 'a', bytes: await onePage() }], [{ sourceId: 'a', index: 0, rotation: 0, annots }], 'preserve', { fonts });
+    const doc = await PDFDocument.load(out);
+    const { decodePDFRawStream, PDFDict, PDFRawStream } = await import('@cantoo/pdf-lib');
+    const hexes = new Set<string>();
+    const toHex = (nums: string[]) => nums.map((v) => Math.round(Number(v) * 255).toString(16).padStart(2, '0')).join('').toUpperCase();
+    for (const ref of doc.getPage(0).node.Annots()!.asArray()) {
+      const annot = doc.context.lookup(ref, PDFDict);
+      const ap = annot.lookupMaybe(PDFName.of('AP'), PDFDict)?.lookup(PDFName.of('N'));
+      if (!(ap instanceof PDFRawStream)) continue;
+      const ops = new TextDecoder().decode(decodePDFRawStream(ap).decode());
+      for (const m of ops.matchAll(/([\d.]+) ([\d.]+) ([\d.]+) (?:rg|RG)/g)) hexes.add(toHex(m.slice(1, 4)));
+    }
+    for (const [name, rgb] of Object.entries(picks)) expect(hexes, name).toContain(toHex(rgb.map(String)));
+  });
+});
