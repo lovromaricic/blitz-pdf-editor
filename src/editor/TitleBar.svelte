@@ -2,7 +2,6 @@
   import { APP_NAME } from '../config';
   import type { SearchMatch } from '../lib/search.svelte';
   import { useViewer } from '../lib/viewer.svelte';
-  import Logo from './Logo.svelte';
   import SearchBox from './SearchBox.svelte';
 
   let { onReveal }: { onReveal: (m: SearchMatch) => void } = $props();
@@ -10,10 +9,7 @@
 </script>
 
 <header class="titlebar">
-  <div class="brand">
-    <Logo />
-    <span class="app-name">{APP_NAME}</span>
-  </div>
+  <span class="app-name">{APP_NAME}</span>
   <span class="divider" aria-hidden="true"></span>
   <h1 class="file-name" title={viewer.doc.name}>{viewer.doc.name}</h1>
   {#if viewer.doc.dirty}<span class="edited">Edited</span>{/if}
@@ -32,13 +28,8 @@
     border-bottom: var(--border-width) solid var(--border);
     background: var(--surface);
   }
-  .brand {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    flex-shrink: 0;
-  }
   .app-name {
+    flex-shrink: 0;
     font-size: var(--font-size-base);
     font-weight: 700;
   }
