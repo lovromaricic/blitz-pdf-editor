@@ -58,3 +58,19 @@ describe('computeLayout', () => {
     expect(Math.min(...l.boxes.map((b) => b.left))).toBeGreaterThanOrEqual(10);
   });
 });
+
+describe('floating controls padding', () => {
+  it('starts the first page below the top inset and ends the content after the bottom inset', () => {
+    const sizes = [{ width: 100, height: 200 }, { width: 100, height: 200 }];
+    const l = computeLayout({ sizes, mode: 'continuous', gap: 16, viewWidth: 300, currentIndex: 0, padTop: 86, padBottom: 84 });
+    expect(l.boxes[0].top).toBe(86);
+    expect(l.boxes[1].top).toBe(86 + 200 + 16);
+    expect(l.totalHeight).toBe(86 + 200 + 16 + 200 + 84);
+  });
+
+  it('defaults to the page gap', () => {
+    const l = computeLayout({ sizes: [{ width: 100, height: 200 }], mode: 'continuous', gap: 16, viewWidth: 300, currentIndex: 0 });
+    expect(l.boxes[0].top).toBe(16);
+    expect(l.totalHeight).toBe(16 + 200 + 16);
+  });
+});

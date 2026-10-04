@@ -33,6 +33,9 @@ export interface LayoutInput {
   viewWidth: number;
   /** In single-page mode only this page is laid out. */
   currentIndex: number;
+  /** Space above the first row and below the last (defaults to `gap`); room for controls floating over the pages. */
+  padTop?: number;
+  padBottom?: number;
 }
 
 export function pagesPerRow(mode: ViewMode) {
@@ -44,7 +47,7 @@ export function rowStartOf(mode: ViewMode, index: number) {
   return mode === 'two' ? index - (index % 2) : index;
 }
 
-export function computeLayout({ sizes, mode, gap, viewWidth, currentIndex }: LayoutInput): Layout {
+export function computeLayout({ sizes, mode, gap, viewWidth, currentIndex, padTop = gap, padBottom = gap }: LayoutInput): Layout {
   const n = sizes.length;
   const perRow = pagesPerRow(mode);
   const rows: number[][] = [];
@@ -68,8 +71,8 @@ export function computeLayout({ sizes, mode, gap, viewWidth, currentIndex }: Lay
   const width = Math.max(viewWidth, contentWidth);
 
   // Pages not laid out (single mode) all sit at the top, hidden by the view.
-  const boxes: Box[] = sizes.map((s) => ({ top: gap, left: gap, width: s.width, height: s.height }));
-  let top = gap;
+  const boxes: Box[] = sizes.map((s) => ({ top: padTop, left: gap, width: s.width, height: s.height }));
+  let top = padTop;
   const rowInfo: Row[] = [];
   for (const row of rows) {
     const rowH = Math.max(...row.map((i) => sizes[i].height));
@@ -88,7 +91,9 @@ export function computeLayout({ sizes, mode, gap, viewWidth, currentIndex }: Lay
     top += rowH + gap;
   }
 
-  return { boxes, totalHeight: top, contentWidth, rows: rowInfo };
+  // The loop added a gap after the last row; the bottom padding replaces it.
+  const totalHeight = rows.length ? top - gap + padBottom : padTop + padBottom;
+  return { boxes, totalHeight, contentWidth, rows: rowInfo };
 }
 
 /** Index of the row at content y (the last row starting at or above y). */

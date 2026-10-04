@@ -64,7 +64,8 @@
     const pts = m.quads.flat().map(([x, y]) => vp.convertToViewportPoint(x, y));
     const minY = Math.min(...pts.map((p) => p[1]));
     const minX = Math.min(...pts.map((p) => p[0]));
-    viewer.goToPage(index, minY + PAGE_GAP - el.clientHeight / 3);
+    // A third of the way down, and never under the floating toolbar.
+    viewer.goToPage(index, minY + viewer.insetTop - Math.max(el.clientHeight / 3, viewer.insetTop + 24));
     const box = viewer.layout.boxes[index];
     const pageLeft = Math.max(PAGE_GAP, (el.scrollWidth - box.width) / 2);
     const x = pageLeft + minX;

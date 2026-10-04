@@ -17,6 +17,14 @@ export const MAX_ZOOM = ZOOM_STEPS[ZOOM_STEPS.length - 1];
 /** Space around and between pages in the canvas, in CSS px. */
 export const PAGE_GAP = 16;
 
+/**
+ * Desktop and tablet: the toolbar pill and the bottom controls float over the
+ * pages. The content is padded so page 1 starts below the pill and the last
+ * page scrolls clear of the bottom controls, and scrolling to a page or match
+ * keeps it out from under them. Each is 16px edge + control height + 20px.
+ */
+export const FLOATING_INSETS = { top: 16 + 50 + 20, bottom: 16 + 48 + 20 };
+
 export type FitMode = 'width' | 'page' | null;
 /** Tool panels shown in the right-hand panel (opened from menus). */
 export type ToolPanel =
@@ -108,6 +116,9 @@ export class Viewer {
   viewWidth = $state(0);
 
   scrollEl: HTMLElement | null = null;
+  /** Content padding above the first and below the last page (floating controls on desktop). */
+  insetTop = $state(PAGE_GAP);
+  insetBottom = $state(PAGE_GAP);
   readonly search: Search;
 
   constructor(public doc: EditorDocument) {
@@ -138,6 +149,8 @@ export class Viewer {
       viewWidth: this.viewWidth,
       // Only single-page mode depends on the current page.
       currentIndex: this.mode === 'single' ? this.currentIndex : 0,
+      padTop: this.insetTop,
+      padBottom: this.insetBottom,
     }),
   );
 
@@ -270,6 +283,10 @@ export class Viewer {
   /** Set while a programmatic scroll is in flight, so the page we jumped to stays current. */
   private lockedIndex: number | null = null;
 
+  /**
+   * Scroll so the page's row starts just below the top inset (clear of the
+   * toolbar). With `offsetInPage`, scroll that much further down instead.
+   */
   goToPage(index: number, offsetInPage = 0) {
     const i = clamp(index, 0, this.pageCount - 1);
     this.currentIndex = i;
@@ -278,7 +295,7 @@ export class Viewer {
       this.lockedIndex = i;
       // With no offset, show the top of the page's row (two-page rows can mix heights).
       const rowTop = this.layout.rows[rowAtY(this.layout, box.top)]?.top ?? box.top;
-      this.scrollEl.scrollTop = offsetInPage ? box.top - PAGE_GAP + offsetInPage : rowTop - PAGE_GAP;
+      this.scrollEl.scrollTop = offsetInPage ? box.top - this.insetTop + offsetInPage : rowTop - this.insetTop;
       // Don't wait for the scroll event (browsers delay it in background tabs).
       this.scrollTop = this.scrollEl.scrollTop;
       // Scroll events fire before animation frame callbacks, so this clears the lock after them.
@@ -312,7 +329,7 @@ export class Viewer {
     this.goToPage(index);
   }
 
-  /** Called on scroll: the current page is the one crossing the upper third of the view. */
+  /** Called on scroll: the current page is the one crossing the upper third of the uncovered view. */
   updateCurrentFromScroll() {
     const el = this.scrollEl;
     if (!el) return;
@@ -324,7 +341,8 @@ export class Viewer {
       return;
     }
     const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 2;
-    const probe = atBottom ? el.scrollHeight - 1 : el.scrollTop + el.clientHeight / 3;
+    // A third of the way down the area not covered by floating controls.
+    const probe = atBottom ? el.scrollHeight - 1 : el.scrollTop + this.insetTop + (el.clientHeight - this.insetTop - this.insetBottom) / 3;
     this.currentIndex = this.indexAt(probe);
   }
 
@@ -361,6 +379,8 @@ export class Viewer {
     const nb = this.layout.boxes[i];
     if (nb) el.scrollTop = nb.top + fracY * nb.height - ay;
     el.scrollLeft = fracX * el.scrollWidth - ax;
+    // Don't wait for the scroll event (browsers delay it in background tabs).
+    this.scrollTop = el.scrollTop;
   }
 
   zoomIn() {
@@ -377,18 +397,28 @@ export class Viewer {
     void this.setZoom(1);
   }
 
-  fitWidth() {
-    return this.setZoom(this.fitWidthZoom(), 'width');
+  /**
+   * Fitting keeps the content just below the toolbar in place (not the view's
+   * center), so a page whose top is in view stays clear of the floating controls.
+   */
+  private fitAnchor() {
+    return this.scrollEl ? { x: this.scrollEl.clientWidth / 2, y: this.insetTop } : undefined;
   }
 
-  fitPage() {
-    return this.setZoom(this.fitPageZoom(), 'page');
+  fitWidth() {
+    return this.setZoom(this.fitWidthZoom(), 'width', this.fitAnchor());
+  }
+
+  async fitPage() {
+    await this.setZoom(this.fitPageZoom(), 'page', this.fitAnchor());
+    // Show the whole current page between the floating controls.
+    this.goToPage(this.currentIndex);
   }
 
   /** Re-apply the active fit mode (after a resize or page size change). */
   refit() {
-    if (this.fit === 'width') void this.setZoom(this.fitWidthZoom(), 'width');
-    else if (this.fit === 'page') void this.setZoom(this.fitPageZoom(), 'page');
+    if (this.fit === 'width') void this.setZoom(this.fitWidthZoom(), 'width', this.fitAnchor());
+    else if (this.fit === 'page') void this.setZoom(this.fitPageZoom(), 'page', this.fitAnchor());
   }
 
   /** Rows of displayed page sizes in points, for fitting. */
@@ -433,7 +463,7 @@ export class Viewer {
     if (!el || rows.length === 0) return 1;
     const row = this.mode === 'single' ? rows[0] : rows[Math.floor(this.currentIndex / pagesPerRow(this.mode))];
     const gaps = (pagesPerRow(this.mode) + 1) * PAGE_GAP;
-    return Math.min((el.clientWidth - gaps) / (row.width * CSS_UNITS), (el.clientHeight - 2 * PAGE_GAP) / (row.height * CSS_UNITS));
+    return Math.min((el.clientWidth - gaps) / (row.width * CSS_UNITS), (el.clientHeight - this.insetTop - this.insetBottom) / (row.height * CSS_UNITS));
   }
 }
 

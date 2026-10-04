@@ -11,6 +11,11 @@ export function installGlobalErrorHandlers() {
     appError.message = friendlyError(e);
     console.error(e);
   };
-  window.addEventListener('error', (e) => show(e.error ?? e.message));
+  window.addEventListener('error', (e) => {
+    // A browser notice, not a failure: layout settled over two frames (e.g. a
+    // scrollbar appearing while resizing). Nothing is lost.
+    if (!e.error && /ResizeObserver loop/.test(e.message)) return;
+    show(e.error ?? e.message);
+  });
   window.addEventListener('unhandledrejection', (e) => show(e.reason));
 }

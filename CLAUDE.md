@@ -17,10 +17,11 @@ A free, browser-only PDF editor (Svelte 5 runes + Vite + TypeScript, static buil
 - Icons: Lucide (`@lucide/svelte`, ISC), 20px, stroke 1.7, via the shared `ICON` constant in `src/editor/tools.ts`. Import individual icons (`@lucide/svelte/icons/<name>`).
 - Reuse existing building blocks instead of restyling ad hoc:
   - `src/editor/Toolbar.svelte`: the floating pill toolbar (desktop and tablet only; never on phones).
+  - On desktop and tablet the toolbar pill and the bottom controls (`BottomBar.svelte`) float over the pages (`CanvasView.svelte`). Their wrappers are `pointer-events: none`, only the pills take input. The page layout is padded by `FLOATING_INSETS` (`src/lib/viewer.svelte.ts`), and anything that scrolls to a page or match must use `viewer.insetTop` / `goToPage` so the target never lands under a pill.
   - `src/editor/panels/PanelHeader.svelte` + `src/editor/panels/panel.css` for every properties/tool panel.
   - `src/components/Swatches.svelte`, `src/components/Range.svelte` for colors and sliders.
   - Global classes: `.btn`, `.btn-primary`, `.btn-soft`, `.btn-danger`, `.card`, `.card-error`, `.section-label`.
-- Panels are separated by 1px borders, not shadows. Only the floating pill and pages have shadows; overlays (menus, dialogs, toasts) use `--shadow-overlay`.
+- Panels are separated by 1px borders, not shadows. Only the floating pills (toolbar, bottom controls) and pages have shadows; overlays (menus, dialogs, toasts) use `--shadow-overlay`.
 - Small text on `--accent-soft` uses `--accent-strong` (contrast); icons may use `--accent`.
 - Every interactive element keeps a visible `:focus-visible` ring (2px accent). Touch targets are at least 44px on touch devices and in the phone layout.
 - The phone layout starts below 720px (`MediaQuery('(max-width: 720px)')` in `src/screens/Editor.svelte`): top bar, accordion menu, bottom tool strip, bottom sheets. Restyle both layouts when changing styles.

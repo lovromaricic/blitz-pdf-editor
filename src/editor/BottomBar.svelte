@@ -69,17 +69,23 @@
 </div>
 
 <style>
+  /* A pill floating over the pages (positioned by CanvasView). */
   .bottombar {
     display: flex;
     flex-shrink: 0;
     justify-content: center;
     align-items: center;
-    gap: var(--space-6);
-    height: var(--bottombar-height);
-    padding: 0 var(--space-3);
-    border-top: var(--border-width) solid var(--border);
+    gap: var(--space-5);
+    max-width: 100%;
+    padding: 5px var(--space-2);
+    overflow-x: auto;
+    border: var(--border-width) solid var(--border);
+    border-radius: var(--radius-pill);
     background: var(--surface);
+    box-shadow: var(--shadow-pill);
     font-size: var(--font-size-sm);
+    scrollbar-width: none;
+    pointer-events: auto;
   }
   .cluster {
     display: flex;

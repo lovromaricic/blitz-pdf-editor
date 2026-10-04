@@ -1,6 +1,6 @@
 <script lang="ts">
   import { tick, untrack, type Snippet } from 'svelte';
-  import { MAX_ZOOM, MIN_ZOOM, useViewer } from '../lib/viewer.svelte';
+  import { FLOATING_INSETS, MAX_ZOOM, MIN_ZOOM, PAGE_GAP, useViewer } from '../lib/viewer.svelte';
   import BottomBar from './BottomBar.svelte';
   import CircleAlert from '@lucide/svelte/icons/circle-alert';
   import CircleCheck from '@lucide/svelte/icons/circle-check';
@@ -14,6 +14,16 @@
 
   let scroller: HTMLDivElement;
   let pagesEl: HTMLDivElement;
+  /** Width of the scroller's vertical scrollbar, so floating controls center over the pages. */
+  let gutter = $state(0);
+  /** Desktop and tablet: toolbar and bottom controls float over the pages. */
+  const floating = $derived(!mobile);
+
+  // Pad the content so pages start below the toolbar and end above the bottom controls.
+  $effect.pre(() => {
+    viewer.insetTop = floating ? FLOATING_INSETS.top : PAGE_GAP;
+    viewer.insetBottom = floating ? FLOATING_INSETS.bottom : PAGE_GAP;
+  });
 
   $effect(() => {
     viewer.scrollEl = scroller;
@@ -35,7 +45,9 @@
     });
 
     let lastWidth = scroller.clientWidth;
+    gutter = scroller.offsetWidth - scroller.clientWidth;
     const ro = new ResizeObserver(() => {
+      gutter = scroller.offsetWidth - scroller.clientWidth;
       viewer.viewHeight = scroller.clientHeight;
       viewer.viewWidth = scroller.clientWidth;
       if (scroller.clientWidth !== lastWidth) {
@@ -157,8 +169,7 @@
   });
 </script>
 
-<div class="canvas-column" class:has-toolbar={!!toolbar}>
-  {@render toolbar?.()}
+<div class="canvas-column" class:floating>
   <!-- Focusable so keyboard users can scroll the document (WCAG scrollable-region). -->
   <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions, a11y_no_noninteractive_tabindex -->
   <div
@@ -176,6 +187,8 @@
     role="document"
     aria-label="Document"
     aria-describedby="page-announcer"
+    style:scroll-padding-top="{viewer.insetTop}px"
+    style:scroll-padding-bottom="{viewer.insetBottom}px"
   >
     <div
       class="pages"
@@ -219,7 +232,10 @@
   {#if mobile}
     <div class="page-pill" aria-hidden="true">{viewer.currentIndex + 1} / {viewer.pageCount}</div>
   {:else}
-    <BottomBar />
+    <!-- Over the pages, after them in the DOM so they stack on top. The wrappers let
+         clicks, scrolling and text selection through; only the pills take pointer input. -->
+    {#if toolbar}<div class="float top" style:right="{gutter}px">{@render toolbar()}</div>{/if}
+    <div class="float bottom" style:right="{gutter}px"><BottomBar /></div>
   {/if}
 </div>
 
@@ -227,25 +243,42 @@
   .canvas-column {
     position: relative;
     display: grid;
-    grid-template-rows: 1fr auto;
+    grid-template-rows: minmax(0, 1fr);
     background: var(--canvas);
     min-width: 0;
     min-height: 0;
   }
-  .canvas-column.has-toolbar {
-    grid-template-rows: auto 1fr auto;
+  /* Floating controls: centered over the scroll area, above the pages. */
+  .float {
+    position: absolute;
+    left: 0;
+    z-index: 20;
+    display: flex;
+    justify-content: center;
+    padding: 0 var(--space-4);
+    pointer-events: none;
+  }
+  .float.top {
+    top: 16px;
+  }
+  .float.bottom {
+    bottom: 16px;
   }
   .status {
     position: absolute;
     left: 50%;
     bottom: 56px;
-    z-index: 10;
+    z-index: 30;
     transform: translateX(-50%);
     width: max-content;
     max-width: calc(100% - 2 * var(--space-4));
     pointer-events: none;
   }
   /* Messages: a white card. Errors: red icon on a soft red strip. */
+  /* Above the floating bottom controls. */
+  .floating .status {
+    bottom: 76px;
+  }
   .toast {
     display: flex;
     align-items: center;
@@ -302,6 +335,8 @@
     background: var(--canvas);
     scrollbar-gutter: stable;
     outline: none;
+    /* Page layers' z-indexes stay inside the scroller, under the floating controls. */
+    isolation: isolate;
   }
   .scroller:focus-visible {
     outline: var(--focus-ring);

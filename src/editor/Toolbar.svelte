@@ -116,13 +116,13 @@
 {/if}
 
 <style>
-  /* Its own row above the page area, so it never covers the PDF. */
+  /* Floats over the pages (positioned by CanvasView). Only the pill takes pointer input. */
   .pill-row {
     display: flex;
     justify-content: center;
-    padding: 16px var(--space-4) 20px;
-    background: var(--canvas);
     min-width: 0;
+    max-width: 100%;
+    pointer-events: none;
   }
   .pill {
     display: flex;
@@ -136,6 +136,7 @@
     background: var(--surface);
     box-shadow: var(--shadow-pill);
     scrollbar-width: none;
+    pointer-events: auto;
   }
   .pill::-webkit-scrollbar {
     display: none;
