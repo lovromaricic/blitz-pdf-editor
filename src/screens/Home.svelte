@@ -1,293 +1,343 @@
 <script lang="ts">
+  // Landing screen: wordmark, headline, "Choose files", and the whole window as
+  // a drop target. Works from the first paint; the 3D falling-paper background
+  // (Three.js, its own chunk) loads after that, when the browser is idle.
   import CircleAlert from '@lucide/svelte/icons/circle-alert';
-  import FileUp from '@lucide/svelte/icons/file-up';
-  import { COPY } from '../config';
+  import { onMount } from 'svelte';
+  import { APP_NAME } from '../config';
+  import { app } from '../lib/app-state.svelte';
   import type { RejectedFile } from '../lib/files';
   import { openFiles, opening } from '../lib/open-files.svelte';
+  import { HOME_STRINGS as T } from '../lib/strings';
+  import { acceptAttr, dragLooksValid, splitFiles } from '../lib/landing/accepted-files';
+  import { carriesFiles, IDLE, isOver, nextDrag, type DragState } from '../lib/landing/drag-state';
+  import type { PaperScene } from '../lib/landing/paper-scene';
 
   let input: HTMLInputElement;
-  let dragDepth = $state(0);
-  let rejected = $state<RejectedFile[]>([]);
+  let canvas: HTMLCanvasElement;
 
-  const dragging = $derived(dragDepth > 0);
+  /** HEIC is accepted only where the browser can decode it (found out after first paint). */
+  let heic = $state(false);
+  let drag = $state<DragState>(IDLE);
+  /** The dragged items could be supported files (browsers that reveal types). */
+  let looksValid = $state(true);
+  const charged = $derived(isOver(drag) && looksValid);
+  let message = $state('');
+  let rejected = $state<RejectedFile[]>([]);
+  let sceneState = $state<'waiting' | 'ready' | 'fallback'>('waiting');
+  let scene: PaperScene | null = null;
   const busy = $derived(opening.busy);
 
-  async function intake(files: FileList | null) {
-    if (!files || files.length === 0 || busy) return;
-    try {
-      rejected = await openFiles(Array.from(files));
-    } finally {
-      if (input) input.value = '';
+  const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  // Tell the scene (if it's there yet) whether a file is over the window.
+  $effect(() => {
+    const on = charged;
+    scene?.setCharged(on);
+  });
+
+  onMount(() => {
+    let disposed = false;
+    const idle = window.requestIdleCallback ?? ((cb: () => void) => setTimeout(cb, 200));
+    // After the first paint, when the browser has a moment: never in the way of the button.
+    const raf = requestAnimationFrame(() =>
+      idle(async () => {
+        void import('../lib/landing/heic-probe').then(({ heicDecodes }) => heicDecodes()).then((ok) => !disposed && (heic = ok));
+        try {
+          const { createPaperScene } = await import('../lib/landing/paper-scene');
+          if (disposed) return;
+          scene = createPaperScene(canvas, {
+            reducedMotion,
+            small: window.innerWidth < 700 || window.matchMedia('(pointer: coarse)').matches,
+            onReady: () => (sceneState = 'ready'),
+          });
+          if (!scene) sceneState = 'fallback';
+          else scene.setCharged(charged);
+          if (import.meta.env.DEV) Object.assign(window, { __paperScene: scene });
+        } catch {
+          if (!disposed) sceneState = 'fallback';
+        }
+      }),
+    );
+    return () => {
+      disposed = true;
+      cancelAnimationFrame(raf);
+      scene?.dispose();
+      scene = null;
+    };
+  });
+
+  async function intake(list: File[]) {
+    if (list.length === 0 || busy) return;
+    message = '';
+    rejected = [];
+    const { accepted, rejected: unsupported } = splitFiles(list, heic);
+    if (accepted.length === 0) {
+      // No burst for files we can't open: back to idle, calmly.
+      message = T.unsupported;
+      return;
+    }
+    // Start reading at once; the burst plays alongside, never in the way.
+    scene?.burst();
+    const problems = await openFiles(accepted);
+    const skipped = unsupported.map((f) => ({ name: f.name, reason: T.unsupported }));
+    if (app.doc) {
+      // Opened: anything skipped is listed in the editor's notice.
+      if (skipped.length) app.openWarnings = [...app.openWarnings, ...skipped];
+    } else {
+      rejected = [...skipped, ...problems];
     }
   }
 
-  function hasFiles(e: DragEvent) {
-    return e.dataTransfer?.types.includes('Files') ?? false;
+  function onPick(files: FileList | null) {
+    const list = files ? Array.from(files) : [];
+    input.value = '';
+    void intake(list);
   }
+
+  // --- Whole-window drop target ---------------------------------------------------
 
   function onDragEnter(e: DragEvent) {
-    if (!hasFiles(e)) return;
+    if (!carriesFiles(e.dataTransfer?.types)) return;
     e.preventDefault();
-    dragDepth++;
-  }
-
-  function onDragLeave(e: DragEvent) {
-    if (!hasFiles(e)) return;
-    dragDepth = Math.max(0, dragDepth - 1);
+    if (!isOver(drag)) {
+      message = '';
+      looksValid = dragLooksValid(Array.from(e.dataTransfer?.items ?? []), heic);
+    }
+    drag = nextDrag(drag, { kind: 'enter', files: true });
   }
 
   function onDragOver(e: DragEvent) {
-    if (!hasFiles(e)) return;
+    if (!carriesFiles(e.dataTransfer?.types)) return;
+    // Without this the browser would open the dropped file itself.
     e.preventDefault();
     if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
   }
 
-  function onDrop(e: DragEvent) {
-    e.preventDefault();
-    dragDepth = 0;
-    intake(e.dataTransfer?.files ?? null);
+  function onDragLeave(e: DragEvent) {
+    const files = carriesFiles(e.dataTransfer?.types);
+    const leftWindow =
+      !e.relatedTarget && (e.clientX <= 0 || e.clientY <= 0 || e.clientX >= window.innerWidth || e.clientY >= window.innerHeight);
+    drag = nextDrag(drag, { kind: 'leave', files, leftWindow });
   }
 
-  // Stop the browser from navigating to a file dropped outside the drop zone.
-  function blockStrayDrop(e: DragEvent) {
-    if (hasFiles(e)) e.preventDefault();
+  function onDrop(e: DragEvent) {
+    const files = carriesFiles(e.dataTransfer?.types);
+    drag = nextDrag(drag, { kind: 'drop', files });
+    if (!files) return;
+    e.preventDefault();
+    void intake(Array.from(e.dataTransfer?.files ?? []));
   }
 </script>
 
-<svelte:window ondragover={blockStrayDrop} ondrop={blockStrayDrop} />
+<svelte:window ondragenter={onDragEnter} ondragover={onDragOver} ondragleave={onDragLeave} ondrop={onDrop} />
 
-<main class="home">
-  <div class="hero-placeholder" role="img" aria-label="Animation placeholder">
-    <span>Visual / animation placeholder</span>
-  </div>
-
-  <section class="intro">
-    <h1>{COPY.headline}</h1>
-    <p class="value">{COPY.valueStatement}</p>
-  </section>
-
-  <section
-    class="dropzone"
-    class:dragging
-    aria-label="Open a PDF"
-    ondragenter={onDragEnter}
-    ondragleave={onDragLeave}
-    ondragover={onDragOver}
-    ondrop={onDrop}
-  >
-    <span class="drop-icon" aria-hidden="true"><FileUp size={28} strokeWidth={1.7} /></span>
-    <p class="drop-hint" aria-hidden="true">Drop PDF files here</p>
-    <p class="drop-sub" aria-hidden="true">Images work too: they become a PDF.</p>
-    <p class="drop-or" aria-hidden="true">or</p>
-
-    <button class="btn btn-primary choose" type="button" onclick={() => input.click()} disabled={busy}>
-      {#if busy}
-        Opening…
-      {:else}
-        <span class="label-desktop">Choose file</span>
-        <span class="label-mobile">Choose a PDF</span>
-      {/if}
-    </button>
-
-    <input
-      bind:this={input}
-      class="visually-hidden"
-      type="file"
-      accept="application/pdf,.pdf,image/*"
-      multiple
-      tabindex="-1"
-      aria-hidden="true"
-      onchange={(e) => intake(e.currentTarget.files)}
-    />
-
-    <p class="privacy">{COPY.privacyNote}</p>
-  </section>
-
-  {#if rejected.length > 0}
-    <div class="errors card card-error" role="alert">
-      <p class="card-title">
-        <CircleAlert size={18} strokeWidth={1.7} aria-hidden="true" />
-        {rejected.length === 1 ? 'This file could not be opened' : 'These files could not be opened'}
-      </p>
-      <ul>
-        {#each rejected as r (r.name)}
-          <li><span class="filename">{r.name}</span>: {r.reason}</li>
-        {/each}
-      </ul>
+<div class="landing" class:charged>
+  <!-- Transparent until the 3D scene has drawn, then fades in: no layout shift. -->
+  <canvas bind:this={canvas} class="scene" class:ready={sceneState === 'ready'} aria-hidden="true"></canvas>
+  {#if sceneState === 'fallback'}
+    <div class="fallback" aria-hidden="true">
+      <i style:left="6%" style:top="12%" style:--turn="-12deg"></i>
+      <i style:left="14%" style:top="62%" style:--turn="9deg"></i>
+      <i style:right="8%" style:top="16%" style:--turn="11deg"></i>
+      <i style:right="15%" style:top="64%" style:--turn="-8deg"></i>
     </div>
   {/if}
-</main>
+
+  <main class="center">
+    <div class="panel">
+      <div class="wordmark">
+        <svg class="bolt" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M13 2L4 14h7l-1 8 9-12h-7z" />
+        </svg>
+        <span>{APP_NAME}</span>
+      </div>
+      <h1>{T.headline}</h1>
+      <p class="drop-line" aria-hidden="true">{charged ? T.dropLineCharged : T.dropLine}</p>
+      <button class="btn choose" type="button" disabled={busy} onclick={() => input.click()}>
+        {busy ? T.opening : T.chooseFiles}
+      </button>
+      <input
+        bind:this={input}
+        class="visually-hidden"
+        type="file"
+        accept={acceptAttr(heic)}
+        multiple
+        tabindex="-1"
+        aria-hidden="true"
+        onchange={(e) => onPick(e.currentTarget.files)}
+      />
+      <p class="message" aria-live="polite">{message}</p>
+      {#if rejected.length > 0}
+        <div class="errors" role="alert">
+          <p class="errors-title">
+            <CircleAlert size={18} strokeWidth={1.7} aria-hidden="true" />
+            {rejected.length === 1 ? T.couldNotOpenOne : T.couldNotOpenMany}
+          </p>
+          <ul>
+            {#each rejected as r, i (r.name + i)}
+              <li><span class="filename">{r.name}</span>: {r.reason}</li>
+            {/each}
+          </ul>
+        </div>
+      {/if}
+    </div>
+  </main>
+  <p class="visually-hidden" aria-live="polite">{charged ? T.chargedAnnouncement : ''}</p>
+</div>
 
 <style>
-  .home {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: var(--space-6);
-    width: 100%;
-    max-width: var(--content-max);
-    margin: 0 auto;
-    padding: var(--space-6) var(--space-4) var(--space-8);
+  .landing {
+    position: fixed;
+    inset: 0;
+    overflow: hidden;
+    background: var(--bg);
   }
-
-  .hero-placeholder {
-    display: grid;
-    place-items: center;
+  .scene {
+    position: absolute;
+    inset: 0;
+    display: block;
     width: 100%;
-    aspect-ratio: 16 / 5;
-    min-height: 160px;
+    height: 100%;
+    opacity: 0;
+    transition: opacity 300ms ease;
+    pointer-events: none;
+  }
+  .scene.ready {
+    opacity: 1;
+  }
+  /* No WebGL: a few still, faded pages at the sides. */
+  .fallback {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+  }
+  .fallback i {
+    position: absolute;
+    width: 70px;
+    height: 96px;
     border: var(--border-width) solid var(--border);
-    border-radius: var(--radius-lg);
-    background: var(--surface-2);
-    color: var(--muted);
-    font-size: var(--font-size-sm);
-    font-weight: 600;
-    letter-spacing: var(--tracking-label);
-    text-transform: uppercase;
+    border-radius: 3px;
+    background: var(--page);
+    opacity: 0.7;
+    transform: rotate(var(--turn));
   }
-
-  .intro {
-    display: grid;
-    gap: var(--space-2);
-    text-align: center;
+  /* The text sits in the optical center; only the button takes the pointer, so a drop works everywhere. */
+  .center {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: var(--space-4);
+    pointer-events: none;
   }
-
-  h1 {
-    font-size: var(--font-size-2xl);
-    font-weight: 700;
-    line-height: 1.2;
-    letter-spacing: -0.01em;
-  }
-
-  .value {
-    color: var(--muted);
-    font-size: var(--font-size-base);
-  }
-
-  .dropzone {
+  .panel {
     display: flex;
     flex-direction: column;
     align-items: center;
     gap: var(--space-3);
-    width: 100%;
-    max-width: 640px;
-    padding: var(--space-7) var(--space-5);
-    border: 2px dashed var(--border);
-    border-radius: var(--radius-lg);
-    background: var(--surface);
+    max-width: 100%;
+    padding: 22px 32px;
+    border-radius: 18px;
+    background: var(--landing-panel);
     text-align: center;
-    transition:
-      background var(--transition-fast),
-      border-color var(--transition-fast);
   }
-
-  .dropzone.dragging {
-    border-color: var(--accent);
-    background: var(--accent-soft);
-  }
-
-  .drop-icon {
-    display: grid;
-    place-items: center;
-    width: 56px;
-    height: 56px;
-    border-radius: 50%;
-    background: var(--accent-soft);
-    color: var(--accent);
-  }
-
-  .drop-hint {
-    font-size: var(--font-size-lg);
-    font-weight: 700;
-  }
-
-  .drop-or,
-  .drop-sub {
-    color: var(--muted);
-    font-size: var(--font-size-sm);
-  }
-
-  .choose {
-    min-width: 200px;
-    min-height: var(--touch-target);
-    font-size: var(--font-size-md);
-  }
-
-  .choose:disabled {
-    cursor: progress;
-  }
-
-  .label-mobile {
-    display: none;
-  }
-
-  .privacy {
-    margin-top: var(--space-2);
-    color: var(--muted);
-    font-size: var(--font-size-sm);
-  }
-
-  .errors {
-    width: 100%;
-    max-width: 640px;
-    padding: var(--space-4);
-    font-size: var(--font-size-sm);
-  }
-
-  .card-title {
+  .wordmark {
     display: flex;
     align-items: center;
     gap: var(--space-2);
+    font-size: 22px;
+    font-weight: 500;
   }
-
+  .bolt {
+    width: 30px;
+    height: 30px;
+    flex-shrink: 0;
+  }
+  .bolt path {
+    fill: var(--bolt);
+    stroke: var(--bolt-edge);
+    stroke-width: 1;
+    stroke-linejoin: round;
+  }
+  h1 {
+    margin: 0;
+    font-size: clamp(24px, 6vw, 32px);
+    font-weight: 500;
+    line-height: 1.15;
+  }
+  @media (min-width: 640px) {
+    h1 {
+      white-space: nowrap;
+    }
+  }
+  .drop-line {
+    margin: 0;
+    color: var(--muted);
+    font-size: var(--font-size-md);
+  }
+  /* Touch devices: nothing can be dragged. */
+  @media (hover: none) and (pointer: coarse) {
+    .drop-line {
+      display: none;
+    }
+  }
+  .choose {
+    min-height: var(--touch-target);
+    margin-top: var(--space-1);
+    padding: 0 26px;
+    border: 0;
+    background: var(--accent);
+    color: var(--on-accent);
+    font-size: var(--font-size-md);
+    font-weight: 600;
+    pointer-events: auto;
+  }
+  .choose:hover:not(:disabled) {
+    background: var(--accent-strong);
+  }
+  .choose:disabled {
+    cursor: progress;
+  }
+  .message {
+    min-height: 1.4em;
+    margin: 0;
+    color: var(--muted);
+    font-size: var(--font-size-sm);
+  }
+  .message:empty {
+    min-height: 0;
+  }
+  .errors {
+    max-width: 30rem;
+    padding: var(--space-3) var(--space-4);
+    border-left: 4px solid var(--danger);
+    border-radius: var(--radius-md);
+    background: var(--danger-soft);
+    font-size: var(--font-size-sm);
+    text-align: left;
+    pointer-events: auto;
+  }
+  .errors-title {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    margin: 0;
+    color: var(--danger);
+    font-weight: 700;
+  }
   .errors ul {
     margin: var(--space-2) 0 0;
-    padding-left: calc(var(--space-5) + var(--space-2));
+    padding-left: var(--space-5);
   }
-
   .filename {
     font-weight: 600;
     word-break: break-all;
   }
-
-  /* Phones and touch-first devices: no drag-and-drop wording, one big button. */
-  @media (max-width: 720px), (pointer: coarse) {
-    .drop-hint,
-    .drop-or,
-    .drop-sub,
-    .drop-icon {
-      display: none;
-    }
-    .label-desktop {
-      display: none;
-    }
-    .label-mobile {
-      display: inline;
-    }
-  }
-
-  @media (max-width: 720px) {
-    .home {
-      gap: var(--space-5);
-      padding-top: var(--space-4);
-    }
-    .hero-placeholder {
-      aspect-ratio: 4 / 3;
-    }
-    h1 {
-      font-size: var(--font-size-xl);
-    }
-    .value {
-      font-size: var(--font-size-md);
-    }
-    .dropzone {
-      padding: var(--space-5) var(--space-4);
-      border: none;
-      background: none;
-    }
-    .choose {
-      width: 100%;
-      min-height: 56px;
+  @media (prefers-reduced-motion: reduce) {
+    .scene {
+      transition: none;
     }
   }
 </style>

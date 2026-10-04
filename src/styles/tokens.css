@@ -19,6 +19,9 @@
   --page: #ffffff; /* paper */
   --danger: #d92d20; /* errors, destructive actions */
   --danger-soft: #feeceb; /* error backgrounds */
+  --bolt: #ffc21a; /* the wordmark's lightning bolt */
+  --bolt-edge: #d99a00; /* its 1px outline */
+  --landing-panel: rgb(245 247 250 / 0.82); /* --bg at 82%: keeps the landing text readable over the falling sheets */
 
   /* Overlays */
   --backdrop: rgb(31 39 51 / 0.4); /* behind modal dialogs */

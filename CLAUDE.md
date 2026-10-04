@@ -25,6 +25,7 @@ A free, browser-only PDF editor (Svelte 5 runes + Vite + TypeScript, static buil
 - Small text on `--accent-soft` uses `--accent-strong` (contrast); icons may use `--accent`.
 - Every interactive element keeps a visible `:focus-visible` ring (2px accent). Touch targets are at least 44px on touch devices and in the phone layout.
 - The phone layout starts below 720px (`MediaQuery('(max-width: 720px)')` in `src/screens/Editor.svelte`): top bar, accordion menu, bottom tool strip, bottom sheets. Restyle both layouts when changing styles.
+- Landing screen (`src/screens/Home.svelte`): the only decorative motion in the app is its falling-paper background (Three.js, `src/lib/landing/paper-scene.ts`), loaded lazily after first paint; Home must work fully without it. Its tokens: `--bolt` and `--bolt-edge` (the wordmark's lightning bolt) and `--landing-panel` (the text panel, `--bg` at 82%). Landing text lives in `src/lib/strings.ts`.
 - No gradients, glows, blur, emoji or decorative animation. Transitions 120–150ms (`--transition-fast`); `prefers-reduced-motion` is respected globally.
 
 ## Quality

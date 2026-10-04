@@ -2,12 +2,7 @@
 // so nothing else in the codebase should hard-code it.
 export const APP_NAME = 'Blitz PDF Editor';
 
-// Undecided copy: kept as visible placeholders until final wording is chosen.
-export const COPY = {
-  headline: 'Open a PDF to get started',
-  valueStatement: '[One-line value statement goes here]',
-  privacyNote: '[Privacy note: your files stay on your device and are never uploaded]',
-} as const;
+// Landing screen text lives in src/lib/strings.ts.
 
 export const APP_VERSION = __APP_VERSION__;
 

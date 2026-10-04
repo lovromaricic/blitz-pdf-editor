@@ -6,8 +6,11 @@
   import DialogHost from './components/DialogHost.svelte';
   import { appError, installGlobalErrorHandlers } from './lib/errors.svelte';
   import X from '@lucide/svelte/icons/x';
+  import { fade } from 'svelte/transition';
 
   installGlobalErrorHandlers();
+
+  const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   // The editor (and PDF.js inside it) is a separate chunk, fetched in the background
   // once the Home screen is up so it's ready by the time a file is chosen.
@@ -30,7 +33,14 @@
     </p>
   {/await}
 {:else}
-  <Home />
+  <!-- Home fades out over the editor as it mounts (never delaying it). -->
+  <div
+    class="home-layer"
+    out:fade={{ duration: reducedMotion ? 0 : 250 }}
+    onoutrostart={(e) => ((e.currentTarget as HTMLElement).style.pointerEvents = 'none')}
+  >
+    <Home />
+  </div>
 {/if}
 
 <PasswordDialog />
@@ -47,6 +57,11 @@
 {/if}
 
 <style>
+  /* Above the editor while fading out; the landing itself is fixed to the viewport. */
+  .home-layer {
+    position: relative;
+    z-index: 50;
+  }
   .load-failed {
     max-width: 40rem;
     margin: 20vh auto;
