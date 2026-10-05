@@ -12,6 +12,8 @@ export interface CommandMeta {
   nativeInFields?: boolean;
   /** Acts on the text box being typed in, so running it doesn't finish the editing first. */
   whileEditing?: boolean;
+  /** One of a set of choices (a radio item in menus); `checked` says which is chosen. */
+  radio?: boolean;
 }
 
 export interface CommandImpl {
@@ -69,6 +71,12 @@ export const COMMANDS = {
   'view.panel': { label: 'Show properties panel' },
   // No shortcut: F11 is the browser's own full screen (Windows) or the system's (macOS).
   'view.fullscreen': { label: 'Full screen' },
+  // Guides: editor-only, no shortcuts.
+  'view.margins': { label: 'Show margins' },
+  'view.smartGuides': { label: 'Smart guides' },
+  'view.margin6': { label: '6.35 mm (¼ in)', radio: true },
+  'view.margin12': { label: '12.7 mm (½ in)', radio: true },
+  'view.margin25': { label: '25.4 mm (1 in)', radio: true },
 
   // Page
   'page.rotateLeft': { label: 'Rotate left' },

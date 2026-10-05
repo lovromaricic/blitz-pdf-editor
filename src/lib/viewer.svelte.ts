@@ -347,6 +347,14 @@ export class Viewer {
 
   // --- Feedback ---------------------------------------------------------
 
+  // Guides (View menu): editor-only, in memory for this tab, for every page; never saved anywhere.
+  /** Show the margin guides (they also pull objects when shown). */
+  showMargins = $state(false);
+  /** Snap objects to the page center and to each other while dragging. */
+  smartGuides = $state(true);
+  /** The margin, in millimetres (limited per page to a quarter of its smaller side). */
+  marginMm = $state(12.7);
+
   /** The page whose edge an object just stopped at (a brief outline). */
   edgeFlash = $state<string | null>(null);
   private edgeTimer: ReturnType<typeof setTimeout> | undefined;

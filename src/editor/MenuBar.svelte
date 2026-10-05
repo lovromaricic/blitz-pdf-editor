@@ -226,7 +226,7 @@
         <li role="none">
           <button
             type="button"
-            role={checked === undefined ? 'menuitem' : 'menuitemcheckbox'}
+            role={checked === undefined ? 'menuitem' : meta.radio ? 'menuitemradio' : 'menuitemcheckbox'}
             aria-checked={checked}
             aria-disabled={!enabled}
             class:disabled={!enabled}

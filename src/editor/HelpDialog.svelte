@@ -64,6 +64,7 @@
         { label: 'Select several objects', keys: ['Shift+click', `${mod}+click`, 'drag on the page'] },
         { label: 'All objects on the page', keys: [`${mod}+A`] },
         { label: 'Select the object underneath (again: further down)', keys: ['Alt+click'] },
+        { label: 'Move without snapping to guides', keys: [`${isMac ? 'Option' : 'Alt'}+drag`] },
         { label: 'Next / previous object on the page, bottom first', keys: ['Tab', 'Shift+Tab'] },
         { label: 'Move the selected object (Shift: 10× further)', keys: ['← ↑ → ↓', 'Shift+arrows'] },
       ],

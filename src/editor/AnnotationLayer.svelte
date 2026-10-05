@@ -3,6 +3,7 @@
   import { focusObject, focusSink } from '../lib/focus';
   import { nextBeneath } from '../lib/z-order';
   import { boxOf, clampMove, growInside, inside, newTextBoxSpan } from '../lib/page-bounds';
+  import { candidates, marginPoints, snapBox, snapEdge, type Candidates, type Guide, type MarginLines } from '../lib/snapping';
   import { addUnits, describeUnits, isGroupId, membersOf, toggleUnit, unionBounds, unitOf, unitsTouching } from '../lib/object-selection';
   import { isMac } from '../lib/commands';
   import { OBJECT_STRINGS } from '../lib/strings';
@@ -549,7 +550,86 @@
     moved: boolean;
     resize?: Reshape;
     label?: string;
+    /** Snapping: the lines that may pull (collected once, at the start), and the object's box on screen then. */
+    snap: { cands: Candidates; box: Rect } | null;
   } | null = null;
+
+  // --- Snapping (smart guides and margins) ---------------------------------------------
+
+  /** Guide lines while an object is snapped (screen px), gone when the drag ends. */
+  let guides = $state.raw<Guide[]>([]);
+  let lastGuideNotice = 0;
+
+  /** An object's (or block's) box in this layer's px. */
+  const screenBoxOf = (r: Rect) => screenBox([toScreen([r[0], r[1]]), toScreen([r[2], r[3]])]);
+
+  /** The margin lines on this page (screen px), when shown. */
+  const marginLines = $derived.by((): MarginLines | null => {
+    if (!viewer.showMargins) return null;
+    const s = viewer.scale;
+    const m = marginPoints(viewer.marginMm, (pageArea[2] - pageArea[0]) / s, (pageArea[3] - pageArea[1]) / s) * s;
+    return { left: pageArea[0] + m, right: pageArea[2] - m, top: pageArea[1] + m, bottom: pageArea[3] - m };
+  });
+
+  /**
+   * The lines that may pull a drag, collected once when it starts: margins (when
+   * shown), the page center and the other objects near the visible part of the
+   * page (with smart guides). Nothing at all when both are off.
+   */
+  function snapCandidates(moving: ReadonlySet<string>): Candidates | null {
+    if (!marginLines && !viewer.smartGuides) return null;
+    let others: { box: Rect; label: string }[] = [];
+    if (viewer.smartGuides) {
+      const r = ui.getBoundingClientRect();
+      const v = document.getElementById('document-view')?.getBoundingClientRect();
+      const near: Rect = v ? [v.left - r.left - 200, v.top - r.top - 200, v.right - r.left + 200, v.bottom - r.top + 200] : [-Infinity, -Infinity, Infinity, Infinity];
+      others = annots
+        .filter((a) => !moving.has(a.id))
+        .map((a) => ({ box: screenBoxOf(bounds(a)), label: describe(a) }))
+        .filter((o) => o.box[2] >= near[0] && o.box[0] <= near[2] && o.box[3] >= near[1] && o.box[1] <= near[3]);
+    }
+    return candidates({ page: pageArea, margins: marginLines, smart: viewer.smartGuides, others });
+  }
+
+  /** Show the guides and say what was matched (at most once a second). */
+  function showGuides(next: Guide[]) {
+    guides = next;
+    const now = Date.now();
+    if (next.length && now - lastGuideNotice > 1000) {
+      lastGuideNotice = now;
+      viewer.announce(`Snapped: ${[...new Set(next.map((g) => g.label))].join(', ')}`);
+    }
+  }
+
+  /**
+   * A move (PDF space) with snapping and the page edge: snap first (unless Alt
+   * is held), then keep it on the page; a snap the edge would undo is dropped.
+   */
+  function snappedMove(snap: { cands: Candidates; box: Rect } | null, boxPdf: Rect, dxPdf: number, dyPdf: number, e: PointerEvent) {
+    const plain = clampMove(boxPdf, pagePdf, dxPdf, dyPdf);
+    if (!snap || e.altKey) {
+      showGuides([]);
+      return plain;
+    }
+    const o = toScreen([0, 0]);
+    const d = toScreen([dxPdf, dyPdf]);
+    const [sx, sy] = [d[0] - o[0], d[1] - o[1]];
+    const b = snap.box;
+    const r = snapBox([b[0] + sx, b[1] + sy, b[2] + sx, b[3] + sy], snap.cands);
+    if (!r.guides.length) {
+      showGuides([]);
+      return plain;
+    }
+    const p0 = toPdf(0, 0);
+    const p1 = toPdf(r.dx, r.dy);
+    const m = clampMove(boxPdf, pagePdf, dxPdf + p1[0] - p0[0], dyPdf + p1[1] - p0[1]);
+    if (m.limited) {
+      showGuides([]);
+      return plain;
+    }
+    showGuides(r.guides);
+    return m;
+  }
 
   const toLocal = (e: { clientX: number; clientY: number }): Point => {
     const r = ui.getBoundingClientRect();
@@ -596,10 +676,12 @@
    * block stays on the page. A click without a drag on one of several selected
    * objects selects just that one (`clicked`), as usual.
    */
-  function startBlockDrag(e: PointerEvent, ids: readonly string[], clicked?: string) {
+  function startBlockDrag(e: PointerEvent, ids: readonly string[], clicked?: string, noSnap = false) {
     const members = membersOf(annots, ids);
     const box = boxOf(members);
     if (!box) return;
+    const cands = noSnap ? null : snapCandidates(new Set(members.map((a) => a.id)));
+    const snap = cands ? { cands, box: screenBoxOf(box) } : null;
     const start = clientToPdf(e.clientX, e.clientY);
     let moved = false;
     const move = (ev: PointerEvent) => {
@@ -607,7 +689,7 @@
       const p = clientToPdf(ev.clientX, ev.clientY);
       if (!moved && Math.hypot(p[0] - start[0], p[1] - start[1]) * viewer.scale < 3) return;
       moved = true;
-      const m = clampMove(box, pagePdf, p[0] - start[0], p[1] - start[1]);
+      const m = snappedMove(snap, box, p[0] - start[0], p[1] - start[1], ev);
       if (m.limited) viewer.edgeHit(page.id);
       blockPreview = new Map(members.map((a) => [a.id, translate(a, m.dx, m.dy)]));
     };
@@ -616,6 +698,7 @@
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
       window.removeEventListener('pointercancel', up);
+      showGuides([]);
       const done = blockPreview;
       blockPreview = null;
       if (done) actions.updateAnnotations([...done.values()].map((annot) => ({ pageId: page.id, annot })), `Move ${describeUnits(annots, ids)}`);
@@ -692,11 +775,43 @@
     viewer.announce(`${describeUnits(annots, [id], true)} selected, ${units.indexOf(id) + 1} of ${units.length} at this point`);
   }
 
+  /**
+   * Alt (Option) on an object: a click selects the object beneath; a drag moves
+   * the object with snapping off for that drag.
+   */
+  function altDown(e: PointerEvent, a: Annotation) {
+    const start = { x: e.clientX, y: e.clientY };
+    const stop = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', stop);
+    };
+    const move = (ev: PointerEvent) => {
+      if (ev.pointerId !== e.pointerId || Math.hypot(ev.clientX - start.x, ev.clientY - start.y) < 3) return;
+      stop();
+      const unit = unitOf(a);
+      const inSelection = selUnits.includes(unit);
+      if (!inSelection) select(a);
+      if ((inSelection && selUnits.length > 1) || isGroupId(unit)) startBlockDrag(e, inSelection ? selUnits : [unit], unit, true);
+      else startDrag(e, a, undefined, undefined, true);
+      // The move that started it counts too.
+      window.dispatchEvent(new PointerEvent('pointermove', ev));
+    };
+    const up = (ev: PointerEvent) => {
+      if (ev.pointerId !== e.pointerId) return;
+      stop();
+      selectBeneath(e);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', stop);
+  }
+
   function onAnnotDown(e: PointerEvent, a: Annotation) {
     if (!selecting || e.button !== 0) return;
     e.preventDefault();
     e.stopPropagation();
-    if (e.altKey) return selectBeneath(e);
+    if (e.altKey) return altDown(e, a);
     if (e.shiftKey || (isMac ? e.metaKey : e.ctrlKey)) return toggleSelect(a);
     if (e.pointerType === 'touch') watchLongPress(e, a);
     // Part of a multi-selection, or in a group: they all move together.
@@ -715,11 +830,21 @@
     if (!selected || e.button !== 0) return;
     e.preventDefault();
     e.stopPropagation();
-    startDrag(e, selected, h.resize, h.label);
+    startDrag(e, selected, h.resize, h.label, !!h.turn);
   }
 
-  function startDrag(e: PointerEvent, original: Annotation, resize?: Reshape, label?: string) {
-    moving = { pointerId: e.pointerId, start: clientToPdf(e.clientX, e.clientY), startLocal: toLocal(e), original, moved: false, resize, label };
+  function startDrag(e: PointerEvent, original: Annotation, resize?: Reshape, label?: string, noSnap = false) {
+    const cands = noSnap ? null : snapCandidates(new Set([original.id]));
+    moving = {
+      pointerId: e.pointerId,
+      start: clientToPdf(e.clientX, e.clientY),
+      startLocal: toLocal(e),
+      original,
+      moved: false,
+      resize,
+      label,
+      snap: cands ? { cands, box: screenBoxOf(bounds(original)) } : null,
+    };
     const up = (ev: PointerEvent) => {
       if (ev.pointerId !== e.pointerId) return;
       window.removeEventListener('pointermove', onUiMove);
@@ -734,18 +859,29 @@
 
   function onUiMove(e: PointerEvent) {
     if (!moving || e.pointerId !== moving.pointerId) return;
-    const p = clientToPdf(e.clientX, e.clientY);
+    let p = clientToPdf(e.clientX, e.clientY);
     if (!moving.moved && Math.hypot(p[0] - moving.start[0], p[1] - moving.start[1]) * viewer.scale < 3) return;
     moving.moved = true;
     const o = moving.original;
     if (moving.resize) {
-      // The handle stops at the page edge: past it, the object keeps its last size on the page.
+      // The dragged handle snaps to margins and guides (not with Alt), then stops at the page edge:
+      // past it, the object keeps its last size on the page.
+      if (moving.snap && !e.altKey) {
+        const ps = toScreen(p);
+        const sx = snapEdge('x', ps[0], moving.snap.cands);
+        const sy = snapEdge('y', ps[1], moving.snap.cands);
+        const snapped = toPdf(sx.v, sy.v);
+        if (inside(bounds(moving.resize(snapped, e)), pagePdf)) {
+          p = snapped;
+          showGuides([...sx.guides, ...sy.guides]);
+        } else showGuides([]);
+      } else showGuides([]);
       const next = moving.resize(onPage(p), e);
       if (inside(bounds(next), pagePdf)) preview = next;
       else viewer.edgeHit(page.id);
     } else {
-      // The whole object (a turned one by its upright box) stays on the page.
-      const m = clampMove(bounds(o), pagePdf, p[0] - moving.start[0], p[1] - moving.start[1]);
+      // The whole object (a turned one by its upright box) stays on the page; it snaps first.
+      const m = snappedMove(moving.snap, bounds(o), p[0] - moving.start[0], p[1] - moving.start[1], e);
       if (m.limited) viewer.edgeHit(page.id);
       preview = translate(o, m.dx, m.dy);
     }
@@ -753,6 +889,7 @@
 
   function onUiUp(e: PointerEvent) {
     if (!moving || e.pointerId !== moving.pointerId) return;
+    showGuides([]);
     const done = preview;
     const wasResize = !!moving.resize;
     const label = moving.label;
@@ -1134,6 +1271,20 @@
       height={selectionBox[3] - selectionBox[1]}
     />
   {/if}
+  {#if marginLines}
+    {@const m = marginLines}
+    {@const label = `${viewer.marginMm} mm`}
+    <!-- Margin guides: never saved, printed or exported, and never in the way of the pointer. -->
+    <rect class="margin-guide" x={m.left} y={m.top} width={m.right - m.left} height={m.bottom - m.top} />
+    <text class="margin-label" x={m.left} y={m.top - pageArea[1] >= 14 ? m.top - 4 : m.top + 12}>{label}</text>
+  {/if}
+  {#each guides as g, i (i)}
+    {#if g.axis === 'x'}
+      <line class="guide" x1={g.at} x2={g.at} y1={pageArea[1]} y2={pageArea[3]} />
+    {:else}
+      <line class="guide" x1={pageArea[0]} x2={pageArea[2]} y1={g.at} y2={g.at} />
+    {/if}
+  {/each}
   {#if blockOutline}
     {#each blockOutline.parts as b, i (i)}
       <rect class="member-box" x={b[0]} y={b[1]} width={b[2] - b[0]} height={b[3] - b[1]} />
@@ -1224,6 +1375,24 @@
     stroke: var(--accent);
     stroke-width: 1;
     stroke-opacity: 0.45;
+  }
+  /* Margin guides (View › Show margins) and snapping guides: editor-only overlays. */
+  .margin-guide {
+    fill: none;
+    stroke: var(--accent);
+    stroke-opacity: 0.45;
+    stroke-width: 1;
+    stroke-dasharray: 4 3;
+  }
+  .margin-label {
+    fill: var(--accent);
+    fill-opacity: 0.7;
+    font-size: 11px;
+    font-family: var(--font-sans);
+  }
+  .guide {
+    stroke: var(--accent);
+    stroke-width: 1;
   }
   /* The rectangle dragged to select objects. */
   .marquee {
