@@ -86,3 +86,11 @@ export const NEW_PDF_STRINGS = {
   saveCopy: 'Save a copy…',
   discard: 'Discard changes',
 } as const;
+
+/** Selecting several objects and grouping them (Group and Ungroup are in the right-click menu only). */
+export const OBJECT_STRINGS = {
+  group: 'Group',
+  ungroup: 'Ungroup',
+  onePage: 'You can only select objects on one page at a time.',
+  ungroupToEdit: 'This text box is in a group. Ungroup it to edit its text.',
+};

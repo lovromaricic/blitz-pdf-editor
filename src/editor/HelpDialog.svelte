@@ -57,7 +57,9 @@
     {
       menu: 'Objects on the page',
       rows: [
-        { label: 'Object menu (cut, copy, order, delete…)', keys: ['Shift+F10', 'Menu key', 'right-click'] },
+        { label: 'Object menu (cut, copy, group, order, delete…)', keys: ['Shift+F10', 'Menu key', 'right-click'] },
+        { label: 'Select several objects', keys: ['Shift+click', `${mod}+click`, 'drag on the page'] },
+        { label: 'All objects on the page', keys: [`${mod}+A`] },
         { label: 'Select the object underneath (again: further down)', keys: ['Alt+click'] },
         { label: 'Next / previous object on the page, bottom first', keys: ['Tab', 'Shift+Tab'] },
         { label: 'Move the selected object (Shift: 10× further)', keys: ['← ↑ → ↓', 'Shift+arrows'] },
@@ -103,6 +105,7 @@
           <li><strong>Images:</strong> <em>Page › Insert image</em> puts a picture on the current page; you can also drag an image file onto a page or paste one with {mod}+V. Drag it, its corners and its round handle to move, resize and rotate; the panel on the right has exact sizes, flip, opacity and order.</li>
           <li><strong>Text:</strong> pick the Text tool and click on the page. Select words to make them bold, bigger or another colour with the panel on the right; with no words selected, the panel sets how the next words look.</li>
           <li><strong>Links:</strong> select words and press {mod}+K (or <em>Edit › Add link</em>) to link them to a web or email address or to a page of this document. Typing an address followed by a space links it too ({mod}+Z undoes just the link). In the saved PDF the links are clickable; links to a page move with that page, and go away if it's deleted. Links in opened PDFs open with {mod}+click while the Select tool is on.</li>
+          <li><strong>Several objects:</strong> Shift+click them, or drag across them from an empty part of the page. They move, copy and delete together. To keep them together, right-click and choose <em>Group</em>; <em>Ungroup</em> (same menu) separates them again.</li>
           <li><strong>Tools:</strong> merge, split and other tools are in the <em>Tools</em> menu and open on the right.</li>
           <li><strong>Mistakes:</strong> everything can be undone with {mod}+Z until you close the document.</li>
           <li><strong>Saving:</strong> <em>File › Save</em> downloads the edited PDF. Your original file is never changed.</li>

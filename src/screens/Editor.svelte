@@ -21,7 +21,7 @@
   import { CLIPBOARD_KEYS, ClipboardShortcuts } from '../lib/clipboard-shortcuts';
   import { imageAcceptAttr, kindOf } from '../lib/landing/accepted-files';
   import { heicDecodes } from '../lib/landing/heic-probe';
-  import { IMAGE_STRINGS } from '../lib/strings';
+  import { IMAGE_STRINGS, OBJECT_STRINGS } from '../lib/strings';
   import type { EditorDocument } from '../lib/document.svelte';
   import { openFiles } from '../lib/open-files.svelte';
   import { viewportFor } from '../lib/pdf/render';
@@ -252,6 +252,10 @@
       // Onto this object's page.
       { label: 'Paste', run: () => actions.pasteAnnotation({ pageId: m.pageId }), disabled: !actions.canPaste(), keys: pasteKeys },
       commandItem('edit.duplicate', 'Duplicate'),
+      '-',
+      // Only here (no menu bar item, panel button or shortcut): one place, one function each.
+      { label: OBJECT_STRINGS.group, run: () => actions.groupSelection(), disabled: !actions.canGroup() },
+      { label: OBJECT_STRINGS.ungroup, run: () => actions.ungroupSelection(), disabled: !actions.canUngroup() },
       '-',
       commandItem('object.bringToFront'),
       commandItem('object.bringForward'),

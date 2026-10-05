@@ -4,6 +4,7 @@
   import { nextBeneath } from '../lib/z-order';
   import { addUnits, clampDelta, describeUnits, isGroupId, membersOf, toggleUnit, unionBounds, unitOf, unitsTouching } from '../lib/object-selection';
   import { isMac } from '../lib/commands';
+  import { OBJECT_STRINGS } from '../lib/strings';
   import { ensureTextFont, metricsState } from '../lib/font-metrics-store.svelte';
   import { alignOf, lineSpacingOf, styleAvailable } from '../lib/text-format';
   import { comboFromEvent } from '../lib/commands';
@@ -190,7 +191,7 @@
         const existing = [...annots].reverse().find(
           (a): a is TextAnnotation => a.type === 'text' && at[0] >= a.rect[0] && at[0] <= a.rect[2] && at[1] >= a.rect[1] && at[1] <= a.rect[3],
         );
-        if (existing?.groups) return viewer.notify('This text box is in a group. Ungroup it to edit its text.');
+        if (existing?.groups) return viewer.notify(OBJECT_STRINGS.ungroupToEdit);
         if (existing) return startEdit(existing, false);
         const t = $state.snapshot(viewer.toolProps.text);
         const h = boxHeight(1, t.size, t.lineSpacing);
@@ -549,7 +550,7 @@
   function toggleSelect(a: Annotation) {
     const r = toggleUnit(viewer.objectSelection, page.id, unitOf(a));
     if ('otherPage' in r) {
-      viewer.notify('You can only select objects on one page at a time.');
+      viewer.notify(OBJECT_STRINGS.onePage);
       return;
     }
     viewer.selectObjects(r.selection);
@@ -557,8 +558,12 @@
     if (r.selection?.ids.includes(unitOf(a))) focusObject(a.id);
   }
 
-  /** Move several objects (a multi-selection or a group) together; the whole block stays on the page. */
-  function startBlockDrag(e: PointerEvent, ids: readonly string[]) {
+  /**
+   * Move several objects (a multi-selection or a group) together; the whole
+   * block stays on the page. A click without a drag on one of several selected
+   * objects selects just that one (`clicked`), as usual.
+   */
+  function startBlockDrag(e: PointerEvent, ids: readonly string[], clicked?: string) {
     const members = membersOf(annots, ids);
     const box = unionBounds(members);
     if (!box) return;
@@ -580,6 +585,7 @@
       const done = blockPreview;
       blockPreview = null;
       if (done) actions.updateAnnotations([...done.values()].map((annot) => ({ pageId: page.id, annot })), `Move ${describeUnits(annots, ids)}`);
+      else if (clicked && ids.length > 1) viewer.selectObjects({ pageId: page.id, ids: [clicked] });
     };
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
@@ -590,7 +596,8 @@
 
   /** Open the canvas context menu for an object (selecting it) or for an empty spot of this page. */
   function openMenu(x: number, y: number, a: Annotation | null) {
-    if (a && a.id !== selectedId) select(a);
+    // On something already selected the menu is for the whole selection; on anything else, just for that.
+    if (a && !isSelected(a)) select(a);
     viewer.contextMenu = { x, y, pageId: page.id, objectId: a?.id ?? null, point: a ? null : clientToPdf(x, y) };
   }
 
@@ -663,7 +670,7 @@
     const inSelection = selUnits.includes(unit);
     if ((inSelection && selUnits.length > 1) || isGroupId(unit)) {
       if (!inSelection) select(a);
-      return startBlockDrag(e, inSelection ? selUnits : [unit]);
+      return startBlockDrag(e, inSelection ? selUnits : [unit], unit);
     }
     if (e.pointerType === 'touch' && a.type === 'image' && a.id === selectedId && onImageTouchDown(e, a)) return;
     select(a);
@@ -835,7 +842,7 @@
       // Nothing touched: the selection stays cleared (as a plain click on the page does).
       const next = add ? addUnits(viewer.objectSelection, page.id, hits) : hits.length ? { pageId: page.id, ids: hits } : null;
       if (add && viewer.objectSelection && viewer.objectSelection.pageId !== page.id && hits.length) {
-        viewer.notify('You can only select objects on one page at a time.');
+        viewer.notify(OBJECT_STRINGS.onePage);
         return;
       }
       viewer.selectObjects(next);
@@ -955,7 +962,7 @@
 
   function onAnnotKey(e: KeyboardEvent, a: Annotation) {
     if (e.key === 'Enter' && a.type === 'text') {
-      if (a.groups) viewer.notify('This text box is in a group. Ungroup it to edit its text.');
+      if (a.groups) viewer.notify(OBJECT_STRINGS.ungroupToEdit);
       else void startEdit(a, false);
     } else if (e.key === 'Delete' || e.key === 'Backspace') {
       if (isSelected(a)) actions.deleteSelection();
@@ -1039,7 +1046,7 @@
         onfocus={() => !isSelected(a) && select(a)}
         ondblclick={() => {
           if (a.type !== 'text') return;
-          if (a.groups) viewer.notify('This text box is in a group. Ungroup it to edit its text.');
+          if (a.groups) viewer.notify(OBJECT_STRINGS.ungroupToEdit);
           else void startEdit(a, false);
         }}
         {@attach holdPagePinch}
