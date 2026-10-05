@@ -1,9 +1,11 @@
 // View state for one open document: zoom, page layout, scrolling and navigation.
 import { isGroupId, unitOf, type ObjectSelection } from './object-selection';
+import { limitRect, type LimitKind } from './page-bounds';
+import { marginPoints } from './snapping';
 import { getContext, setContext, tick } from 'svelte';
 import type { EditorDocument, PageRef } from './document.svelte';
 import type { Margins } from './page-ops';
-import { HIGHLIGHT_COLORS, INK_COLORS, NOTE_COLORS, STAMPS, type Annotation, type FontFamily, type Rgb, type ShapeKind, type TextAlign } from './annotations';
+import { HIGHLIGHT_COLORS, INK_COLORS, NOTE_COLORS, STAMPS, type Annotation, type FontFamily, type Rect, type Rgb, type ShapeKind, type TextAlign } from './annotations';
 import { DEFAULT_LINE_SPACING } from './text-format';
 import type { RichEditorApi } from './rich-text/api';
 import { lastTextStyle, loadFonts } from './fonts';
@@ -354,6 +356,33 @@ export class Viewer {
   smartGuides = $state(true);
   /** The margin, in millimetres (limited per page to a quarter of its smaller side). */
   marginMm = $state(12.7);
+  /** The margins (only while shown) are a hard limit for objects moved, resized, added or typed into. */
+  keepInMargins = $state(false);
+
+  /** The margin on a page, in points (the same on every side). */
+  marginOn(page: PageRef) {
+    const b = this.doc.pageBounds(page);
+    return marginPoints(this.marginMm, b[2] - b[0], b[3] - b[1]);
+  }
+
+  /**
+   * Where objects on a page may go (PDF space): the page, or the margin when
+   * "Keep objects inside margins" is on (an edge of `box` already past the
+   * margin is limited where it is). The page edge always holds.
+   */
+  limitFor(page: PageRef, box?: Rect | null) {
+    const margin = this.showMargins && this.keepInMargins ? this.marginOn(page) : null;
+    return limitRect(this.doc.pageBounds(page), margin, box);
+  }
+
+  /** Something stopped at a limit: the page edge, or the margin. */
+  limitHit(pageId: string, kind: LimitKind) {
+    if (kind === 'page') return this.edgeHit(pageId);
+    this.flash('margin', pageId, 'Stopped at the margin');
+  }
+
+  /** The page whose margin an object just stopped at (its margin line flashes). */
+  marginFlash = $state<string | null>(null);
 
   /** The page whose edge an object just stopped at (a brief outline). */
   edgeFlash = $state<string | null>(null);
@@ -365,15 +394,21 @@ export class Viewer {
    * reduced motion) and say so, at most once a second.
    */
   edgeHit(pageId: string) {
+    this.flash('edge', pageId, 'Stopped at the page edge');
+  }
+
+  /** A brief outline (not with reduced motion) and a notice, at most once a second. */
+  private flash(what: 'edge' | 'margin', pageId: string, notice: string) {
     if (!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
-      this.edgeFlash = pageId;
+      if (what === 'edge') this.edgeFlash = pageId;
+      else this.marginFlash = pageId;
       clearTimeout(this.edgeTimer);
-      this.edgeTimer = setTimeout(() => (this.edgeFlash = null), 350);
+      this.edgeTimer = setTimeout(() => (this.edgeFlash = this.marginFlash = null), 350);
     }
     const now = Date.now();
     if (now - this.lastEdgeNotice >= 1000) {
       this.lastEdgeNotice = now;
-      this.announce('Stopped at the page edge');
+      this.announce(notice);
     }
   }
 

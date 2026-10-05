@@ -2,7 +2,7 @@
 import { describe, expect, it } from 'vitest';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { bounds, type Annotation, type Rect } from '../src/lib/annotations';
-import { boxOf, clampMove, fitIntoPage, growInside, inside, intoPage, MIN_TEXT_WIDTH, newTextBoxSpan, placeInside } from '../src/lib/page-bounds';
+import { boxOf, clampMove, fitIntoPage, growInside, inside, intoPage, limitRect, MIN_TEXT_WIDTH, newTextBoxSpan, placeInside } from '../src/lib/page-bounds';
 import { EditorDocument, Source, type PageRef } from '../src/lib/document.svelte';
 import { Viewer } from '../src/lib/viewer.svelte';
 import { Actions } from '../src/lib/actions.svelte';
@@ -124,5 +124,28 @@ describe('the boundary in the editor', () => {
     doc.undo();
     expect(doc.pages[0].crop).toBeUndefined();
     expect((doc.pages[0].annots![0] as { rect: Rect }).rect).toEqual([540, 700, 600, 730]);
+  });
+});
+
+describe('the limit: page or margin', () => {
+  const page: Rect = [0, 0, 600, 800];
+  it('the page when the margin isn\'t a limit', () => {
+    expect(limitRect(page, null, [10, 10, 50, 50])).toEqual({ rect: page, kind: 'page' });
+  });
+
+  it('the margin rectangle for objects inside it', () => {
+    expect(limitRect(page, 70, [100, 100, 200, 200])).toEqual({ rect: [70, 70, 530, 730], kind: 'margin' });
+  });
+
+  it('an edge already past the margin is limited where it is (it can only move inward); the others at the margin', () => {
+    const r = limitRect(page, 70, [20, 100, 200, 780]).rect;
+    expect(r).toEqual([20, 70, 530, 780]);
+    // It can move right (inward) but not further left; up it may go to where it is, not past.
+    expect(clampMove([20, 100, 200, 780], r, -30, 10)).toMatchObject({ dx: 0, dy: 0, limited: true });
+    expect(clampMove([20, 100, 200, 780], r, 40, -10)).toMatchObject({ dx: 40, dy: -10, limited: false });
+  });
+
+  it('never past the page, whatever the margin', () => {
+    expect(limitRect(page, -10, null).rect).toEqual(page);
   });
 });

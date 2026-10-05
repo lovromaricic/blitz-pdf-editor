@@ -2,7 +2,7 @@
   import { capturePointer } from '../lib/dom';
   import { focusObject, focusSink } from '../lib/focus';
   import { nextBeneath } from '../lib/z-order';
-  import { boxOf, clampMove, growInside, inside, newTextBoxSpan } from '../lib/page-bounds';
+  import { boxOf, clampMove, growInside, inside, newTextBoxSpan, type LimitKind } from '../lib/page-bounds';
   import { candidates, marginPoints, snapBox, snapEdge, type Candidates, type Guide, type MarginLines } from '../lib/snapping';
   import { addUnits, describeUnits, isGroupId, membersOf, toggleUnit, unionBounds, unitOf, unitsTouching } from '../lib/object-selection';
   import { isMac } from '../lib/commands';
@@ -208,7 +208,8 @@
         // edge it's narrower (or, with too little room, moved left) so it stays on the page.
         const s = viewer.scale;
         const click = toScreen(at);
-        const span = newTextBoxSpan(click[0] / s, DEFAULT_TEXT_WIDTH, pageArea[0] / s, pageArea[2] / s);
+        const room = screenBoxOf(viewer.limitFor(page).rect);
+        const span = newTextBoxSpan(click[0] / s, DEFAULT_TEXT_WIDTH, room[0] / s, room[2] / s);
         const shifted = topLeftForCenter(toPdf(span.x * s, click[1]), 0, h, pageRotation);
         return startEdit(
           {
@@ -324,12 +325,18 @@
    */
   function growOnPage(a: TextAnnotation): { annot: TextAnnotation; fits: boolean } {
     const b = bounds(a);
-    const g = growInside(screenBox([toScreen([b[0], b[1]]), toScreen([b[2], b[3]])]), pageArea);
+    // The limit (page, or margin) from where the box was when typing started.
+    const lim = viewer.limitFor(page, editing ? bounds(editing.base) : null);
+    fullAt = lim.kind;
+    const g = growInside(screenBoxOf(b), screenBoxOf(lim.rect));
     if (!g.dy) return { annot: a, fits: g.fits };
     const o = toPdf(0, 0);
     const d = toPdf(0, g.dy);
     return { annot: translate(a, d[0] - o[0], d[1] - o[1]) as TextAnnotation, fits: g.fits };
   }
+
+  /** What ended the box being typed in: the page, or the margin (for the "box is full" message). */
+  let fullAt: LimitKind = 'page';
 
   /** Would the box being typed in still fit on the page with this content (and these box settings)? */
   function editFits(paragraphs: TextParagraph[], box: Partial<TextAnnotation>) {
@@ -552,6 +559,8 @@
     label?: string;
     /** Snapping: the lines that may pull (collected once, at the start), and the object's box on screen then. */
     snap: { cands: Candidates; box: Rect } | null;
+    /** Where it may go (the page, or the margin), from where it started. */
+    limit: { rect: Rect; kind: LimitKind };
   } | null = null;
 
   // --- Snapping (smart guides and margins) ---------------------------------------------
@@ -602,11 +611,12 @@
   }
 
   /**
-   * A move (PDF space) with snapping and the page edge: snap first (unless Alt
-   * is held), then keep it on the page; a snap the edge would undo is dropped.
+   * A move (PDF space) with snapping and the limit (page edge, or margin): snap
+   * first (unless Alt is held), then keep it within the limit; a snap the
+   * limit would undo is dropped.
    */
-  function snappedMove(snap: { cands: Candidates; box: Rect } | null, boxPdf: Rect, dxPdf: number, dyPdf: number, e: PointerEvent) {
-    const plain = clampMove(boxPdf, pagePdf, dxPdf, dyPdf);
+  function snappedMove(snap: { cands: Candidates; box: Rect } | null, boxPdf: Rect, dxPdf: number, dyPdf: number, e: PointerEvent, limit: Rect) {
+    const plain = clampMove(boxPdf, limit, dxPdf, dyPdf);
     if (!snap || e.altKey) {
       showGuides([]);
       return plain;
@@ -622,7 +632,7 @@
     }
     const p0 = toPdf(0, 0);
     const p1 = toPdf(r.dx, r.dy);
-    const m = clampMove(boxPdf, pagePdf, dxPdf + p1[0] - p0[0], dyPdf + p1[1] - p0[1]);
+    const m = clampMove(boxPdf, limit, dxPdf + p1[0] - p0[0], dyPdf + p1[1] - p0[1]);
     if (m.limited) {
       showGuides([]);
       return plain;
@@ -682,6 +692,7 @@
     if (!box) return;
     const cands = noSnap ? null : snapCandidates(new Set(members.map((a) => a.id)));
     const snap = cands ? { cands, box: screenBoxOf(box) } : null;
+    const limit = viewer.limitFor(page, box);
     const start = clientToPdf(e.clientX, e.clientY);
     let moved = false;
     const move = (ev: PointerEvent) => {
@@ -689,8 +700,8 @@
       const p = clientToPdf(ev.clientX, ev.clientY);
       if (!moved && Math.hypot(p[0] - start[0], p[1] - start[1]) * viewer.scale < 3) return;
       moved = true;
-      const m = snappedMove(snap, box, p[0] - start[0], p[1] - start[1], ev);
-      if (m.limited) viewer.edgeHit(page.id);
+      const m = snappedMove(snap, box, p[0] - start[0], p[1] - start[1], ev, limit.rect);
+      if (m.limited) viewer.limitHit(page.id, limit.kind);
       blockPreview = new Map(members.map((a) => [a.id, translate(a, m.dx, m.dy)]));
     };
     const up = (ev: PointerEvent) => {
@@ -844,6 +855,7 @@
       resize,
       label,
       snap: cands ? { cands, box: screenBoxOf(bounds(original)) } : null,
+      limit: viewer.limitFor(page, bounds(original)),
     };
     const up = (ev: PointerEvent) => {
       if (ev.pointerId !== e.pointerId) return;
@@ -871,18 +883,18 @@
         const sx = snapEdge('x', ps[0], moving.snap.cands);
         const sy = snapEdge('y', ps[1], moving.snap.cands);
         const snapped = toPdf(sx.v, sy.v);
-        if (inside(bounds(moving.resize(snapped, e)), pagePdf)) {
+        if (inside(bounds(moving.resize(snapped, e)), moving.limit.rect)) {
           p = snapped;
           showGuides([...sx.guides, ...sy.guides]);
         } else showGuides([]);
       } else showGuides([]);
       const next = moving.resize(onPage(p), e);
-      if (inside(bounds(next), pagePdf)) preview = next;
-      else viewer.edgeHit(page.id);
+      if (inside(bounds(next), moving.limit.rect)) preview = next;
+      else viewer.limitHit(page.id, moving.limit.kind);
     } else {
       // The whole object (a turned one by its upright box) stays on the page; it snaps first.
-      const m = snappedMove(moving.snap, bounds(o), p[0] - moving.start[0], p[1] - moving.start[1], e);
-      if (m.limited) viewer.edgeHit(page.id);
+      const m = snappedMove(moving.snap, bounds(o), p[0] - moving.start[0], p[1] - moving.start[1], e, moving.limit.rect);
+      if (m.limited) viewer.limitHit(page.id, moving.limit.kind);
       preview = translate(o, m.dx, m.dy);
     }
   }
@@ -923,8 +935,9 @@
       const f = pinch.frame;
       const k = Math.max(MIN_IMAGE_SIZE / Math.min(f.w, f.h), Math.hypot(m[0] - n[0], m[1] - n[1]) / pinch.d0);
       const next = fromFrame(pinch.original, { ...f, w: f.w * k, h: f.h * k });
-      if (inside(bounds(next), pagePdf)) preview = next;
-      else viewer.edgeHit(page.id);
+      const lim = viewer.limitFor(page, bounds(pinch.original));
+      if (inside(bounds(next), lim.rect)) preview = next;
+      else viewer.limitHit(page.id, lim.kind);
     };
     const up = (ev: PointerEvent) => {
       if (!pinch?.ids.includes(ev.pointerId)) return;
@@ -1156,8 +1169,10 @@
       if (!isSelected(a)) select(a);
       // Several objects (or a group) stop at the page edge as a whole.
       const members = isSelected(a) ? selMembers : membersOf(annots, [unitOf(a)]);
-      const m = clampMove(boxOf(members)!, pagePdf, moved[0] - origin[0], moved[1] - origin[1]);
-      if (m.limited) viewer.edgeHit(page.id);
+      const box = boxOf(members)!;
+      const lim = viewer.limitFor(page, box);
+      const m = clampMove(box, lim.rect, moved[0] - origin[0], moved[1] - origin[1]);
+      if (m.limited) viewer.limitHit(page.id, lim.kind);
       if (m.dx || m.dy) actions.nudgeSelection(m.dx, m.dy);
     } else {
       return;
@@ -1242,7 +1257,7 @@
     {#key editing.id}
       <RichTextEditor
         fits={editFits}
-        onFull={() => viewer.notify(OBJECT_STRINGS.textFull)}
+        onFull={() => viewer.notify(OBJECT_STRINGS.textFull(fullAt))}
         annot={editDraft}
         geom={editGeom}
         scale={viewer.scale}

@@ -762,8 +762,10 @@ export class Actions {
   private onPage(pageId: string, members: readonly Annotation[]) {
     const page = this.doc.pages.find((p) => p.id === pageId);
     if (!page) return [...members];
-    const r = placeInside(members, this.doc.pageBounds(page));
-    if (r.moved) this.viewer.edgeHit(pageId);
+    // New objects: within the page, or within the margins when that's the limit.
+    const limit = this.viewer.limitFor(page);
+    const r = placeInside(members, limit.rect);
+    if (r.moved) this.viewer.limitHit(pageId, limit.kind);
     return r.members;
   }
 

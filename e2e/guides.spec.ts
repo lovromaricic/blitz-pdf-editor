@@ -21,7 +21,15 @@ async function open(page: Page) {
     w.__actions.addAnnotation(pid, { id: 'b', type: 'stamp', label: 'B', color: [0.8, 0.1, 0.1], opacity: 1, rotate: 0, rect: [330, 450, 440, 480] });
     w.__viewer.setTool('select');
   });
-  await page.waitForTimeout(600);
+  // Until the view has stopped moving (the zoom re-renders and scrolls).
+  await page.evaluate(async () => {
+    let last = performance.now();
+    const onScroll = () => (last = performance.now());
+    document.addEventListener('scroll', onScroll, true);
+    while (performance.now() - last < 400) await new Promise((r) => setTimeout(r, 50));
+    document.removeEventListener('scroll', onScroll, true);
+  });
+  await page.waitForTimeout(200);
 }
 
 async function view(page: Page, item: RegExp | string, sub?: string) {

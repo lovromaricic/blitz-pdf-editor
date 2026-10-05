@@ -93,3 +93,25 @@ export function newTextBoxSpan(x: number, defaultWidth: number, pageLeft: number
   const width = Math.min(MIN_TEXT_WIDTH, pageRight - pageLeft);
   return { x: Math.max(pageLeft, pageRight - width), width };
 }
+
+// --- The limit: the page, or the margin ("Keep objects inside margins") -----------------------
+
+export type LimitKind = 'page' | 'margin';
+
+/** The page shrunk by a margin on every side (the same on every side, so the page's rotation doesn't matter). */
+export function insetRect(r: Rect, m: number): Rect {
+  return [r[0] + m, r[1] + m, r[2] - m, r[3] - m];
+}
+
+/**
+ * Where an object may go. The page, or with the margin as the limit, the
+ * margin rectangle, except that an edge of the object that is already past
+ * the margin is limited at where it is (so it can only move inward: nothing
+ * is moved just because the option was turned on). Always within the page.
+ */
+export function limitRect(page: Rect, margin: number | null, box?: Rect | null): { rect: Rect; kind: LimitKind } {
+  if (margin === null) return { rect: page, kind: 'page' };
+  const m = insetRect(page, margin);
+  const r: Rect = box ? [Math.min(m[0], box[0]), Math.min(m[1], box[1]), Math.max(m[2], box[2]), Math.max(m[3], box[3])] : m;
+  return { rect: [Math.max(r[0], page[0]), Math.max(r[1], page[1]), Math.min(r[2], page[2]), Math.min(r[3], page[3])], kind: 'margin' };
+}
