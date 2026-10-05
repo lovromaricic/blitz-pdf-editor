@@ -10,6 +10,7 @@
 // lowest, with all runs on one baseline. A line in one font and size is
 // therefore exactly size × line spacing tall, as text boxes always were.
 import type { TextAlign, TextParagraph, TextRun } from './annotations';
+import { listLabel, listLevel, listNumbers } from './list-numbering';
 import { TEXT_PADDING, type Bar, type DecorationMetrics } from './text-box-layout';
 
 export interface RichEnv {
@@ -71,8 +72,29 @@ export interface RichLine {
   styleRun: TextRun;
 }
 
+/**
+ * A list item's marker, on its first line: a bullet (drawn as a shape, centered
+ * on the line's x-height) or a number (text in the item's first run, its right
+ * edge at `right`, on the baseline).
+ */
+export type ListMarker =
+  | { kind: 'disc' | 'circle' | 'square'; run: TextRun; cx: number; cy: number; size: number }
+  | { kind: 'number'; run: TextRun; text: string; right: number; baseline: number };
+
+/** List geometry, in em of the item's first run. */
+export const LIST_INDENT_EM = 1.5;
+/** Bullet diameter. */
+export const BULLET_EM = 0.3;
+/** Room between the marker and the text. */
+export const MARKER_GAP_EM = 0.4;
+/** A hollow circle's line. */
+export const CIRCLE_LINE_EM = 0.06;
+const BULLETS = ['disc', 'circle', 'square'] as const;
+
 export interface RichLayout {
   lines: RichLine[];
+  /** List markers (bullets and numbers), one per list item. */
+  markers: ListMarker[];
   /**
    * The same lines grouped by paragraph, without vertical positions. A
    * paragraph that didn't change keeps the very same array (cached), so the
@@ -207,18 +229,22 @@ export function layoutRich(paragraphs: readonly TextParagraph[], o: RichOptions,
   const lines: RichLine[] = [];
   const blocks: PlacedLine[][] = [];
   const bars: RichLayout['bars'] = [];
+  const markers: ListMarker[] = [];
+  const numbers = listNumbers(paragraphs);
   let top = pad;
   let perEnv = cache.get(env);
   if (!perEnv) cache.set(env, (perEnv = new WeakMap()));
 
   paragraphs.forEach((paragraph, pi) => {
-    const key = `${env.epoch ?? 0}|${o.width}|${o.align}|${o.lineSpacing}|${pad}|${o.given ? `g${o.ends?.[pi] !== false}` : 'w'}`;
+    const key = `${env.epoch ?? 0}|${o.width}|${o.align}|${o.lineSpacing}|${pad}|${o.given ? `g${o.ends?.[pi] !== false}` : 'w'}|${paragraph.list ?? ''}${paragraph.level ?? 0}`;
     let hit = perEnv.get(paragraph);
     if (!hit || hit.key !== key) {
       hit = { key, lines: placeParagraph(paragraph, pi, o, env, pad) };
       perEnv.set(paragraph, hit);
     }
     blocks.push(hit.lines);
+    // The marker goes on the item's first line.
+    if (paragraph.list && !o.given && hit.lines[0]) markers.push(markerFor(paragraph, numbers[pi], top + hit.lines[0].above, pad, env));
     for (const l of hit.lines) {
       const baseline = top + l.above;
       lines.push({ ...l, top, baseline });
@@ -231,12 +257,33 @@ export function layoutRich(paragraphs: readonly TextParagraph[], o: RichOptions,
       top += l.height;
     }
   });
-  return { lines, blocks, bars, height: top + pad };
+  return { lines, blocks, bars, markers, height: top + pad };
+}
+
+/** Where a list item's text starts, from the box's inner left edge: its level's indents. */
+export function listIndent(paragraph: TextParagraph): number {
+  if (!paragraph.list) return 0;
+  return (listLevel(paragraph) + 1) * LIST_INDENT_EM * paragraph.runs[0].size;
+}
+
+/** The marker in the gutter left of the item's text: number right-aligned, bullet just left of the gap. */
+function markerFor(paragraph: TextParagraph, n: number | null, baseline: number, pad: number, env: RichEnv): ListMarker {
+  const run = paragraph.runs[0];
+  const level = listLevel(paragraph);
+  const right = pad + listIndent(paragraph) - MARKER_GAP_EM * run.size;
+  if (paragraph.list === 'number' && n !== null) return { kind: 'number', run, text: listLabel(n, level), right, baseline };
+  const size = BULLET_EM * run.size;
+  const xHeight = env.decoration(run).xHeight ?? 0.5;
+  return { kind: BULLETS[level], run, cx: right - size / 2, cy: baseline - (xHeight * run.size) / 2, size };
 }
 
 /** One paragraph's lines: wrapped, aligned and justified, with heights (no vertical positions). */
 function placeParagraph(paragraph: TextParagraph, pi: number, o: RichOptions, env: RichEnv, pad: number): PlacedLine[] {
-  const inner = Math.max(0, o.width - 2 * pad);
+  // List items: indented by their level (the marker sits in that gutter), left-aligned
+  // (or justified in a justified box); the other paragraphs follow the box.
+  const indent = o.given ? 0 : listIndent(paragraph);
+  const align: TextAlign = indent ? (o.align === 'justify' ? 'justify' : 'left') : o.align;
+  const inner = Math.max(0, o.width - 2 * pad - indent);
   const out: PlacedLine[] = [];
   {
     const fallbackRun = paragraph.runs[paragraph.runs.length - 1];
@@ -260,10 +307,10 @@ function placeParagraph(paragraph: TextParagraph, pi: number, o: RichOptions, en
       const widths = pieces.map((p) => env.measure(p.run, p.text));
       const natural = widths.reduce((a, b) => a + b, 0);
       const gaps = gapsIn(text);
-      const justify = o.align === 'justify' && !end && gaps > 0 && natural < inner;
+      const justify = align === 'justify' && !end && gaps > 0 && natural < inner;
       const wordSpacing = justify ? (inner - natural) / gaps : 0;
       const free = Math.max(0, inner - natural);
-      const x0 = pad + (justify ? 0 : o.align === 'center' ? free / 2 : o.align === 'right' ? free : 0);
+      const x0 = pad + indent + (justify ? 0 : align === 'center' ? free / 2 : align === 'right' ? free : 0);
 
       const segments: Segment[] = [];
       let x = x0;

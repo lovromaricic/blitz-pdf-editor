@@ -7,6 +7,7 @@
   import { metricsState, screenEnv } from '../lib/font-metrics-store.svelte';
   import { lineSpacingOf } from '../lib/text-format';
   import { layoutTextAnnotation } from '../lib/text-rich';
+  import { CIRCLE_LINE_EM } from '../lib/text-rich-layout';
   import { STAMP_TEXT_RATIO } from '../lib/annotations';
   import { bubblePath, NOTE_LINE_WIDTH, NOTE_LINES, NOTE_STROKE, toSvgPath, type Segment } from '../lib/note-shape';
 
@@ -92,6 +93,39 @@
         {/each}
       {/each}
     </div>
+    {#if layout.markers.length}
+      <!-- List markers, drawn like the saved PDF: bullets as shapes, numbers as text right-aligned in the gutter. -->
+      <svg class="markers" width={box.w} height={box.h} aria-hidden="true">
+        {#each layout.markers as m, i (i)}
+          {#if m.kind === 'number'}
+            {@const style = resolveStyle(m.run)}
+            <text
+              x={m.right * scale}
+              y={m.baseline * scale}
+              text-anchor="end"
+              font-family={cssFamily(m.run.font)}
+              font-weight={style.bold ? 700 : 400}
+              font-style={style.italic ? 'italic' : 'normal'}
+              font-size={m.run.size * scale}
+              fill={rgbToCss(m.run.color)}>{m.text}</text
+            >
+          {:else if m.kind === 'square'}
+            <rect x={(m.cx - m.size / 2) * scale} y={(m.cy - m.size / 2) * scale} width={m.size * scale} height={m.size * scale} fill={rgbToCss(m.run.color)} />
+          {:else if m.kind === 'disc'}
+            <circle cx={m.cx * scale} cy={m.cy * scale} r={(m.size / 2) * scale} fill={rgbToCss(m.run.color)} />
+          {:else}
+            <circle
+              cx={m.cx * scale}
+              cy={m.cy * scale}
+              r={(m.size / 2 - (CIRCLE_LINE_EM * m.run.size) / 2) * scale}
+              fill="none"
+              stroke={rgbToCss(m.run.color)}
+              stroke-width={CIRCLE_LINE_EM * m.run.size * scale}
+            />
+          {/if}
+        {/each}
+      </svg>
+    {/if}
     {#each layout.bars as b, i (i)}
       <div
         class="bar"
@@ -152,6 +186,16 @@
   }
   .bar {
     position: absolute;
+  }
+  .markers {
+    position: absolute;
+    top: 0;
+    left: 0;
+    overflow: visible;
+    font-kerning: none;
+    font-feature-settings:
+      'kern' 0,
+      'liga' 0;
   }
   .stamp {
     box-sizing: border-box;

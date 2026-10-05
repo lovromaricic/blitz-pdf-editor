@@ -55,7 +55,7 @@ export function textMeasure(style: TextStyle, size: number): Measure {
 
 export function decorationMetrics(style: TextStyle): DecorationMetrics {
   const m = metricsFor(style);
-  return m ? { underline: m.underline, strike: m.strike } : { underline: FALLBACK_UNDERLINE, strike: { offset: FALLBACK_STRIKE_OFFSET, thickness: FALLBACK_UNDERLINE.thickness } };
+  return m ? { underline: m.underline, strike: m.strike, xHeight: m.xHeight } : { underline: FALLBACK_UNDERLINE, strike: { offset: FALLBACK_STRIKE_OFFSET, thickness: FALLBACK_UNDERLINE.thickness } };
 }
 
 /** Load a text font for display and its metrics for layout. */

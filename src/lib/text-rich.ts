@@ -52,6 +52,12 @@ export function sameFormat(a: RunFormat, b: RunFormat): boolean {
   );
 }
 
+/** A paragraph's list fields, only when it's a list item (a plain paragraph has none). */
+export function listOf(p: TextParagraph): Pick<TextParagraph, 'list' | 'level'> {
+  if (!p.list) return {};
+  return p.level ? { list: p.list, level: p.level } : { list: p.list };
+}
+
 /** Merge neighbouring runs with the same format and drop empty ones (an empty paragraph keeps one). */
 export function normalize(paragraphs: readonly TextParagraph[]): TextParagraph[] {
   return paragraphs.map((p) => {
@@ -62,13 +68,13 @@ export function normalize(paragraphs: readonly TextParagraph[]): TextParagraph[]
       if (last && sameFormat(last, r)) runs[runs.length - 1] = { ...last, text: last.text + r.text };
       else runs.push({ ...r });
     }
-    return { runs: runs.length ? runs : [{ ...p.runs[p.runs.length - 1], text: '' }] };
+    return { ...listOf(p), runs: runs.length ? runs : [{ ...p.runs[p.runs.length - 1], text: '' }] };
   });
 }
 
 /** Set formatting on every run (the whole box selected, not being edited). */
 export function formatAllRuns(paragraphs: readonly TextParagraph[], changes: Partial<RunFormat>): TextParagraph[] {
-  return normalize(paragraphs.map((p) => ({ runs: p.runs.map((r) => ({ ...r, ...changes })) })));
+  return normalize(paragraphs.map((p) => ({ ...p, runs: p.runs.map((r) => ({ ...r, ...changes })) })));
 }
 
 /** How a new link looks: link blue, underlined (both can be changed afterwards). */
@@ -102,7 +108,7 @@ export function dropPageLinks(a: TextAnnotation, gone: (pageId: string) => boole
       previous = r.link;
       return dead ? { ...unlinkStyle(r, a.color), text: r.text } : r;
     });
-    return runs.some((r, i) => r !== p.runs[i]) ? { runs } : p;
+    return runs.some((r, i) => r !== p.runs[i]) ? { ...p, runs } : p;
   });
   return removed ? { annot: { ...a, paragraphs: normalize(paragraphs) }, removed } : { annot: a, removed: 0 };
 }

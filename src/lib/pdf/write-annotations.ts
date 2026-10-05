@@ -4,7 +4,7 @@
 import { faceKey, fontMetrics } from '../font-catalog';
 import { FALLBACK_STRIKE_OFFSET, FALLBACK_UNDERLINE, parseFontMetrics, textWidth, type FontMetrics } from '../font-metrics';
 import { layoutTextAnnotation, runsOf } from '../text-rich';
-import { linkAreas, type RichEnv, type RichLayout, type Segment } from '../text-rich-layout';
+import { CIRCLE_LINE_EM, linkAreas, type ListMarker, type RichEnv, type RichLayout, type Segment } from '../text-rich-layout';
 import { bubblePath, NOTE_LINE_WIDTH, NOTE_LINES, NOTE_STROKE, toPdfPath } from '../note-shape';
 import {
   beginText,
@@ -188,14 +188,25 @@ async function drawImageIntoPage(doc: PDFDocument, page: PDFPage, a: ImageAnnota
  * exactly under the annotation, like OCR text: search, selection and copying
  * work everywhere, and the annotation stays editable in apps that support it.
  */
-function addSearchableText(doc: PDFDocument, page: PDFPage, a: TextAnnotation, { layout, faces }: TextLayout) {
+function addSearchableText(doc: PDFDocument, page: PDFPage, a: TextAnnotation, { layout, faces, env }: TextLayout) {
   if (!layout.lines.some((l) => l.text.trim())) return;
   const keys = new Map<FontKey, PDFName>();
   for (const [key, face] of faces) keys.set(key, page.node.newFontDictionary('BlitzText', face.font.ref));
   const [, h] = uprightSize(a);
   // Same placement a viewer uses for the appearance: its rotated box moved onto Rect.
   const ops: PDFOperator[] = [pushGraphicsState(), concatTransformationMatrix(...boxToPage(a)), beginText(), setTextRenderingMode(TextRenderingMode.Invisible)];
+  // List numbers first on their line, so a copied item reads "1. Item".
+  const numberAt = new Map(layout.markers.flatMap((m) => (m.kind === 'number' ? [[m.baseline, m] as const] : [])));
   for (const line of layout.lines) {
+    const num = numberAt.get(line.baseline);
+    if (num) {
+      const key = faceKey(num.run.font, num.run.bold, num.run.italic);
+      ops.push(
+        setFontAndSize(keys.get(key)!, num.run.size),
+        setTextMatrix(1, 0, 0, 1, num.right - env.measure(num.run, num.text), h - num.baseline),
+        showText(faces.get(key)!.font.encodeText(`${num.text} `)),
+      );
+    }
     line.segments.forEach((s, i) => {
       // A trailing space keeps lines apart when the text is copied or searched.
       const text = i === line.segments.length - 1 ? `${s.text} ` : s.text;
@@ -407,7 +418,7 @@ async function boxedAppearance(doc: PDFDocument, a: BoxedAnnotation, fonts: Font
 
   switch (a.type) {
     case 'text': {
-      const { layout, faces } = await richTextLayout(doc, a, fonts);
+      const { layout, faces, env } = await richTextLayout(doc, a, fonts);
       const names = new Map<FontKey, string>();
       const fontRefs: Record<string, PDFRef> = {};
       [...faces.keys()].forEach((key, i) => {
@@ -427,10 +438,21 @@ async function boxedAppearance(doc: PDFDocument, a: BoxedAnnotation, fonts: Font
           runs.push(`${rgb(s.run.color)} rg /${names.get(key)} ${n(s.run.size)} Tf 1 0 0 1 ${n(s.x)} ${n(h - line.baseline)} Tm ${show}`);
         }
       }
-      // Background first, then the text, then underline / strikethrough bars.
+      // List markers: numbers as real text in the item's first run, right-aligned in the gutter;
+      // bullets as small shapes in its color.
+      const shapes: string[] = [];
+      for (const m of layout.markers) {
+        if (m.kind === 'number') {
+          const key = faceKey(m.run.font, m.run.bold, m.run.italic);
+          const x = m.right - env.measure(m.run, m.text);
+          runs.push(`${rgb(m.run.color)} rg /${names.get(key)} ${n(m.run.size)} Tf 1 0 0 1 ${n(x)} ${n(h - m.baseline)} Tm ${faces.get(key)!.font.encodeText(m.text).toString()} Tj`);
+        } else shapes.push(markerPath(m, h));
+      }
+      // Background first, then the text and markers, then underline / strikethrough bars.
       const parts = [
         a.background ? `${rgb(a.background)} rg 0 0 ${n(w)} ${n(h)} re f` : '',
         runs.length ? `BT\n${runs.join('\n')}\nET` : '',
+        shapes.join('\n'),
         layout.bars.map((b) => `${rgb(b.run.color)} rg ${n(b.x)} ${n(h - b.y - b.h)} ${n(b.w)} ${n(b.h)} re f`).join('\n'),
       ].filter(Boolean);
       // Drawn as one transparency group, so with opacity below 100% text and
@@ -511,6 +533,17 @@ async function boxedAppearance(doc: PDFDocument, a: BoxedAnnotation, fonts: Font
       };
     }
   }
+}
+
+/** A bullet (disc, hollow circle or square) as a path, in the box's PDF frame (y up). */
+function markerPath(m: Exclude<ListMarker, { kind: 'number' }>, h: number) {
+  const r = m.size / 2;
+  const [cx, cy] = [m.cx, h - m.cy];
+  if (m.kind === 'square') return `${rgb(m.run.color)} rg ${n(cx - r)} ${n(cy - r)} ${n(2 * r)} ${n(2 * r)} re f`;
+  if (m.kind === 'disc') return `${rgb(m.run.color)} rg ${ellipsePath([cx - r, cy - r, cx + r, cy + r])} f`;
+  const line = CIRCLE_LINE_EM * m.run.size;
+  const ri = r - line / 2;
+  return `${rgb(m.run.color)} RG ${n(line)} w ${ellipsePath([cx - ri, cy - ri, cx + ri, cy + ri])} S`;
 }
 
 function roundedRect(x: number, y: number, w: number, h: number, r: number) {

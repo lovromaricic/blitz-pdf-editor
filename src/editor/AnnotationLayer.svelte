@@ -320,7 +320,7 @@
     const runs = [...last.runs];
     while (runs.length > 1 && !runs[runs.length - 1].text.trim()) runs.pop();
     runs[runs.length - 1] = { ...runs[runs.length - 1], text: runs[runs.length - 1].text.replace(/\s+$/, '') };
-    out[out.length - 1] = { runs };
+    out[out.length - 1] = { ...last, runs };
     return out;
   }
 

@@ -140,6 +140,8 @@ export function wordRuns(line: LineBox, measure: Measure): { text: string; x: nu
 export interface DecorationMetrics {
   underline: { offset: number; thickness: number };
   strike: { offset: number; thickness: number };
+  /** Height of lowercase letters in em (list bullets center on it); a common value when unknown. */
+  xHeight?: number;
 }
 
 /** A filled bar in box coordinates. */

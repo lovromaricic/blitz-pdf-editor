@@ -3,7 +3,7 @@
 import { NOTE_OUTLINE, rgbToCss, STAMP_TEXT_RATIO, type BoxedAnnotation, type Point, type TextAnnotation } from './annotations';
 import { loadMetrics, screenEnv } from './font-metrics-store.svelte';
 import { layoutTextAnnotation, runsOf } from './text-rich';
-import { segmentRuns } from './text-rich-layout';
+import { CIRCLE_LINE_EM, segmentRuns, type ListMarker } from './text-rich-layout';
 import { boxedGeometry } from './annotation-view';
 import { cssFont, cssFontFor, ensureFontsFor, loadFonts } from './fonts';
 import { bubblePath, NOTE_LINE_WIDTH, NOTE_LINES, NOTE_STROKE, traceCanvas } from './note-shape';
@@ -13,7 +13,7 @@ const DESCENT = 0.293;
 
 /** A text box in its upright frame (origin top-left, px): background, each run's text, underline / strikethrough, from the shared layout. */
 function drawTextBox(ctx: CanvasRenderingContext2D, a: TextAnnotation, scale: number, w: number, h: number) {
-  const { lines, bars } = layoutTextAnnotation(a, screenEnv);
+  const { lines, bars, markers } = layoutTextAnnotation(a, screenEnv);
   if (a.background) {
     ctx.fillStyle = rgbToCss(a.background);
     ctx.fillRect(0, 0, w, h);
@@ -31,6 +31,35 @@ function drawTextBox(ctx: CanvasRenderingContext2D, a: TextAnnotation, scale: nu
   for (const b of bars) {
     ctx.fillStyle = rgbToCss(b.run.color);
     ctx.fillRect(b.x * scale, b.y * scale, b.w * scale, b.h * scale);
+  }
+  for (const m of markers) drawMarker(ctx, m, scale);
+}
+
+/** A list marker, as the PDF draws it (write-annotations.ts): a shape, or the number as text. */
+function drawMarker(ctx: CanvasRenderingContext2D, m: ListMarker, scale: number) {
+  const color = rgbToCss(m.run.color);
+  if (m.kind === 'number') {
+    ctx.font = cssFontFor(m.run, m.run.size * scale);
+    ctx.fillStyle = color;
+    ctx.fillText(m.text, (m.right - screenEnv.measure(m.run, m.text)) * scale, m.baseline * scale);
+    return;
+  }
+  const r = (m.size / 2) * scale;
+  const [x, y] = [m.cx * scale, m.cy * scale];
+  ctx.beginPath();
+  if (m.kind === 'square') {
+    ctx.fillStyle = color;
+    ctx.fillRect(x - r, y - r, 2 * r, 2 * r);
+  } else if (m.kind === 'disc') {
+    ctx.fillStyle = color;
+    ctx.arc(x, y, r, 0, 2 * Math.PI);
+    ctx.fill();
+  } else {
+    const line = CIRCLE_LINE_EM * m.run.size * scale;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = line;
+    ctx.arc(x, y, r - line / 2, 0, 2 * Math.PI);
+    ctx.stroke();
   }
 }
 

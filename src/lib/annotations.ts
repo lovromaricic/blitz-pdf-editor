@@ -81,8 +81,17 @@ export interface TextRun {
 }
 
 /** A paragraph: runs in order. An empty paragraph keeps one empty run (its size sets the line height). */
+/** A list paragraph's marker: a bullet or a number. */
+export type ListKind = 'bullet' | 'number';
+/** List indent levels: 0, 1 and 2. */
+export const MAX_LIST_LEVEL = 2;
+
 export interface TextParagraph {
   runs: TextRun[];
+  /** A list item (no value: a plain paragraph). */
+  list?: ListKind;
+  /** The list item's indent level, 0 to MAX_LIST_LEVEL (no value: 0). */
+  level?: number;
 }
 
 export interface TextAnnotation extends Boxed {

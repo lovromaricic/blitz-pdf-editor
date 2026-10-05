@@ -12,11 +12,14 @@ export interface FontMetrics {
   underline: { offset: number; thickness: number };
   /** Strikethrough: top edge above the baseline and thickness, in em. */
   strike: { offset: number; thickness: number };
+  /** Height of lowercase letters, in em (list bullets are centered on it). */
+  xHeight: number;
 }
 
 /** When a font has no usable post / OS/2 values. */
 export const FALLBACK_UNDERLINE = { offset: 0.1, thickness: 0.07 };
 export const FALLBACK_STRIKE_OFFSET = 0.3;
+export const FALLBACK_X_HEIGHT = 0.5;
 
 const tag = (v: DataView, o: number) => String.fromCharCode(v.getUint8(o), v.getUint8(o + 1), v.getUint8(o + 2), v.getUint8(o + 3));
 
@@ -60,13 +63,19 @@ export function parseFontMetrics(bytes: Uint8Array): FontMetrics {
     if (thickness > 0 && position < 0) underline = { offset: -position, thickness };
   }
   let strike = { offset: FALLBACK_STRIKE_OFFSET, thickness: underline.thickness };
+  let xHeight = FALLBACK_X_HEIGHT;
   const os2 = tables.get('OS/2');
   if (os2 !== undefined) {
     const size = v.getInt16(os2 + 26) / upm;
     const position = v.getInt16(os2 + 28) / upm;
     if (size > 0 && position > 0) strike = { offset: position, thickness: size };
+    // sxHeight exists from OS/2 version 2 on.
+    if (v.getUint16(os2) >= 2) {
+      const x = v.getInt16(os2 + 86) / upm;
+      if (x > 0.2 && x < 1) xHeight = x;
+    }
   }
-  return { advance, has: (cp) => glyphOf(cp) !== 0, underline, strike };
+  return { advance, has: (cp) => glyphOf(cp) !== 0, underline, strike, xHeight };
 }
 
 /** Glyph id for a code point from the best Unicode cmap subtable (format 12, else 4); 0 (.notdef) if missing. */

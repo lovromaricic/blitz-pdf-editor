@@ -1,0 +1,506 @@
+{
+ "plain": {
+  "height": 81,
+  "lines": [
+   {
+    "text": "The quick brown fox jumps over the lazy",
+    "x": 3,
+    "width": 213.9492,
+    "top": 3,
+    "height": 15,
+    "baseline": 14.604,
+    "end": false,
+    "segments": [
+     [
+      "The quick brown fox jumps over the lazy",
+      3,
+      213.9492,
+      0,
+      0
+     ]
+    ]
+   },
+   {
+    "text": "dog near the river bank, Čačić Đurđa",
+    "x": 3,
+    "width": 192.5039,
+    "top": 18,
+    "height": 15,
+    "baseline": 29.604,
+    "end": false,
+    "segments": [
+     [
+      "dog near the river bank, Čačić Đurđa",
+      3,
+      192.5039,
+      0,
+      0
+     ]
+    ]
+   },
+   {
+    "text": "šuma.",
+    "x": 3,
+    "width": 33.0234,
+    "top": 33,
+    "height": 15,
+    "baseline": 44.604,
+    "end": true,
+    "segments": [
+     [
+      "šuma.",
+      3,
+      33.0234,
+      0,
+      0
+     ]
+    ]
+   },
+   {
+    "text": "",
+    "x": 3,
+    "width": 0,
+    "top": 48,
+    "height": 15,
+    "baseline": 59.604,
+    "end": true,
+    "segments": []
+   },
+   {
+    "text": "Second paragraph",
+    "x": 3,
+    "width": 97.5234,
+    "top": 63,
+    "height": 15,
+    "baseline": 74.604,
+    "end": true,
+    "segments": [
+     [
+      "Second paragraph",
+      3,
+      97.5234,
+      0,
+      0
+     ]
+    ]
+   }
+  ],
+  "bars": [],
+  "links": []
+ },
+ "mixed": {
+  "height": 66,
+  "lines": [
+   {
+    "text": "Small Big and The quick brown fox",
+    "x": 3,
+    "width": 200.2695,
+    "top": 3,
+    "height": 30,
+    "baseline": 26.784,
+    "end": false,
+    "segments": [
+     [
+      "Small ",
+      3,
+      32.9883,
+      0,
+      0
+     ],
+     [
+      "Big",
+      35.9883,
+      37.08,
+      0,
+      0
+     ],
+     [
+      " and The quick brown fox",
+      73.0683,
+      130.2012,
+      0,
+      0
+     ]
+    ]
+   },
+   {
+    "text": "jumps over the lazy dog near the river",
+    "x": 3,
+    "width": 193.3359,
+    "top": 33,
+    "height": 15,
+    "baseline": 44.604,
+    "end": false,
+    "segments": [
+     [
+      "jumps over the lazy dog near the river",
+      3,
+      193.3359,
+      0,
+      0
+     ]
+    ]
+   },
+   {
+    "text": "bank, Čačić Đurđa šuma.",
+    "x": 3,
+    "width": 128.7598,
+    "top": 48,
+    "height": 15,
+    "baseline": 59.604,
+    "end": true,
+    "segments": [
+     [
+      "bank, Čačić Đurđa šuma.",
+      3,
+      128.7598,
+      0,
+      0
+     ]
+    ]
+   }
+  ],
+  "bars": [
+   [
+    73.0683,
+    27.6629,
+    130.2012,
+    0.5859
+   ],
+   [
+    3,
+    45.4829,
+    193.3359,
+    0.5859
+   ],
+   [
+    3,
+    60.4829,
+    128.7598,
+    0.5859
+   ]
+  ],
+  "links": []
+ },
+ "center": {
+  "height": 69,
+  "lines": [
+   {
+    "text": "The quick brown fox jumps over",
+    "x": 10.8208,
+    "width": 198.3584,
+    "top": 3,
+    "height": 21,
+    "baseline": 18.288,
+    "end": false,
+    "segments": [
+     [
+      "The quick brown fox jumps over",
+      10.8208,
+      198.3584,
+      0,
+      0
+     ]
+    ]
+   },
+   {
+    "text": "the lazy dog near the river bank,",
+    "x": 11.8667,
+    "width": 196.2666,
+    "top": 24,
+    "height": 21,
+    "baseline": 39.288,
+    "end": false,
+    "segments": [
+     [
+      "the lazy dog near the river bank,",
+      11.8667,
+      196.2666,
+      0,
+      0
+     ]
+    ]
+   },
+   {
+    "text": "Čačić Đurđa šuma.",
+    "x": 50.9512,
+    "width": 118.0977,
+    "top": 45,
+    "height": 21,
+    "baseline": 60.288,
+    "end": true,
+    "segments": [
+     [
+      "Čačić Đurđa šuma.",
+      50.9512,
+      118.0977,
+      0,
+      0
+     ]
+    ]
+   }
+  ],
+  "bars": [],
+  "links": []
+ },
+ "right": {
+  "height": 51,
+  "lines": [
+   {
+    "text": "The quick brown fox jumps over the",
+    "x": 7.882,
+    "width": 209.118,
+    "top": 3,
+    "height": 15,
+    "baseline": 14.766,
+    "end": false,
+    "segments": [
+     [
+      "The quick brown fox jumps over the",
+      7.882,
+      209.118,
+      0,
+      0
+     ]
+    ]
+   },
+   {
+    "text": "lazy dog near the river bank, Čačić",
+    "x": 19.552,
+    "width": 197.448,
+    "top": 18,
+    "height": 15,
+    "baseline": 29.766,
+    "end": false,
+    "segments": [
+     [
+      "lazy dog near the river bank, Čačić",
+      19.552,
+      197.448,
+      0,
+      0
+     ]
+    ]
+   },
+   {
+    "text": "Đurđa šuma.",
+    "x": 143.674,
+    "width": 73.326,
+    "top": 33,
+    "height": 15,
+    "baseline": 44.766,
+    "end": true,
+    "segments": [
+     [
+      "Đurđa šuma.",
+      143.674,
+      73.326,
+      0,
+      0
+     ]
+    ]
+   }
+  ],
+  "bars": [
+   [
+    7.882,
+    11.136,
+    209.118,
+    0.36
+   ],
+   [
+    19.552,
+    26.136,
+    197.448,
+    0.36
+   ],
+   [
+    143.674,
+    41.136,
+    73.326,
+    0.36
+   ]
+  ],
+  "links": []
+ },
+ "justify": {
+  "height": 110,
+  "lines": [
+   {
+    "text": "The quick brown fox jumps over the lazy dog",
+    "x": 3,
+    "width": 214,
+    "top": 3,
+    "height": 20,
+    "baseline": 16.42,
+    "end": false,
+    "segments": [
+     [
+      "The quick brown fox jumps over the lazy dog",
+      3,
+      214,
+      2.0338,
+      0
+     ]
+    ]
+   },
+   {
+    "text": "near the river bank, Čačić Đurđa šuma. The",
+    "x": 3,
+    "width": 214,
+    "top": 23,
+    "height": 20,
+    "baseline": 36.42,
+    "end": false,
+    "segments": [
+     [
+      "near the river bank, Čačić Đurđa šuma. The",
+      3,
+      214,
+      3.3944,
+      0
+     ]
+    ]
+   },
+   {
+    "text": "quick brown fox jumps over the lazy dog near",
+    "x": 3,
+    "width": 214,
+    "top": 43,
+    "height": 20,
+    "baseline": 56.42,
+    "end": false,
+    "segments": [
+     [
+      "quick brown fox jumps over the lazy dog near",
+      3,
+      214,
+      1.6743,
+      0
+     ]
+    ]
+   },
+   {
+    "text": "the river bank, Čačić Đurđa šuma.",
+    "x": 3,
+    "width": 148.8477,
+    "top": 63,
+    "height": 20,
+    "baseline": 76.42,
+    "end": true,
+    "segments": [
+     [
+      "the river bank, Čačić Đurđa šuma.",
+      3,
+      148.8477,
+      0,
+      0
+     ]
+    ]
+   },
+   {
+    "text": "Last line stays left",
+    "x": 3,
+    "width": 96.7617,
+    "top": 83,
+    "height": 24,
+    "baseline": 99.104,
+    "end": true,
+    "segments": [
+     [
+      "Last line stays left",
+      3,
+      96.7617,
+      0,
+      0
+     ]
+    ]
+   }
+  ],
+  "bars": [],
+  "links": []
+ },
+ "link": {
+  "height": 36,
+  "lines": [
+   {
+    "text": "See the long linked",
+    "x": 3,
+    "width": 100.4824,
+    "top": 3,
+    "height": 15,
+    "baseline": 14.604,
+    "end": false,
+    "segments": [
+     [
+      "See ",
+      3,
+      22.8281,
+      0,
+      0
+     ],
+     [
+      "the long linked",
+      25.8281,
+      77.6543,
+      0,
+      0
+     ]
+    ]
+   },
+   {
+    "text": "words here after.",
+    "x": 3,
+    "width": 90.4629,
+    "top": 18,
+    "height": 15,
+    "baseline": 29.604,
+    "end": true,
+    "segments": [
+     [
+      "words here",
+      3,
+      59.2676,
+      0,
+      0
+     ],
+     [
+      " after.",
+      62.2676,
+      31.1953,
+      0,
+      0
+     ]
+    ]
+   }
+  ],
+  "bars": [
+   [
+    25.8281,
+    15.4829,
+    77.6543,
+    0.5859
+   ],
+   [
+    3,
+    30.4829,
+    59.2676,
+    0.5859
+   ]
+  ],
+  "links": [
+   [
+    25.8281,
+    3,
+    77.6543,
+    15
+   ],
+   [
+    3,
+    18,
+    59.2676,
+    15
+   ]
+  ]
+ }
+}
