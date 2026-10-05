@@ -13,6 +13,7 @@
   import { storedImage } from '../../lib/image-store';
   import { CROP_STRINGS as C, IMAGE_STRINGS as T } from '../../lib/strings';
   import { cropOf, cropPixels, RATIOS } from '../../lib/image-crop';
+  import { isMac } from '../../lib/commands';
   import { ICON } from '../tools';
   import Range from '../../components/Range.svelte';
   import PanelHeader from './PanelHeader.svelte';
@@ -138,7 +139,7 @@
       <button type="button" class="btn btn-soft" disabled={!actions.canResetCrop(ref)} onclick={() => actions.resetCrop(ref)}>{C.reset}</button>
     </div>
     <p class="hint">{C.hint}</p>
-    <p class="hint">{C.keys}</p>
+    <p class="hint">{C.keys(isMac ? 'Option' : 'Alt')}</p>
   </div>
 {:else if sel && image}
   <div class="panel-form">

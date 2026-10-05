@@ -14,6 +14,7 @@ import { canvasToBlob, createRasterizer } from './rasterize';
 import { addOcrText, analyzeSources, blankPdfInWorker, compressSources, estimateCompression, imagesToPdfInWorker, redactInWorker, writePdf, writePdfs } from './pdf/pdf-writer';
 import type { Rect } from './annotations';
 import { findMatchRects } from './search.svelte';
+import { isMac } from './commands';
 import { CROP_STRINGS, FLATTEN_STRINGS, IMAGE_STRINGS, NEW_PDF_STRINGS, OBJECT_STRINGS } from './strings';
 import { addImageFile, storedImage, type StoredImage } from './image-store';
 import { applyCropView, applyRatio, cropOf, cropPixels, enterCropFor, isFull, isPortrait, ratioValue, sameCrop, swapFrame, viewToCrop, type CropSession, type CropView, type RatioId } from './image-crop';
@@ -1007,7 +1008,7 @@ export class Actions {
     this.viewer.selectAnnot(ref);
     const a = this.findAnnot(ref.pageId, ref.id)!.annot as ImageAnnotation;
     this.viewer.imageCrop = this.cropSession(ref.pageId, a, 'free');
-    this.viewer.announce(CROP_STRINGS.started);
+    this.viewer.announce(CROP_STRINGS.started(isMac ? 'Option' : 'Alt'));
   }
 
   private cropSession(pageId: string, a: ImageAnnotation, ratio: RatioId): CropSession {

@@ -70,6 +70,17 @@
       ],
     },
     {
+      menu: 'Cropping an image',
+      rows: [
+        { label: 'Start cropping the selected image', keys: ['double-click', 'Crop button', 'right-click › Crop…'] },
+        { label: 'Move the image under the frame (Shift: 10× further)', keys: ['← ↑ → ↓', 'Shift+arrows'] },
+        { label: 'Resize the frame from its bottom-right corner', keys: [`${isMac ? 'Option' : 'Alt'}+arrows`] },
+        { label: 'To the crop options in the panel', keys: ['Tab'] },
+        { label: 'Apply the crop', keys: ['Enter', 'click outside the image'] },
+        { label: 'Cancel', keys: ['Esc'] },
+      ],
+    },
+    {
       menu: 'Page thumbnails',
       rows: [
         { label: 'Select several pages', keys: ['Shift+click', `${mod}+click`] },
@@ -107,6 +118,7 @@
           <li><strong>Pages:</strong> use the thumbnails on the left. Drag to reorder, right-click for rotate, delete and extract. The <em>Page</em> menu has the same actions.</li>
           <li><strong>New PDF:</strong> <em>File › New blank PDF</em> starts a document from empty pages (A4, US Letter, A5, Legal or your own size). It opens as "Untitled.pdf".</li>
           <li><strong>Images:</strong> <em>Page › Insert image</em> puts a picture on the current page; you can also drag an image file onto a page or paste one with {mod}+V. Drag it, its corners and its round handle to move, resize and rotate; the panel on the right has exact sizes, flip, opacity and order.</li>
+          <li><strong>Cropping images:</strong> double-click an image (or use <em>Crop</em> in its panel, or right-click › <em>Crop…</em>). Drag the frame's handles, drag the image to choose what shows, pick a ratio in the panel, then press Enter or click outside it. Nothing is lost until you save: crop again to bring back what you cut off, or use <em>Reset crop</em>. The saved PDF keeps only the cropped part.</li>
           <li><strong>Text:</strong> pick the Text tool and click on the page. Select words to make them bold, bigger or another colour with the panel on the right; with no words selected, the panel sets how the next words look.</li>
           <li><strong>Lists:</strong> type "- " or "1. " at the start of a line, or use the List buttons in the panel. Tab and Shift+Tab change an item's level (up to three); Enter on an empty item ends the list.</li>
           <li><strong>Links:</strong> select words and press {mod}+K (or <em>Edit › Add link</em>) to link them to a web or email address or to a page of this document. Typing an address followed by a space links it too ({mod}+Z undoes just the link). In the saved PDF the links are clickable; links to a page move with that page, and go away if it's deleted. Links in opened PDFs open with {mod}+click while the Select tool is on.</li>

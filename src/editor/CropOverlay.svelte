@@ -11,6 +11,7 @@
   import type { Frame } from '../lib/image-geometry';
   import { CROP_STRINGS } from '../lib/strings';
   import { useActions } from '../lib/actions.svelte';
+  import { isMac } from '../lib/commands';
 
   let { session, frame, scale }: { session: CropSession; frame: Frame; scale: number } = $props();
 
@@ -142,7 +143,7 @@
     onkeydown={onKey}
     {@attach dragFrom(null)}
   ></div>
-  <span id="crop-keys" class="visually-hidden">{CROP_STRINGS.keys}</span>
+  <span id="crop-keys" class="visually-hidden">{CROP_STRINGS.keys(isMac ? 'Option' : 'Alt')}</span>
   {#each HANDLES as h (h.join())}
     {@const hit = coarse.current ? 44 : 24}
     {@const x = fr[0] + ((h[0] + 1) / 2) * fr[2]}
