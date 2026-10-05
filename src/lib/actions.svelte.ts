@@ -1,7 +1,7 @@
 // Document actions. Each feature is implemented once here and invoked from
 // menus, the thumbnail context menu, keyboard shortcuts and panels alike.
 import { getContext, setContext, tick } from 'svelte';
-import { describe, newAnnotationId, round, translate, type Annotation, type ImageAnnotation, type Point } from './annotations';
+import { describe, newAnnotationId, rectFromUpright, round, translate, type Annotation, type ImageAnnotation, type Point, type TextAnnotation } from './annotations';
 import { baseName, loadFiles, newPageId, type EditorDocument, type PageRef } from './document.svelte';
 import { confirmDiscard, promptText, showDialog } from './dialogs.svelte';
 import { downloadBytes, downloadZip, pdfFileName } from './download';
@@ -23,7 +23,7 @@ import { viewportFor } from './pdf/render';
 import { focusObject, settleFocusAfterRemoval } from './focus';
 import { styleAvailable } from './text-format';
 import { ensureTextFont } from './font-metrics-store.svelte';
-import { formatTextBox } from './text-layout';
+import { DEFAULT_TEXT_WIDTH, formatTextBox, layoutText, topLeftForCenter } from './text-layout';
 import { dropPageLinks } from './text-rich';
 
 const STYLE_LABELS = { bold: 'Bold', italic: 'Italic', underline: 'Underline', strike: 'Strikethrough' } as const;
@@ -40,8 +40,11 @@ let blankCounter = 0;
 
 export const DEFAULT_IMAGE_OPTIONS: ImagesToPdfOptions = { pageSize: 'a4', margin: 28 };
 
-/** In-memory clipboard for annotations (never the system clipboard: nothing leaves the tab). */
-let annotClipboard: Annotation | null = null;
+/**
+ * In-memory clipboard for annotations (never the system clipboard: nothing
+ * leaves the tab), with the page it was copied from (or last pasted on).
+ */
+let annotClipboard: { annot: Annotation; pageId: string } | null = null;
 
 /** "page 5" or "pages 1-3,7" for file names. */
 function pagesLabel(indexes: readonly number[]) {
@@ -756,18 +759,60 @@ export class Actions {
 
   copyAnnotation() {
     const sel = this.selectedAnnot;
-    if (sel) annotClipboard = sel.annot;
+    if (sel) annotClipboard = { annot: sel.annot, pageId: sel.page.id };
   }
 
   cutAnnotation() {
     const sel = this.selectedAnnot;
     if (!sel) return;
-    annotClipboard = sel.annot;
+    annotClipboard = { annot: sel.annot, pageId: sel.page.id };
     this.deleteAnnotation(sel.page.id, sel.annot.id, 'cut');
   }
 
   canPaste() {
     return annotClipboard !== null && this.doc.pages.length > 0;
+  }
+
+  /**
+   * Text copied in another app, pasted onto the page: one new text box with it,
+   * in the current text style, in the middle of what's visible. One undo step.
+   */
+  async pasteText(text: string) {
+    const clean = text.replace(/\r\n?/g, '\n').replace(/\s+$/, '');
+    if (!clean.trim()) return;
+    const index = this.viewer.activePageIndex();
+    const page = this.doc.pages[index];
+    if (!page) return;
+    const t = $state.snapshot(this.viewer.toolProps.text);
+    await ensureTextFont(t.font);
+    const view = await this.pagePoints(page);
+    const { width, height } = view.size;
+    const area = this.viewer.visiblePageArea(index) ?? [0, 0, width, height];
+    const center = view.toPdf((area[0] + area[2]) / 2, (area[1] + area[3]) / 2);
+    const box: TextAnnotation = {
+      id: newAnnotationId(),
+      type: 'text',
+      color: t.color,
+      opacity: t.opacity,
+      font: t.font,
+      bold: t.bold,
+      italic: t.italic,
+      underline: t.underline,
+      strike: t.strike,
+      align: t.align,
+      lineSpacing: t.lineSpacing,
+      background: t.background,
+      size: t.size,
+      text: clean,
+      rotate: view.rotation,
+      rect: rectFromUpright(topLeftForCenter(center, DEFAULT_TEXT_WIDTH, t.size, view.rotation), DEFAULT_TEXT_WIDTH, t.size, view.rotation),
+    };
+    const laid = layoutText(box);
+    this.editAnnots(page.id, 'Paste text', (list) => [...list, laid]);
+    this.viewer.setTool('select');
+    this.viewer.selectAnnot({ pageId: page.id, id: laid.id });
+    await tick();
+    focusObject(laid.id);
   }
 
   /** Can a style shortcut act now? (A text box is being edited or is selected.) */
@@ -819,12 +864,17 @@ export class Actions {
     });
   }
 
-  /** Paste onto the current page, offset so the copy is visible next to the original. */
+    /**
+   * Paste onto the current page: one object, one undo step. On the page it was
+   * copied from it's offset so it's visible next to the original (each further
+   * paste a step further); on another page it lands in the same position.
+   */
   pasteAnnotation() {
     const page = this.doc.pages[this.viewer.currentIndex];
     if (!annotClipboard || !page) return;
-    const copy = { ...translate(annotClipboard, 12, -12), id: newAnnotationId() };
-    annotClipboard = copy;
+    const { annot, pageId } = annotClipboard;
+    const copy = { ...(pageId === page.id ? translate(annot, 12, -12) : annot), id: newAnnotationId() };
+    annotClipboard = { annot: copy, pageId: page.id };
     this.editAnnots(page.id, `Paste ${describe(copy).toLowerCase()}`, (list) => [...list, copy]);
     this.viewer.setTool('select');
     this.viewer.selectAnnot({ pageId: page.id, id: copy.id });

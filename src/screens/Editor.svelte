@@ -1,3 +1,12 @@
+<script module lang="ts">
+  /**
+   * The editor that owns the window-wide shortcuts and clipboard. Svelte adds
+   * and removes the window listeners with each editor; this also makes sure
+   * that, should two ever be mounted at once, only one of them acts.
+   */
+  let owner: symbol | null = null;
+</script>
+
 <script lang="ts">
   import { tick, untrack } from 'svelte';
   import { focusLost, focusSink, installFocusModality } from '../lib/focus';
@@ -6,6 +15,7 @@
   import { describe } from '../lib/annotations';
   import { IMAGE_ACCEPT } from '../lib/image-input';
   import { COMMANDS, CommandRegistry, comboFromEvent, isTextField, type CommandId, type CommandMeta } from '../lib/commands';
+  import { CLIPBOARD_KEYS, ClipboardShortcuts } from '../lib/clipboard-shortcuts';
   import { imageAcceptAttr, kindOf } from '../lib/landing/accepted-files';
   import { heicDecodes } from '../lib/landing/heic-probe';
   import { IMAGE_STRINGS } from '../lib/strings';
@@ -242,51 +252,54 @@
   // --- Clipboard: objects copied in the app, and images from other apps --------
 
   /**
-   * Copy, cut and paste shortcuts go through the browser's clipboard events, so
-   * an image copied elsewhere can be pasted. Copying an object puts only this
-   * marker on the system clipboard (never its content); the object itself stays
-   * in the tab. Browsers that send no event (Safari without a text selection)
-   * fall back to the in-app command.
+   * Copy, cut and paste: one action per keystroke (clipboard-shortcuts.ts).
+   * The clipboard event is the source: it brings images and text from other
+   * apps. Copying an object puts only a marker on the system clipboard (never
+   * its content); the object itself stays in the tab. Every path runs the same
+   * commands as the Edit menu.
    */
   const CLIPBOARD_MARK = 'application/x-blitz-object';
-  const CLIPBOARD_KEYS: Record<string, CommandId> = { 'mod+c': 'edit.copy', 'mod+x': 'edit.cut', 'mod+v': 'edit.paste' };
-  let clipboardPending: string | null = null;
+  const me = Symbol('editor');
+  $effect(() => {
+    owner = me;
+    return () => {
+      if (owner === me) owner = null;
+    };
+  });
+  const clipboard = new ClipboardShortcuts((id) => commands.run(id));
 
   function clipboardShortcut(e: KeyboardEvent) {
     const combo = comboFromEvent(e);
     const id = combo ? CLIPBOARD_KEYS[combo] : undefined;
     if (!id || isTextField(e.target) || document.querySelector('dialog[open]')) return false;
-    clipboardPending = combo;
-    // The clipboard event (if any) fires before this runs.
-    setTimeout(() => {
-      if (clipboardPending !== combo) return;
-      clipboardPending = null;
-      commands.run(id);
-    });
+    clipboard.keydown(id);
     return true;
   }
 
   function onClipboard(e: ClipboardEvent) {
-    clipboardPending = null;
+    if (owner !== me) return;
     if (compareFile || isTextField(e.target) || document.querySelector('dialog[open]')) return;
-    if (e.type === 'paste') {
+    const type = e.type as 'copy' | 'cut' | 'paste';
+    if (type === 'paste') {
       const data = e.clipboardData;
+      const ours = !!data?.types.includes(CLIPBOARD_MARK);
       const images = Array.from(data?.files ?? []).filter((f) => f.type.startsWith('image/'));
-      if (images.length && !data?.types.includes(CLIPBOARD_MARK)) {
-        e.preventDefault();
-        void actions.insertImageFiles(images);
-      } else if (actions.canPaste()) {
-        e.preventDefault();
-        actions.pasteAnnotation();
-      }
+      const text = data?.getData('text/plain') ?? '';
+      // Our own object (its marker is on the clipboard), else what another app copied last.
+      const what = ours && actions.canPaste() ? 'object' : images.length ? 'images' : text.trim() ? 'text' : actions.canPaste() ? 'object' : null;
+      if (!what) return;
+      e.preventDefault();
+      if (!clipboard.event('paste')) return;
+      if (what === 'object') commands.run('edit.paste');
+      else if (what === 'images') void actions.insertImageFiles(images);
+      else void actions.pasteText(text);
       return;
     }
     // Copy or cut: an object if one is selected, else the browser copies selected text.
     if (!viewer.selectedAnnot) return;
     e.preventDefault();
     e.clipboardData?.setData(CLIPBOARD_MARK, '1');
-    if (e.type === 'cut') actions.cutAnnotation();
-    else actions.copyAnnotation();
+    if (clipboard.event(type)) commands.run(type === 'cut' ? 'edit.cut' : 'edit.copy');
   }
 
   // --- Dropping image files onto a page -------------------------------------------
@@ -339,6 +352,7 @@
   }
 
   function onKeyDown(e: KeyboardEvent) {
+    if (owner !== me) return;
     // Compare is a separate full-screen view: editor shortcuts don't apply there.
     if (compareFile) return;
     // A key pressed with focus lost: give it a home first (Tab keeps the browser's own starting point).

@@ -142,9 +142,12 @@ test('phones: the bottom sheet stays while typing, and tapping its controls keep
   await expect(page.locator('.page[data-index="0"]')).toBeVisible();
   await page.evaluate(() => (window as unknown as Record<string, any>).__viewer.setTool('text'));
   const pg = (await page.locator('.page[data-index="0"]').boundingBox())!;
-  await page.touchscreen.tap(pg.x + 40, pg.y + 60);
   const editor = page.getByRole('textbox', { name: 'Text', exact: true });
-  await expect(editor).toBeFocused({ timeout: 15000 });
+  // A tap before the page is ready to take it does nothing: tap again, as a person would.
+  await expect(async () => {
+    if (!(await editor.count())) await page.touchscreen.tap(pg.x + 40, pg.y + 60);
+    await expect(editor).toBeFocused({ timeout: 3000 });
+  }).toPass({ timeout: 20000 });
   await page.keyboard.type('Phone text');
   await page.keyboard.press('ControlOrMeta+a');
   const sheet = page.getByRole('region', { name: /properties/i }).or(page.locator('.sheet')).first();
