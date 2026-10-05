@@ -21,6 +21,7 @@ Design and contribution rules (tokens only, bundled font, no network requests, r
 | `npm run dev` | Dev server at http://localhost:5173 |
 | `npm run check` | Type-check TypeScript and Svelte |
 | `npm test` | Run unit tests (Vitest) |
+| `npm run e2e` | Run browser tests (Playwright, in the installed Google Chrome; starts its own dev server on port 5199) |
 | `npm run build` | Build the static site into `dist/` |
 | `npm run preview` | Serve `dist/` locally to check the build |
 

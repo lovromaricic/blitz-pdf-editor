@@ -2,17 +2,46 @@
   import { tick } from 'svelte';
   import { COMMANDS, formatKeys, type CommandId, type CommandMeta, type CommandRegistry } from '../lib/commands';
   import { MENUS, type MenuEntry } from './menus';
+  import { placeSubmenu, SubmenuIntent, type Hover } from '../lib/submenu';
 
   let { commands }: { commands: CommandRegistry } = $props();
 
   let openIndex = $state<number | null>(null);
   let openSub = $state<string | null>(null);
+  /** Hover intent for submenus: close delay and safe triangle (shared helper). */
+  const intent = new SubmenuIntent((id) => (openSub = id));
+  $effect(() => () => intent.dispose());
+
+  /** What a mouse or pen is over inside an open menu. */
+  function hoverAt(target: EventTarget | null): Hover {
+    const el = target instanceof Element ? target : null;
+    if (el?.closest('[data-sub]')) return { kind: 'submenu' };
+    const parent = el?.closest<HTMLElement>('[data-sub-trigger], .has-sub');
+    const id = parent?.dataset.subTrigger ?? parent?.querySelector<HTMLElement>('[data-sub-trigger]')?.dataset.subTrigger;
+    return id ? { kind: 'parent', id } : { kind: 'item' };
+  }
+
+  function onMenuPointer(e: PointerEvent, leaving = false) {
+    // Touch has no hover: submenus open by tapping their parent item.
+    if (e.pointerType === 'touch') return;
+    intent.pointer([e.clientX, e.clientY], leaving ? null : hoverAt(e.target));
+  }
+
+  /** Place an open submenu inside the window (left of its parent if needed, shifted up) and tell the intent where it is. */
+  function placeSub(node: HTMLElement) {
+    const parent = node.parentElement!.getBoundingClientRect();
+    const { side, shiftUp } = placeSubmenu(parent, node.offsetWidth, node.offsetHeight, window.innerWidth, window.innerHeight, 4);
+    node.dataset.side = side;
+    if (shiftUp) node.style.transform = `translateY(${-shiftUp}px)`;
+    intent.setSubmenu(node.getBoundingClientRect(), side);
+    return () => intent.setSubmenu(null);
+  }
   let bar: HTMLElement;
   const triggers = $state<HTMLButtonElement[]>([]);
 
   async function openMenu(i: number, focus: 'first' | 'last' | null = 'first') {
     openIndex = (i + MENUS.length) % MENUS.length;
-    openSub = null;
+    intent.close();
     await tick();
     if (focus) focusItem(currentList(), focus === 'first' ? 0 : -1);
   }
@@ -20,7 +49,7 @@
   function closeMenu(returnFocus = true) {
     const i = openIndex;
     openIndex = null;
-    openSub = null;
+    intent.close();
     if (returnFocus && i !== null) triggers[i]?.focus();
   }
 
@@ -100,7 +129,7 @@
         e.preventDefault();
         if (inSub) {
           const label = list.dataset.sub!;
-          openSub = null;
+          intent.close();
           bar.querySelector<HTMLElement>(`[data-sub-trigger="${label}"]`)?.focus();
         } else {
           openMenu((openIndex ?? 0) - 1);
@@ -111,7 +140,7 @@
         e.stopPropagation();
         if (inSub) {
           const label = list.dataset.sub!;
-          openSub = null;
+          intent.close();
           bar.querySelector<HTMLElement>(`[data-sub-trigger="${label}"]`)?.focus();
         } else {
           closeMenu();
@@ -123,8 +152,9 @@
     }
   }
 
+  /** Click, tap, Enter or Right Arrow: open and keep open. */
   async function openSubmenu(label: string) {
-    openSub = label;
+    intent.openNow(label);
     await tick();
     focusItem(bar.querySelector(`[data-sub="${label}"]`), 0);
   }
@@ -148,12 +178,31 @@
 <svelte:window onpointerdown={onWindowPointerDown} />
 
 {#snippet list(entries: MenuEntry[], attrs: { menu?: number; sub?: string; label: string })}
-  <ul role="menu" aria-label={attrs.label} data-menu={attrs.menu} data-sub={attrs.sub} class:submenu={attrs.sub !== undefined} onkeydown={onListKey}>
+  {#if attrs.sub !== undefined}
+    <ul role="menu" aria-label={attrs.label} data-sub={attrs.sub} class="submenu" onkeydown={onListKey} {@attach placeSub}>
+      {@render entriesOf(entries)}
+    </ul>
+  {:else}
+    <!-- Pointer tracking for the submenu hover intent (a pointer convenience; keyboard has its own paths). -->
+    <ul
+      role="menu"
+      aria-label={attrs.label}
+      data-menu={attrs.menu}
+      onkeydown={onListKey}
+      onpointermove={(e) => onMenuPointer(e)}
+      onpointerleave={(e) => onMenuPointer(e, true)}
+    >
+      {@render entriesOf(entries)}
+    </ul>
+  {/if}
+{/snippet}
+
+{#snippet entriesOf(entries: MenuEntry[])}
     {#each entries as entry, k (typeof entry === 'string' ? entry + k : entry.label)}
       {#if entry === '-'}
         <li role="separator" class="sep"></li>
       {:else if typeof entry === 'object'}
-        <li role="none" class="has-sub" onpointerenter={() => (openSub = entry.label)} onpointerleave={() => (openSub = null)}>
+        <li role="none" class="has-sub">
           <button
             type="button"
             role="menuitem"
@@ -196,7 +245,6 @@
         </li>
       {/if}
     {/each}
-  </ul>
 {/snippet}
 
 <nav class="menubar" aria-label="Main menu" bind:this={bar}>
@@ -283,6 +331,24 @@
   .submenu {
     top: calc(-6px - var(--border-width));
     left: calc(100% + 4px);
+  }
+  .submenu:global([data-side='left']) {
+    left: auto;
+    right: calc(100% + 4px);
+  }
+  /* No dead gap: an invisible bridge over the 4px between parent item and
+     submenu, overlapping the parent item by 4px, belongs to the submenu. */
+  .submenu::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    right: 100%;
+    width: calc(4px + 4px + var(--border-width));
+  }
+  .submenu:global([data-side='left'])::before {
+    right: auto;
+    left: 100%;
   }
 
   .has-sub {
