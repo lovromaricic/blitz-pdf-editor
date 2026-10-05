@@ -360,7 +360,7 @@ function pruneFormFields(doc: PDFDocument, pages: PDFPage[]) {
 }
 
 /** pdf-lib writes every object it holds, reachable or not. Remove the unreachable ones. */
-function collectGarbage(doc: PDFDocument) {
+export function collectGarbage(doc: PDFDocument) {
   const { context } = doc;
   const reachable = new Set<string>();
   const stack: PDFObject[] = [];
