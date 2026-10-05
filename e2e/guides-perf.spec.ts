@@ -24,6 +24,9 @@ test('dragging with 200 objects on the page stays near 60 fps', async ({ page })
     // One step: 200 objects at once.
     w.__doc.pages = [{ ...w.__doc.pages[0], annots: list }];
     w.__viewer.setTool('select');
+    // Everything on: margins pull and limit, smart guides pull to 200 objects.
+    w.__viewer.showMargins = true;
+    w.__viewer.keepInMargins = true;
     await w.__viewer.setZoom(1);
     w.__viewer.goToPage(0);
   });

@@ -84,5 +84,30 @@ for (const c of CASES) {
       return r[0] >= p[0] - 0.01 && r[1] >= p[1] - 0.01 && r[2] <= p[2] + 0.01 && r[3] <= p[3] + 0.01;
     });
     expect(inside).toBe(true);
+
+    // Keep objects inside margins: dragged far to the top left, it stops on the margin line.
+    await page.evaluate(async () => {
+      const w = window as unknown as W;
+      w.__viewer.keepInMargins = true;
+      // Back to the middle of the page, in view.
+      const { bounds, translate } = await import(/* @vite-ignore */ '/src/lib/annotations.ts' as string);
+      const a = w.__doc.pages[0].annots[0];
+      const r = bounds(a);
+      const p = w.__doc.pageBounds(w.__doc.pages[0]);
+      w.__actions.updateAnnotation(w.__doc.pages[0].id, translate(a, (p[0] + p[2]) / 2 - (r[0] + r[2]) / 2, (p[1] + p[3]) / 2 - (r[1] + r[3]) / 2), 'Move');
+      await new Promise((res) => setTimeout(res, 100));
+      document.querySelector('[data-annot-id="x"]')!.scrollIntoView({ block: 'center', inline: 'center' });
+    });
+    await page.waitForTimeout(400);
+    b = (await el.boundingBox())!;
+    const from2 = { x: b.x + b.width / 2, y: b.y + b.height / 2 };
+    await page.mouse.move(from2.x, from2.y);
+    await page.mouse.down();
+    await page.mouse.move(from2.x - 4000, from2.y - 4000, { steps: 8 });
+    await page.mouse.up();
+    b = (await el.boundingBox())!;
+    const g2 = (await guide.boundingBox())!;
+    expect(Math.abs(b.x - (g2.x + 0.5))).toBeLessThan(1);
+    expect(Math.abs(b.y - (g2.y + 0.5))).toBeLessThan(1);
   });
 }
