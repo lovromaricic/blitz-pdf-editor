@@ -25,6 +25,7 @@
     removeLink,
     selectedLink,
     setLink,
+    typingMarksAtLinkEdge,
     type LinkRange,
     docFromParagraphs,
     formatOf,
@@ -44,7 +45,7 @@
   import { alignOf, lineSpacingOf } from '../lib/text-format';
   import { rgbToCss } from '../lib/annotations';
   import { isMac } from '../lib/commands';
-  import { linkTarget, openExternal } from '../lib/links';
+  import { LINK_REFUSED, linkTarget, openExternal } from '../lib/links';
   import { useViewer } from '../lib/viewer.svelte';
   import LinkPopover from './LinkPopover.svelte';
   import LinkCard from './LinkCard.svelte';
@@ -100,6 +101,14 @@
         for (const m of marksFor(f)) if (missing.includes(m.type.name)) tr.addMark(pos, pos + node.nodeSize, m);
       });
       return tr.docChanged ? tr : null;
+    },
+  });
+
+  /** At either end of a link, what you type looks like the text around it, not like the link. */
+  const linkEdges = new Plugin({
+    appendTransaction(_trs, _old, state) {
+      const marks = typingMarksAtLinkEdge(state, fallback);
+      return marks ? state.tr.setStoredMarks(marks) : null;
     },
   });
 
@@ -197,7 +206,7 @@
   /** Open a link: web and email in a new tab (no access back to this one), a page by going there. */
   function follow(link: TextLink) {
     if (link.kind === 'url') {
-      if (!openExternal(link.href)) viewer.notify("This link can't be opened: only web, email and phone links are allowed.");
+      if (openExternal(link.href) === 'refused') viewer.notify(LINK_REFUSED);
       return;
     }
     const i = viewer.doc.pages.findIndex((p) => p.id === link.pageId);
@@ -210,7 +219,11 @@
     const tr = markLink(view.state.tr, range, range.link, false, fallback);
     view.dispatch(closeHistory(tr).setMeta('autolink', true));
     isolateNext = true;
+    viewer.announce('Link added');
   }
+
+  const MOD = isMac ? '⌘' : 'Ctrl';
+  const sameLink = (a: LinkRange | null, b: LinkRange | null) => !!a && !!b && JSON.stringify(a.link) === JSON.stringify(b.link);
 
   function onPointerMove(e: PointerEvent) {
     if (e.pointerType === 'touch') return;
@@ -235,7 +248,13 @@
     formats = formatsInSelection(view.state, fallback);
     const { empty, from } = view.state.selection;
     const inLink = empty ? linkRangeAt(view.state.doc, from, 'inside') : null;
-    if (inLink?.from !== caretLink?.from || inLink?.to !== caretLink?.to) caretLink = inLink;
+    if (inLink?.from !== caretLink?.from || inLink?.to !== caretLink?.to) {
+      // Moving into a link says where it goes and how to act on it (the card only shows it).
+      if (inLink && !sameLink(inLink, caretLink) && view.hasFocus()) {
+        viewer.announce(`Link: ${linkTarget(inLink.link, pageNumber)}. ${MOD}+K to edit, Alt+Enter to open.`);
+      }
+      caretLink = inLink;
+    }
   }
 
   const api: RichEditorApi = {
@@ -279,6 +298,13 @@
           'Mod-i': () => (api.toggle('italic'), true),
           'Mod-u': () => (api.toggle('underline'), true),
           'Mod-k': () => (openLink(), true),
+          // Open the link the caret is in (the card's Open, from the keyboard).
+          'Alt-Enter': (state) => {
+            const range = linkRangeAt(state.doc, state.selection.from, 'inside');
+            if (!range) return false;
+            follow(range.link);
+            return true;
+          },
           Enter: newParagraph,
           'Shift-Enter': newParagraph,
           Escape: finish,
@@ -286,6 +312,7 @@
         }),
         keymap(baseKeymap),
         keepFormats,
+        linkEdges,
         keepSelectionVisible,
       ],
     });

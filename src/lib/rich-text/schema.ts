@@ -392,3 +392,24 @@ export function autoLinkBefore(state: EditorState, pos: number): LinkRange | nul
   });
   return linked ? null : { from, to, link: { kind: 'url', href: hit.href } };
 }
+
+/**
+ * Right at either end of a link, typing would take the link's look (blue,
+ * underlined) without the link. Returns the marks to type with instead: the
+ * same format without the link look. Null when the caret isn't at a link's end
+ * (or a typing style was already chosen).
+ */
+export function typingMarksAtLinkEdge(state: EditorState, fallback: RunFormat): readonly Mark[] | null {
+  const { empty, $from } = state.selection;
+  if (!empty || state.storedMarks) return null;
+  const before = linkOf($from.nodeBefore);
+  const after = linkOf($from.nodeAfter);
+  if ((!before && !after) || sameTarget(before, after)) return null;
+  const marks = $from.marks();
+  if (marks.some((m) => m.type === schema.marks.link)) return null;
+  const f = formatOf(marks, fallback);
+  const plain = unlinkStyle(f, fallback.color);
+  return sameFormatMarks(f, plain) ? null : marksFor(plain);
+}
+
+const sameFormatMarks = (a: RunFormat, b: RunFormat) => JSON.stringify(marksFor(a)) === JSON.stringify(marksFor(b));

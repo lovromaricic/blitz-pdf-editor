@@ -40,7 +40,7 @@
     return { left, top };
   });
 
-  const openHint = `${isMac ? '⌘' : 'Ctrl'}+click the link to open it too`;
+  const openHint = `Alt+Enter, or ${isMac ? '⌘' : 'Ctrl'}+click the link`;
 </script>
 
 <!-- The pointer listeners only keep the card open and the caret in the text; the buttons are the controls. -->
@@ -59,9 +59,9 @@
   {@attach portal}
 >
   <span class="target" class:page={kind === 'page'} title={target}>{target}</span>
-  <button type="button" class="act" aria-label="Edit link" title="Edit link" onclick={onEdit}><Pencil {...ICON} aria-hidden="true" /></button>
+  <button type="button" class="act" aria-label="Edit link" title="Edit link ({isMac ? '⌘K' : 'Ctrl+K'})" onclick={onEdit}><Pencil {...ICON} aria-hidden="true" /></button>
   <button type="button" class="act" aria-label="Remove link" title="Remove link" onclick={onRemove}><Unlink {...ICON} aria-hidden="true" /></button>
-  <button type="button" class="act" aria-label={kind === 'page' ? 'Go to page' : 'Open link in a new tab'} title={kind === 'page' ? 'Go to page' : `Open in a new tab (${openHint})`} onclick={onOpen}>
+  <button type="button" class="act" aria-label={kind === 'page' ? 'Go to page' : 'Open link in a new tab'} title={kind === 'page' ? `Go to page (${openHint})` : `Open in a new tab (${openHint})`} onclick={onOpen}>
     <ExternalLink {...ICON} aria-hidden="true" />
   </button>
 </div>

@@ -279,3 +279,47 @@ test('links in an opened PDF open only with Cmd/Ctrl+click and the Select tool',
   await page.waitForTimeout(300);
   expect(opened).toBe(0);
 });
+
+test('keyboard and screen readers: Alt+Enter opens, moving into a link and changing links is announced', async ({ page, context }) => {
+  await newBox(page, 'Go to example.com now');
+  const live = page.locator('div.visually-hidden[aria-live="polite"]:not(#page-announcer)');
+  await expect(live).toHaveText('Link added');
+  // Typing right after a link looks like the text around it, not like the link.
+  await page.keyboard.press('ControlOrMeta+z');
+  await page.keyboard.press('ControlOrMeta+y');
+  for (let i = 0; i < 6; i++) await page.keyboard.press('ArrowLeft');
+  await expect(live).toHaveText(/^Link: https:\/\/example\.com\/\. (⌘|Ctrl)\+K to edit, Alt\+Enter to open\.$/);
+  const [popup] = await Promise.all([context.waitForEvent('page'), page.keyboard.press('Alt+Enter')]);
+  await popup.close();
+
+  // The form: every field has a label, errors are tied to their field, focus comes back to the text.
+  await page.keyboard.press('ControlOrMeta+k');
+  const form = page.getByRole('dialog', { name: 'Edit link' });
+  const address = form.getByRole('textbox', { name: 'Address' });
+  await address.fill('javascript:alert(1)');
+  await address.press('Enter');
+  await expect(address).toHaveAttribute('aria-invalid', 'true');
+  await expect(address).toHaveAccessibleDescription('Only web (http, https), email (mailto) and phone (tel) links are allowed.');
+  await expect(form.getByRole('radio', { name: 'Web or email' })).toBeChecked();
+  // Tab stays inside the form.
+  await form.getByRole('button', { name: 'Apply' }).focus();
+  await page.keyboard.press('Tab');
+  await expect(form.getByRole('textbox', { name: 'Text' })).toBeFocused();
+  await form.getByRole('button', { name: 'Remove' }).click();
+  await expect(live).toHaveText('Link removed');
+  await expect(page.getByRole('textbox', { name: 'Text', exact: true })).toBeFocused();
+});
+
+test('typing right after a link is plain text', async ({ page }) => {
+  await newBox(page, 'Visit example.com');
+  await page.keyboard.press('ControlOrMeta+a');
+  await page.keyboard.press('ControlOrMeta+k');
+  await page.getByRole('dialog', { name: 'Add link' }).getByLabel('Address').fill('example.com');
+  await page.getByRole('dialog', { name: 'Add link' }).getByLabel('Address').press('Enter');
+  // Caret at the end of the link: what's typed is neither link nor link-coloured.
+  await page.keyboard.type('!');
+  await expect.poll(() => editorLinks(page)).toEqual([['Visit example.com', 'https://example.com/']]);
+  const last = page.locator('.page[data-index="0"] .boxed[data-kind="text"] .line > span').last();
+  await expect(last).toHaveText('!');
+  await expect(last).toHaveCSS('color', 'rgb(0, 0, 0)');
+});

@@ -6,7 +6,7 @@
   import { fieldObjects } from '../lib/forms';
   import { useViewer } from '../lib/viewer.svelte';
   import { isMac } from '../lib/commands';
-  import { isSafeHref, openExternal } from '../lib/links';
+  import { isSafeHref, LINK_REFUSED, openExternal } from '../lib/links';
 
   let { pdfPage, viewport, page, source }: { pdfPage: PDFPageProxy; viewport: PageViewport; page: PageRef; source: Source } = $props();
 
@@ -103,7 +103,7 @@
     if (!href || href === '#') return;
     e.preventDefault();
     e.stopPropagation();
-    if (!openExternal(href)) viewer.notify("This link can't be opened: only web, email and phone links are allowed.");
+    if (openExternal(href) === 'refused') viewer.notify(LINK_REFUSED);
   }
 
   $effect(() => {

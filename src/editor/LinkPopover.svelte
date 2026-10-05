@@ -61,8 +61,20 @@
   let height = $state(0);
   let width = $state(0);
 
+  /** Phones: how much of the window the on-screen keyboard covers, so the sheet sits above it. */
+  let keyboard = $state(0);
   onMount(() => {
     (textRequired ? textField : kind === 'url' ? urlField : pageField)?.focus();
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const fit = () => (keyboard = Math.max(0, window.innerHeight - (vv.height + vv.offsetTop)));
+    fit();
+    vv.addEventListener('resize', fit);
+    vv.addEventListener('scroll', fit);
+    return () => {
+      vv.removeEventListener('resize', fit);
+      vv.removeEventListener('scroll', fit);
+    };
   });
 
   /** Below the text, or above it when there's no room below; always inside the window. */
@@ -110,6 +122,7 @@
   class:sheet={phone}
   style:left={place ? `${place.left}px` : undefined}
   style:top={place ? `${place.top}px` : undefined}
+  style:bottom={phone ? `${keyboard}px` : undefined}
   bind:clientHeight={height}
   bind:clientWidth={width}
   role="dialog"

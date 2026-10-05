@@ -20,7 +20,14 @@ test('typing in a box with ~50 pages of text stays responsive', async ({ page })
     const { layoutText } = await w.load('/src/lib/text-layout.ts');
     await ensureTextFont('roboto');
     const sentence = 'The quick brown fox jumps over the lazy dog near the river bank, Čačić. ';
-    const paragraphs = Array.from({ length: 1500 }, (_, i) => ({ runs: [{ text: sentence.repeat(2) + i, font: 'roboto', size: 11, color: [0, 0, 0], ...(i % 7 === 0 ? { bold: true } : {}) }] }));
+    const base = { font: 'roboto', size: 11, color: [0, 0, 0] };
+    // Every fifth paragraph has a link in it (they're laid out, drawn and saved like any run).
+    const paragraphs = Array.from({ length: 1500 }, (_, i) => ({
+      runs: [
+        { ...base, text: sentence.repeat(2) + i, ...(i % 7 === 0 ? { bold: true } : {}) },
+        ...(i % 5 === 0 ? [{ ...base, text: ' see example.com', color: [0.067, 0.333, 0.8], underline: true, link: { kind: 'url', href: 'https://example.com/' } }] : []),
+      ],
+    }));
     const a = layoutText({ id: 'long', type: 'text', color: [0, 0, 0], opacity: 1, font: 'roboto', size: 11, text: '', paragraphs, rotate: 0, rect: [60, 780, 540, 800] });
     w.__actions.addAnnotation(w.__doc.pages[0].id, a);
     w.__viewer.setTool('select');
@@ -34,12 +41,13 @@ test('typing in a box with ~50 pages of text stays responsive', async ({ page })
   const times: number[] = [];
   for (let i = 0; i < 12; i++) {
     times.push(
-      await page.evaluate(async () => {
+      await page.evaluate(async (i) => {
         const start = performance.now();
-        document.execCommand('insertText', false, 'x');
+        // Spaces too: each one checks for an address typed before it.
+        document.execCommand('insertText', false, i % 3 === 2 ? ' ' : 'x');
         await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
         return performance.now() - start;
-      }),
+      }, i),
     );
   }
   const later = times.slice(2).sort((a, b) => a - b);
@@ -47,5 +55,17 @@ test('typing in a box with ~50 pages of text stays responsive', async ({ page })
   test.info().annotations.push({ type: 'keystroke ms', description: times.map(Math.round).join(', ') });
   expect(median, `median keystroke ${Math.round(median)} ms`).toBeLessThan(60);
   // The typed text is in the box.
-  await expect.poll(() => page.locator('.page[data-index="0"] .boxed[data-kind="text"] .text').evaluate((el) => el.textContent!.includes('x'.repeat(12)))).toBe(true);
+  await expect.poll(() => page.locator('.page[data-index="0"] .boxed[data-kind="text"] .text').evaluate((el) => el.textContent!.includes('xx xx xx'))).toBe(true);
+
+  // Saving it all (300 links, one annotation per line) takes seconds, not minutes.
+  await page.keyboard.press('Escape');
+  const saved = await page.evaluate(async () => {
+    const w = window as unknown as Record<string, any>;
+    const { writePdf } = await w.load('/src/lib/pdf/pdf-writer.ts');
+    const start = performance.now();
+    const bytes = await writePdf(w.__doc, w.__doc.pages, 'preserve');
+    return { ms: performance.now() - start, size: bytes.length };
+  });
+  test.info().annotations.push({ type: 'save', description: `${Math.round(saved.ms)} ms, ${Math.round(saved.size / 1024)} KB` });
+  expect(saved.ms).toBeLessThan(30_000);
 });

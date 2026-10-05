@@ -16,6 +16,7 @@ import {
   schema,
   selectedLink,
   setLink,
+  typingMarksAtLinkEdge,
   selectionFormat,
   toggleFormat,
 } from '../src/lib/rich-text/schema';
@@ -200,5 +201,30 @@ describe('links', () => {
     expect(autoLinkBefore(s, 22)).toEqual({ from: 5, to: 21, link: { kind: 'url', href: 'https://example.com/docs' } });
     expect(autoLinkBefore(stateOf(paras([run('See '), link('example.com')])), 16)).toBeNull();
     expect(autoLinkBefore(stateOf(paras([run('the file.txt')])), 13)).toBeNull();
+  });
+});
+
+describe('typing next to a link', () => {
+  const WEB = { kind: 'url', href: 'https://example.com/' } as const;
+  const link = (text: string) => run(text, { link: WEB, color: LINK_COLOR, underline: true });
+  const typeAt = (s: EditorState, at: number, text: string) => {
+    s = select(s, at);
+    const marks = typingMarksAtLinkEdge(s, BASE);
+    if (marks) s = s.apply(s.tr.setStoredMarks(marks));
+    return s.apply(s.tr.insertText(text));
+  };
+
+  it('right after or before a link, typed text looks like plain text (not blue, not underlined)', () => {
+    const start = stateOf(paras([link('site'), run(' end')]));
+    expect(content(typeAt(start, 4, '!'))).toEqual(paras([link('site'), run('! end')]));
+    expect(content(typeAt(stateOf(paras([link('site')])), 0, '>'))).toEqual(paras([run('>'), link('site')]));
+  });
+
+  it('inside a link, or with a style already chosen, nothing changes', () => {
+    const s = select(stateOf(paras([link('site')])), 2);
+    expect(typingMarksAtLinkEdge(s, BASE)).toBeNull();
+    // Recoloured link text: typing after it keeps that colour (it doesn't look like a link any more).
+    const red = select(stateOf(paras([run('site', { link: WEB, color: [1, 0, 0] })])), 4);
+    expect(typingMarksAtLinkEdge(red, BASE)).toBeNull();
   });
 });

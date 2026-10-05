@@ -104,14 +104,17 @@ export function linkTarget(link: TextLink, pageNumber: (pageId: string) => numbe
 
 /**
  * Open a web, email or phone link in a new tab, with no access back to this
- * tab and no referrer. Refuses anything not allowed. Returns whether it opened.
+ * tab and no referrer. Refuses anything not allowed.
  */
-export function openExternal(href: string): boolean {
-  if (!isSafeHref(href)) return false;
-  const w = window.open(href, '_blank', 'noopener,noreferrer');
-  if (w) w.opener = null;
-  return true;
+export function openExternal(href: string): 'opened' | 'refused' {
+  if (!isSafeHref(href)) return 'refused';
+  // With noopener, window.open returns null even when the tab opened, so there is
+  // nothing to check: a blocked tab is the browser's to report (it shows its own notice).
+  window.open(href, '_blank', 'noopener,noreferrer');
+  return 'opened';
 }
+
+export const LINK_REFUSED = "This link can't be opened: only web, email and phone links are allowed.";
 
 // --- Automatic links: an address just typed (or pasted) before a space or Enter ------------------
 
