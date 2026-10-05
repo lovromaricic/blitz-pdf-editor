@@ -67,7 +67,17 @@
 
   const annots = $derived((page.annots ?? []).map((a) => (preview && a.id === preview.id ? preview : a)));
   /** In stacking order: the list order is the order on the page, bottom first, whatever the kind. */
-  const all = $derived(draft ? [...annots, draft] : annots);
+  /**
+   * What's on the page, in stacking order. A text box being typed in is drawn
+   * from its live draft (laid out as you type), so the editor shows exactly
+   * the rendered box: nothing moves when editing starts or ends.
+   */
+  const all = $derived.by(() => {
+    let list: Annotation[] = annots;
+    const e = editing;
+    if (e) list = list.some((a) => a.id === e.annot.id) ? list.map((a) => (a.id === e.annot.id ? e.annot : a)) : [...list, e.annot];
+    return draft ? [...list, draft] : list;
+  });
   const pageRotation = $derived(viewer.doc.totalRotation(page));
   /** The page as shown (crop applied), in this layer's px: images can't be dragged entirely outside it. */
   const pageArea = $derived.by((): Rect => {
@@ -254,7 +264,6 @@
     editText = a.text;
     await tick();
     editor?.focus();
-    autoSize();
   }
 
   /** A style shortcut while typing: the box being edited changes now (an existing box: one undo step). */
@@ -275,7 +284,7 @@
         actions.updateAnnotation(page.id, style === 'bold' || style === 'italic' ? layoutText(next) : next, { bold: 'Bold', italic: 'Italic', underline: 'Underline', strike: 'Strikethrough' }[style]);
       }
     }
-    void tick().then(autoSize);
+    void tick().then(() => editor?.focus());
   }
 
   async function commitEdit() {
@@ -294,19 +303,15 @@
     else actions.updateAnnotation(page.id, laid, 'Edit text');
   }
 
-  function autoSize() {
-    if (!editor) return;
-    editor.style.height = 'auto';
-    editor.style.height = `${editor.scrollHeight}px`;
+  /** Typing lays the draft out again with the shared layout: same line breaks, same height as when saved. */
+  function onEditInput() {
+    const e = editing;
+    if (!e) return;
+    editing = { ...e, annot: layoutText({ ...e.annot, text: editText }) };
   }
 
-  const editGeom = $derived.by(() => {
-    if (!editing) return null;
-    const a = editing.annot;
-    const [x, y] = toScreen(uprightTopLeft(a));
-    const g = boxedGeometry(a, toScreen, viewer.scale, pageRotation);
-    return { x, y, w: g.w, turn: g.turn };
-  });
+  /** The edit field covers the box exactly: same center, size and turn as BoxedView draws it. */
+  const editGeom = $derived(editing ? boxedGeometry(editing.annot, toScreen, viewer.scale, pageRotation) : null);
 
   // Leaving the Text tool (or the page) finishes the edit.
   $effect(() => {
@@ -649,8 +654,8 @@
   }
 
   const handles = $derived.by((): Handle[] => {
-    const a = preview ?? selected;
-    if (!a || !selecting) return [];
+    const a = editing?.annot ?? preview ?? selected;
+    if (!a || (!selecting && !editing)) return [];
     if (a.type === 'image') return imageHandles(a);
     if (a.type === 'shape' && (a.shape === 'line' || a.shape === 'arrow')) {
       const original = a;
@@ -693,7 +698,8 @@
   });
 
   const selectionBox = $derived.by(() => {
-    const a = preview ?? selected;
+    // While typing, the outline follows the box as it grows.
+    const a = editing?.annot ?? preview ?? selected;
     if (!a || a.type === 'image') return null;
     if (isBoxed(a)) {
       const b = screenBox([toScreen([a.rect[0], a.rect[1]]), toScreen([a.rect[2], a.rect[3]])]);
@@ -762,7 +768,7 @@
      what's drawn on top is also what's clicked and tabbed to last. -->
 {#each all as a (a.id)}
   {#if isBoxed(a)}
-    <BoxedView {a} {toScreen} scale={viewer.scale} {pageRotation} hidden={editing?.annot.id === a.id} z={4} />
+    <BoxedView {a} {toScreen} scale={viewer.scale} {pageRotation} z={4} />
     {#if selecting}
       {@const g = boxedGeometry(a, toScreen, viewer.scale, pageRotation)}
       <div
@@ -801,21 +807,21 @@
     class="text-editor"
     aria-label="Text"
     spellcheck="true"
-    style:left="{editGeom.x}px"
-    style:top="{editGeom.y}px"
+    placeholder="Type here"
+    style:left="{editGeom.cx}px"
+    style:top="{editGeom.cy}px"
     style:width="{editGeom.w}px"
-    style:transform="rotate({editGeom.turn}deg)"
+    style:height="{editGeom.h}px"
+    style:transform="translate(-50%, -50%) rotate({editGeom.turn}deg)"
     style:font-family={cssFamily(a.font)}
     style:font-weight={resolveStyle(a).bold ? 700 : 400}
     style:font-style={resolveStyle(a).italic ? 'italic' : 'normal'}
     style:font-size="{a.size * viewer.scale}px"
     style:line-height={lineSpacingOf(a)}
     style:padding="{TEXT_PADDING * viewer.scale}px"
-    style:color={rgbToCss(a.color)}
+    style:caret-color={rgbToCss(a.color)}
     style:text-align={alignOf(a)}
-    style:text-decoration-line={[a.underline && 'underline', a.strike && 'line-through'].filter(Boolean).join(' ') || undefined}
-    style:background={a.background ? rgbToCss(a.background) : undefined}
-    oninput={autoSize}
+    oninput={onEditInput}
     onblur={() => void commitEdit()}
     onpointerdown={(e) => e.stopPropagation()}
     onkeydown={(e) => {
@@ -841,6 +847,7 @@
   {#if selectionBox}
     <rect
       class="sel-box"
+      class:editing={!!editing}
       x={selectionBox[0]}
       y={selectionBox[1]}
       width={selectionBox[2] - selectionBox[0]}
@@ -856,13 +863,14 @@
   {#each handles as h, i (i)}
     <!-- Handles are a pointer convenience; keyboard users use arrow keys and the panel's fields. -->
     <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <g style:cursor={h.cursor} onpointerdown={(e) => onHandleDown(e, h)}>
+    <g style:cursor={h.cursor} style:pointer-events={editing ? 'none' : undefined} onpointerdown={(e) => onHandleDown(e, h)}>
       <!-- A finger-sized target on touch screens. -->
       <rect class="handle-touch" x={h.at[0] - 22} y={h.at[1] - 22} width="44" height="44" />
       {#if h.turn}
         <circle class="handle" cx={h.at[0]} cy={h.at[1]} r="6" />
       {:else}
-        <rect class="handle" x={h.at[0] - 5} y={h.at[1] - 5} width="10" height="10" />
+        <!-- While typing the handles show where the box is, but resizing waits until editing ends. -->
+        <rect class="handle" class:inert={!!editing} x={h.at[0] - 5} y={h.at[1] - 5} width="10" height="10" />
       {/if}
     </g>
   {/each}
@@ -962,20 +970,57 @@
     outline: 2px solid var(--accent);
     outline-offset: 2px;
   }
+  /*
+   * The edit field lies exactly on the rendered text box, which keeps drawing
+   * the text (laid out live as you type). The field's own text is invisible:
+   * it provides the caret, selection, IME and native undo. So: no border, no
+   * fill, no rounding, no minimum height; it wraps like the layout (same
+   * width, font, no kerning or ligatures, pre-wrap, break-word).
+   */
   .text-editor {
     position: absolute;
     z-index: 7;
     box-sizing: border-box;
-    min-height: 1em;
+    min-height: 0;
     margin: 0;
-    border: 1px dashed var(--accent);
-    background: var(--editing-fill);
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    color: transparent;
     resize: none;
     overflow: hidden;
     font-kerning: none;
     font-variant-ligatures: none;
+    font-feature-settings:
+      'kern' 0,
+      'liga' 0,
+      'clig' 0,
+      'calt' 0,
+      'dlig' 0;
     white-space: pre-wrap;
-    transform-origin: 0 0;
+    overflow-wrap: break-word;
+    word-break: normal;
+    transform-origin: 50% 50%;
     outline: none;
+  }
+  .text-editor:focus {
+    background: transparent;
+  }
+  .text-editor::selection {
+    color: transparent;
+    background: var(--editing-fill);
+  }
+  .text-editor::placeholder {
+    color: var(--muted);
+    opacity: 1;
+  }
+  /* Editing: the selection outline is solid accent instead of dashed. */
+  .sel-box.editing {
+    stroke-dasharray: none;
+    stroke-width: 1.5;
+  }
+  .handle.inert {
+    pointer-events: none;
   }
 </style>
