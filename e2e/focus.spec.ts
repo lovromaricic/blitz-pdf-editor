@@ -1,7 +1,19 @@
 // Deleting an object never leaves a focus ring around the canvas: focus goes to
 // the editor's <main> (a non-visual sink), and rings show only for Tab.
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import { PDFDocument } from '@cantoo/pdf-lib';
+
+/** Opening is over: focus moved to the editor and the first fit-width zoom has stopped scrolling. */
+async function settled(page: Page) {
+  await expect(page.locator('#editor-main')).toBeFocused();
+  await page.evaluate(async () => {
+    let last = performance.now();
+    const onScroll = () => (last = performance.now());
+    document.addEventListener('scroll', onScroll, true);
+    while (performance.now() - last < 400) await new Promise((r) => setTimeout(r, 50));
+    document.removeEventListener('scroll', onScroll, true);
+  });
+}
 
 test('Backspace on a selected object moves focus to the sink, with no ring on the canvas', async ({ page }) => {
   const doc = await PDFDocument.create();
@@ -10,6 +22,7 @@ test('Backspace on a selected object moves focus to the sink, with no ring on th
   await page.locator('input[type=file]').first().setInputFiles({ name: 'test.pdf', mimeType: 'application/pdf', buffer: Buffer.from(await doc.save()) });
   const canvas = page.locator('#document-view');
   await expect(canvas).toBeVisible({ timeout: 15000 }); // the first open can be slow while the dev server is busy
+  await settled(page);
 
   // Place a stamp, then select it with the mouse, the usual way.
   await page.getByRole('toolbar', { name: 'Editing tools' }).getByRole('button', { name: 'Stamp', exact: true }).click();
@@ -49,8 +62,7 @@ test('the canvas shows its ring only when reached with Tab', async ({ page }) =>
   const canvas = page.locator('#document-view');
   await expect(canvas).toBeVisible({ timeout: 15000 }); // the first open can be slow while the dev server is busy
   const outline = () => canvas.evaluate((el) => getComputedStyle(el).outlineStyle);
-  // Opening is over (it moves focus to the editor; a click before that would lose focus to it).
-  await expect(page.locator('#editor-main')).toBeFocused();
+  await settled(page);
 
   // Clicked, then keys pressed (scrolling, undo): no ring.
   const box = (await canvas.boundingBox())!;
