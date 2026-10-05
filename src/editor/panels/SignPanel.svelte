@@ -34,7 +34,7 @@
       <input id="sig-width" type="number" min="5" step="1" value={Math.round(size[0] / MM)} onchange={(e) => setWidth(+e.currentTarget.value)} />
       <span class="hint">Height follows: {Math.round(size[1] / MM)} mm. Drag to move; arrow keys nudge.</span>
     </div>
-    <OrderControls pageId={sel.page.id} id={sel.annot.id} />
+    <OrderControls />
     <div class="actions">
       <button type="button" class="btn btn-danger" onclick={() => actions.deleteAnnotation(sel.page.id, sel.annot.id)}>Delete</button>
     </div>

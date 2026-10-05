@@ -3,6 +3,7 @@
 // which element has focus: typing in a text box or clicking in the panel must
 // not change it.
 import type { Annotation } from './annotations';
+import { isGroupId } from './object-selection';
 
 export type MarkupPanel = 'vector' | 'text' | 'stamp' | 'comment' | 'sign' | 'image' | 'form';
 
@@ -31,4 +32,15 @@ export function markupPanelFor(selected: Annotation | null | undefined, tool: st
   // Inserted images have their own panel; signatures stay with Sign.
   if (selected?.type === 'image' && selected.role === 'image') return 'image';
   return BY_KIND[selected?.type ?? tool] ?? null;
+}
+
+/**
+ * Several objects or a group selected: "group" (its own panel: order and
+ * delete), "multi-text" (all text boxes: the Text panel for all of them) or
+ * "multi" (the controls every kind shares). Null for one plain object.
+ */
+export function panelForSelection(members: readonly Annotation[], ids: readonly string[]): 'group' | 'multi-text' | 'multi' | null {
+  if (ids.length === 1 && isGroupId(ids[0])) return 'group';
+  if (ids.length < 2) return null;
+  return members.every((a) => a.type === 'text') ? 'multi-text' : 'multi';
 }

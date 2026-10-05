@@ -12,6 +12,7 @@
   import { focusLost, focusObject, focusSink, installFocusModality } from '../lib/focus';
   import ContextMenu, { type ContextItem } from '../components/ContextMenu.svelte';
   import { stepThrough } from '../lib/z-order';
+  import { describeUnits, membersOf, unitOf, unitsIn } from '../lib/object-selection';
   import { app, closeDocument } from '../lib/app-state.svelte';
   import { Actions, provideActions } from '../lib/actions.svelte';
   import { describe } from '../lib/annotations';
@@ -113,7 +114,7 @@
   let menuOpen = $state(false);
   let pagesOpen = $state(false);
   /** The properties sheet shows only when there's something to set. */
-  const sheetVisible = $derived(!!viewer.panel || !!viewer.selectedAnnot || viewer.tool !== 'select');
+  const sheetVisible = $derived(!!viewer.panel || !!viewer.objectSelection || viewer.tool !== 'select');
   let help = $state<HelpTopic | null>(null);
   let newPdfOpen = $state(false);
 
@@ -144,24 +145,21 @@
       enabled: () => doc.history.canRedo && idle(),
       label: () => (doc.history.redoLabel ? `Redo ${lowerFirst(doc.history.redoLabel)}` : 'Redo'),
     },
-    // Until markup objects exist (Phase 5), Select all selects all pages.
+    // From the menu, Select all selects all pages (Ctrl/Cmd+A on the page selects its objects, see onKeyDown).
     'edit.selectAll': { run: () => viewer.selectAll(), label: () => 'Select all pages' },
-    // Delete acts on selected pages until markup objects exist (Phase 5).
-    // Cut/Copy only take over when an annotation is selected; otherwise the browser copies selected text.
-    'edit.cut': { run: () => actions.cutAnnotation(), enabled: () => !!viewer.selectedAnnot },
-    'edit.copy': { run: () => actions.copyAnnotation(), enabled: () => !!viewer.selectedAnnot },
+    // Cut/Copy only take over when objects are selected; otherwise the browser copies selected text.
+    'edit.cut': { run: () => actions.cutAnnotation(), enabled: () => !!viewer.objectSelection },
+    'edit.copy': { run: () => actions.copyAnnotation(), enabled: () => !!viewer.objectSelection },
     'edit.paste': { run: () => actions.pasteAnnotation(), enabled: () => actions.canPaste() },
-    'edit.duplicate': { run: () => actions.duplicateAnnotation(), enabled: () => !!viewer.selectedAnnot },
+    'edit.duplicate': { run: () => actions.duplicateAnnotation(), enabled: () => !!viewer.objectSelection },
     'edit.delete': {
       run: () => {
-        const sel = viewer.selectedAnnot;
-        if (sel) actions.deleteAnnotation(sel.pageId, sel.id);
+        if (viewer.objectSelection) actions.deleteSelection();
         else actions.delete();
       },
-      enabled: () => !!viewer.selectedAnnot || (viewer.selection.size > 0 && actions.canDelete()),
+      enabled: () => !!viewer.objectSelection || (viewer.selection.size > 0 && actions.canDelete()),
       label: () => {
-        const sel = actions.selectedAnnot;
-        if (sel) return `Delete ${describe(sel.annot).toLowerCase()}`;
+        if (viewer.objectSelection) return `Delete ${actions.describeSelection()}`;
         const n = viewer.selection.size;
         return n > 0 ? `Delete ${n === 1 ? 'page' : `${n} pages`}` : 'Delete';
       },
@@ -288,8 +286,11 @@
     const id = objectEl?.dataset.annotId ?? null;
     const page = (id && doc.pages.find((p) => p.annots?.some((a) => a.id === id))) || doc.pages[viewer.currentIndex];
     const list = page?.annots ?? [];
-    const at = id ? list.findIndex((a) => a.id === id) : -1;
-    const step = stepThrough(list.length, at < 0 ? null : at, e.shiftKey);
+    // One stop per unit: a plain object, or a whole group.
+    const units = unitsIn(list);
+    const own = id ? list.find((a) => a.id === id) : undefined;
+    const at = own ? units.indexOf(unitOf(own)) : -1;
+    const step = stepThrough(units.length, at < 0 ? null : at, e.shiftKey);
     if (step === 'page') {
       if (t === scroller) return false;
       e.preventDefault();
@@ -309,10 +310,11 @@
       return true;
     }
     e.preventDefault();
-    const a = list[step];
-    viewer.selectAnnot({ pageId: page!.id, id: a.id });
+    const unit = units[step];
+    const top = membersOf(list, [unit]).at(-1)!;
+    viewer.selectObjects({ pageId: page!.id, ids: [unit] });
     void tick().then(() => {
-      const el = document.querySelector<HTMLElement>(`[data-annot-id="${a.id}"]`);
+      const el = document.querySelector<HTMLElement>(`[data-annot-id="${top.id}"]`);
       const pageEl = el?.closest<HTMLElement>('.page');
       if (el && pageEl) {
         // Out of view: scroll the page so it shows below the floating toolbar.
@@ -322,20 +324,39 @@
           viewer.goToPage(doc.pages.indexOf(page!), Math.max(0, r.top - pageEl.getBoundingClientRect().top - 24));
         }
       }
-      focusObject(a.id);
-      viewer.announce(`${describe(a)}, ${step + 1} of ${list.length}`);
+      focusObject(top.id);
+      viewer.announce(`${describeUnits(list, [unit], true)}, ${step + 1} of ${units.length}`);
     });
+    return true;
+  }
+
+  /** Ctrl/Cmd+A on the page (or an object on it), Select tool: every object on that page. */
+  function selectAllOnPage(e: KeyboardEvent) {
+    if (comboFromEvent(e) !== 'mod+a' || viewer.tool !== 'select') return false;
+    const scroller = document.getElementById('document-view');
+    const t = e.target as HTMLElement;
+    if (!scroller || !(t === scroller || (t.closest?.('[data-annot-id]') && scroller.contains(t)))) return false;
+    const id = t.closest?.<HTMLElement>('[data-annot-id]')?.dataset.annotId;
+    const page = (id && doc.pages.find((p) => p.annots?.some((a) => a.id === id))) || doc.pages[viewer.currentIndex];
+    e.preventDefault();
+    if (page) actions.selectAllObjects(page.id);
     return true;
   }
 
   /** The Menu key or Shift+F10 with an object selected: its menu, beside it. */
   function openSelectedObjectMenu() {
-    const sel = viewer.selectedAnnot;
-    const el = sel && document.querySelector<HTMLElement>(`[data-annot-id="${sel.id}"]`);
+    const el = selectionElement();
+    const sel = viewer.objectSelection;
     if (!sel || !el) return false;
     const r = el.getBoundingClientRect();
-    viewer.contextMenu = { x: r.left + r.width / 2, y: r.top + r.height / 2, pageId: sel.pageId, objectId: sel.id, point: null };
+    viewer.contextMenu = { x: r.left + r.width / 2, y: r.top + r.height / 2, pageId: sel.pageId, objectId: el.dataset.annotId!, point: null };
     return true;
+  }
+
+  /** The element of the selection's top object (to anchor its menu, or give it focus). */
+  function selectionElement() {
+    const top = actions.selectedObjects?.members.at(-1);
+    return top ? document.querySelector<HTMLElement>(`[data-annot-id="${top.id}"]`) : null;
   }
 
   function lowerFirst(s: string) {
@@ -408,8 +429,8 @@
       else void actions.pasteText(text);
       return;
     }
-    // Copy or cut: an object if one is selected, else the browser copies selected text.
-    if (!viewer.selectedAnnot) return;
+    // Copy or cut: the selected objects, if any; else the browser copies selected text.
+    if (!viewer.objectSelection) return;
     e.preventDefault();
     e.clipboardData?.setData(CLIPBOARD_MARK, '1');
     if (clipboard.event(type)) commands.run(type === 'cut' ? 'edit.cut' : 'edit.copy');
@@ -458,8 +479,7 @@
    */
   function recoverFocus() {
     if (!focusLost() || document.querySelector('dialog[open]')) return;
-    const sel = viewer.selectedAnnot;
-    const el = sel && document.querySelector<HTMLElement>(`[data-annot-id="${sel.id}"]`);
+    const el = selectionElement();
     if (el) el.focus({ preventScroll: true });
     else focusSink();
   }
@@ -475,6 +495,7 @@
     const inOverlay = !!document.querySelector('dialog[open]') || !!(e.target as HTMLElement).closest?.('[role="menu"], [role="menubar"]');
     if (!inOverlay && clipboardShortcut(e)) return;
     if (!inOverlay && tabThroughObjects(e)) return;
+    if (!inOverlay && selectAllOnPage(e)) return;
     // The context menu of the selected object (the thumbnails handle these keys for pages themselves).
     if ((e.key === 'ContextMenu' || (e.key === 'F10' && e.shiftKey)) && !e.defaultPrevented && !inOverlay && !isTextField(e.target) && openSelectedObjectMenu()) {
       e.preventDefault();
@@ -487,8 +508,10 @@
     if (e.key === 'Escape' && !e.defaultPrevented && !document.querySelector('dialog[open]')) {
       const target = e.target as HTMLElement;
       if (target.closest('input, textarea, [role="menu"]')) return;
-      if (viewer.selectedAnnot) viewer.selectAnnot(null);
-      else if (viewer.tool !== 'select') viewer.setTool('select');
+      if (viewer.objectSelection) {
+        viewer.selectObjects(null);
+        viewer.announce('Selection cleared');
+      } else if (viewer.tool !== 'select') viewer.setTool('select');
     }
   }
 

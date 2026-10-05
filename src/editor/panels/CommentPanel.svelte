@@ -52,7 +52,7 @@
     <Swatches label="Comment color" colors={NOTE_COLORS} value={sel?.annot.color ?? viewer.toolProps.comment.color} onChange={(c) => c && setColor(c)} />
   </div>
   {#if sel}
-    <OrderControls pageId={sel.page.id} id={sel.annot.id} />
+    <OrderControls />
     <div class="actions">
       <button type="button" class="btn btn-danger" onclick={() => actions.deleteAnnotation(sel.page.id, sel.annot.id)}>Delete comment</button>
     </div>

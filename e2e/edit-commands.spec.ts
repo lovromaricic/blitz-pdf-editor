@@ -167,13 +167,13 @@ test('audit: cut, duplicate, delete, undo, nudge and select all each act once (s
   await settle(page);
   expect(await steps(page)).toBe(n - 2);
 
-  // Select all: every page selected (not toggled back by a second run).
-  await page.locator('#document-view').focus().catch(() => {});
-  await page.keyboard.press('Escape');
-  await page.keyboard.press('ControlOrMeta+a');
+  // Select all from the Edit menu: every page selected (not toggled back by a second run).
+  // (Ctrl/Cmd+A on the page selects its objects: multi-select.spec.ts.)
+  await editMenu(page, /^Select all pages/);
   await expect.poll(() => page.evaluate(() => (window as unknown as W).__viewer.selection.size)).toBe(2);
 
-  // Tool shortcut: one press, one tool.
+  // Tool shortcut: one press, one tool (from the page: single keys don't act inside menus).
+  await page.locator('#document-view').focus();
   await page.keyboard.press('h');
   await expect.poll(() => page.evaluate(() => (window as unknown as W).__viewer.tool)).toBe('highlight');
 });

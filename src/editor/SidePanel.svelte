@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { markupPanelFor } from '../lib/panel-choice';
+  import { markupPanelFor, panelForSelection } from '../lib/panel-choice';
+  import SelectionPanel from './panels/SelectionPanel.svelte';
   import { tick } from 'svelte';
   // Contextual panel: a tool panel if one is open, else the selected pages, else document info.
   import type { Actions } from '../lib/actions.svelte';
@@ -46,6 +47,11 @@
 
   /** Which markup panel to show (from the selection, the tool and text editing; never from focus). */
   const markup = $derived(markupPanelFor(actions.selectedAnnot?.annot, viewer.tool, !!viewer.textEditor));
+  /** Several objects or a group (all text boxes: the Text panel takes them). */
+  const selectionPanel = $derived.by(() => {
+    const s = actions.selectedObjects;
+    return s && !viewer.textEditor ? panelForSelection(s.members, s.ids) : null;
+  });
 </script>
 
 <!-- In a phone sheet (itself a labelled region) this is a plain container, not a second landmark. -->
@@ -76,9 +82,11 @@
     <CompressPanel />
   {:else if viewer.panel === 'imagesToPdf'}
     <ImagesToPdfPanel />
+  {:else if selectionPanel === 'group' || selectionPanel === 'multi'}
+    <SelectionPanel />
   {:else if markup === 'vector'}
     <MarkupPanel />
-  {:else if markup === 'text'}
+  {:else if markup === 'text' || selectionPanel === 'multi-text'}
     <TextPanel />
   {:else if markup === 'stamp'}
     <StampPanel />

@@ -14,6 +14,12 @@ interface Base {
   color: Rgb;
   /** 0..1 */
   opacity: number;
+  /**
+   * The groups this object is in, outermost first (editor only: never saved
+   * into the PDF). A group's objects are always next to each other in the
+   * page's list, so it sits in the layer order as one block.
+   */
+  groups?: string[];
 }
 
 export interface HighlightAnnotation extends Base {
@@ -236,6 +242,13 @@ export const BACKGROUND_COLORS: { name: string; rgb: Rgb }[] = [
   { name: 'Light yellow', rgb: hex('#FFF3B0') },
   { name: 'Light blue', rgb: hex('#D6E6FF') },
   { name: 'Light green', rgb: hex('#D5F2DD') },
+];
+
+export const STAMP_COLORS: { name: string; rgb: Rgb }[] = [
+  { name: 'Green', rgb: [0.08, 0.45, 0.16] },
+  { name: 'Blue', rgb: [0.1, 0.35, 0.8] },
+  { name: 'Red', rgb: [0.8, 0.1, 0.1] },
+  { name: 'Gray', rgb: [0.35, 0.35, 0.35] },
 ];
 
 export const INK_COLORS: { name: string; rgb: Rgb }[] = [

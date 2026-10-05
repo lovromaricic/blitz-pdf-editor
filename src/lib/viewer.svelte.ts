@@ -1,4 +1,5 @@
 // View state for one open document: zoom, page layout, scrolling and navigation.
+import { isGroupId, unitOf, type ObjectSelection } from './object-selection';
 import { getContext, setContext, tick } from 'svelte';
 import type { EditorDocument, PageRef } from './document.svelte';
 import type { Margins } from './page-ops';
@@ -121,8 +122,17 @@ export class Viewer {
   signatureDialog = $state(false);
   /** A comment just placed: the panel focuses its text box. */
   focusNoteText = $state(false);
-  /** The annotation selected with the Select tool. */
-  selectedAnnot = $state<AnnotRef | null>(null);
+  /**
+   * Objects selected with the Select tool: units (objects, or whole groups) on
+   * one page. One plain object is the common case: `selectedAnnot`.
+   */
+  objectSelection = $state.raw<ObjectSelection | null>(null);
+
+  /** The selected object when exactly one plain object (not a group) is selected. */
+  get selectedAnnot(): AnnotRef | null {
+    const s = this.objectSelection;
+    return s && s.ids.length === 1 && !isGroupId(s.ids[0]) ? { pageId: s.pageId, id: s.ids[0] } : null;
+  }
   /** The selected annotation while it's being dragged (not yet in the document), for live panel values. */
   livePreview = $state.raw<Annotation | null>(null);
   /**
@@ -213,7 +223,7 @@ export class Viewer {
   /** single: only this page; toggle: add/remove (Ctrl/Cmd); range: from the anchor (Shift). */
   select(id: string, mode: 'single' | 'toggle' | 'range' = 'single') {
     const pages = this.doc.pages;
-    this.selectedAnnot = null;
+    this.objectSelection = null;
     if (mode === 'range' && this.anchorId) {
       const a = pages.findIndex((p) => p.id === this.anchorId);
       const b = pages.findIndex((p) => p.id === id);
@@ -247,18 +257,28 @@ export class Viewer {
     if (tool === 'text' || tool === 'stamp') void loadFonts();
     if (tool === 'sign' && !this.signature) this.signatureDialog = true;
     this.tool = tool;
-    this.selectedAnnot = null;
+    this.objectSelection = null;
     this.panel = null;
     window.getSelection()?.removeAllRanges();
   }
 
   selectAnnot(ref: AnnotRef | null) {
-    this.selectedAnnot = ref;
-    if (ref) {
-      this.selection = new Set();
+    this.selectObjects(ref ? { pageId: ref.pageId, ids: [ref.id] } : null);
+  }
+
+  /** Select objects (units) on one page, or nothing. */
+  selectObjects(sel: ObjectSelection | null) {
+    const next = sel && sel.ids.length ? sel : null;
+    const cur = this.objectSelection;
+    // Selecting what's already selected changes nothing (and wakes nothing that follows it).
+    const same = !!next && !!cur && cur.pageId === next.pageId && cur.ids.length === next.ids.length && cur.ids.every((id, i) => id === next.ids[i]);
+    if (!same) this.objectSelection = next;
+    if (next) {
+      if (this.selection.size) this.selection = new Set();
       this.panel = null;
     }
   }
+
 
   /** Pages an action applies to: the selection (in document order), else the current page. */
   targetPages(): PageRef[] {
@@ -316,9 +336,12 @@ export class Viewer {
       this.selection = new Set([...this.selection].filter((id) => ids.has(id)));
     }
     if (this.currentIndex > this.pageCount - 1) this.currentIndex = Math.max(0, this.pageCount - 1);
-    const sel = this.selectedAnnot;
-    if (sel && !this.doc.pages.find((p) => p.id === sel.pageId)?.annots?.some((a) => a.id === sel.id)) {
-      this.selectedAnnot = null;
+    // Selected objects that are gone (deleted, undone, their page removed) drop out.
+    const sel = this.objectSelection;
+    if (sel) {
+      const units = new Set((this.doc.pages.find((p) => p.id === sel.pageId)?.annots ?? []).map(unitOf));
+      const ids = sel.ids.filter((id) => units.has(id));
+      if (ids.length !== sel.ids.length) this.objectSelection = ids.length ? { pageId: sel.pageId, ids } : null;
     }
   }
 

@@ -25,6 +25,7 @@
   import { editorFormatState } from '../../lib/rich-text/panel-state';
   import { ensureTextFont } from '../../lib/font-metrics-store.svelte';
   import { useViewer } from '../../lib/viewer.svelte';
+  import { isGroupId } from '../../lib/object-selection';
   import {
     ALIGNS,
     LINE_SPACINGS,
@@ -52,8 +53,10 @@
 
   /** The text boxes being formatted (with their pages). */
   const targets = $derived.by(() => {
-    const s = actions.selectedAnnot;
-    return s && s.annot.type === 'text' ? [{ page: s.page, annot: s.annot as TextAnnotation }] : [];
+    // One text box, or several (all text, none in a group): the panel formats them all, Mixed where they differ.
+    const s = actions.selectedObjects;
+    if (!s || s.ids.some(isGroupId) || !s.members.every((a) => a.type === 'text')) return [];
+    return s.members.map((annot) => ({ page: s.page, annot: annot as TextAnnotation }));
   });
   /** With nothing selected, the panel sets the style for new text boxes. */
   const items = $derived<TextAnnotation[]>(targets.length ? targets.map((t) => t.annot) : [viewer.toolProps.text as unknown as TextAnnotation]);
@@ -271,7 +274,7 @@
   const formatSpacing = (v: number) => (Number.isInteger(v) ? v.toFixed(1) : String(v));
 </script>
 
-<PanelHeader title="Text" onClose={targets.length ? () => viewer.selectAnnot(null) : () => viewer.setTool('select')} />
+<PanelHeader title={targets.length > 1 ? `${targets.length} objects` : 'Text'} onClose={targets.length ? () => viewer.selectAnnot(null) : () => viewer.setTool('select')} />
 
 <div class="panel-form text-panel" class:selected={targets.length > 0} {@attach keepTextFocus}>
   {#if !targets.length}
@@ -430,9 +433,9 @@
     <LocalFontsDialog open={localOpen} onClose={() => (localOpen = false)} onChoose={(font) => apply({ font }, 'Font')} />
   {/if}
   {#if targets.length}
-    <OrderControls pageId={targets[0].page.id} id={targets[0].annot.id} />
+    <OrderControls />
     <div class="actions delete">
-      <button type="button" class="btn btn-danger" onclick={() => targets.forEach((t) => actions.deleteAnnotation(t.page.id, t.annot.id))}>Delete</button>
+      <button type="button" class="btn btn-danger" onclick={() => actions.deleteSelection()}>Delete</button>
     </div>
     <p class="hint">Double-click (or press Enter) to edit the text. Drag a corner to change the width.</p>
   {/if}

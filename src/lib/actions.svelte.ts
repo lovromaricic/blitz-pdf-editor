@@ -21,7 +21,8 @@ import { defaultImageSize } from './image-geometry';
 import { heicDecodes } from './landing/heic-probe';
 import { viewportFor } from './pdf/render';
 import { focusLost, focusObject, settleFocusAfterRemoval } from './focus';
-import { canMoveLayer, insertAbove, LAYER_LABELS, layerPosition, moveLayer, type LayerMove } from './z-order';
+import { canMoveUnits, insertAboveUnit, LAYER_LABELS, moveUnits, type LayerMove } from './z-order';
+import { copyWithNewIds, describeUnits, membersOf, unionBounds, unitOf, unitsIn } from './object-selection';
 import { styleAvailable } from './text-format';
 import { ensureTextFont } from './font-metrics-store.svelte';
 import { DEFAULT_TEXT_WIDTH, formatTextBox, layoutText, topLeftForCenter } from './text-layout';
@@ -45,7 +46,7 @@ export const DEFAULT_IMAGE_OPTIONS: ImagesToPdfOptions = { pageSize: 'a4', margi
  * In-memory clipboard for annotations (never the system clipboard: nothing
  * leaves the tab), with the page it was copied from (or last pasted on).
  */
-let annotClipboard: { annot: Annotation; pageId: string } | null = null;
+let annotClipboard: { members: readonly Annotation[]; pageId: string; topUnit: string } | null = null;
 
 /** "page 5" or "pages 1-3,7" for file names. */
 function pagesLabel(indexes: readonly number[]) {
@@ -752,22 +753,51 @@ export class Actions {
     const found = this.findAnnot(pageId, id);
     if (!found) return;
     this.editAnnots(pageId, `Delete ${describe(found.annot).toLowerCase()}`, (list) => list.filter((a) => a.id !== id));
-    if (this.viewer.selectedAnnot?.id === id) this.viewer.selectedAnnot = null;
+    if (this.viewer.selectedAnnot?.id === id) this.viewer.selectObjects(null);
     this.viewer.announce(`${describe(found.annot)} ${announce}`);
     // Its element (which may have had focus) is gone: never leave focus on <body> or the canvas.
     void tick().then(() => settleFocusAfterRemoval());
   }
 
+  /** The selection: its page, units, and their objects (bottom first). */
+  get selectedObjects() {
+    const s = this.viewer.objectSelection;
+    const page = s ? this.doc.pages.find((p) => p.id === s.pageId) : undefined;
+    if (!s || !page) return null;
+    const list = page.annots ?? [];
+    const members = membersOf(list, s.ids);
+    return members.length ? { page, ids: s.ids, members, list } : null;
+  }
+
+  /** Words for the selection: "text", "3 objects", "group (3 objects)". */
+  describeSelection(capital = false) {
+    const sel = this.selectedObjects;
+    return sel ? describeUnits(sel.list, sel.ids, capital) : '';
+  }
+
+  /** Delete the selected objects (a group with all its objects): one undo step. */
+  deleteSelection(announce = 'deleted') {
+    const sel = this.selectedObjects;
+    if (!sel) return;
+    const gone = new Set(sel.members.map((a) => a.id));
+    const what = describeUnits(sel.list, sel.ids);
+    this.editAnnots(sel.page.id, `Delete ${what}`, (list) => list.filter((a) => !gone.has(a.id)));
+    this.viewer.selectObjects(null);
+    this.viewer.announce(`${what[0].toUpperCase()}${what.slice(1)} ${announce}`);
+    // Their elements (one may have had focus) are gone: never leave focus on <body> or the canvas.
+    void tick().then(() => settleFocusAfterRemoval());
+  }
+
+  /** Copy the selection into the app's own clipboard (never the system's: nothing leaves the tab). */
   copyAnnotation() {
-    const sel = this.selectedAnnot;
-    if (sel) annotClipboard = { annot: sel.annot, pageId: sel.page.id };
+    const sel = this.selectedObjects;
+    if (sel) annotClipboard = { members: sel.members, pageId: sel.page.id, topUnit: unitOf(sel.members[sel.members.length - 1]) };
   }
 
   cutAnnotation() {
-    const sel = this.selectedAnnot;
-    if (!sel) return;
-    annotClipboard = { annot: sel.annot, pageId: sel.page.id };
-    this.deleteAnnotation(sel.page.id, sel.annot.id, 'cut');
+    if (!this.selectedObjects) return;
+    this.copyAnnotation();
+    this.deleteSelection('cut');
   }
 
   canPaste() {
@@ -837,71 +867,113 @@ export class Actions {
     this.updateAnnotation(sel.page.id, next, STYLE_LABELS[style]);
   }
 
-  /** A copy next to the selected object, on the same page (the clipboard is left alone). */
+  /** Copies of the selection next to it, on the same page, directly above it (the clipboard is left alone). */
   duplicateAnnotation() {
-    const sel = this.selectedAnnot;
+    const sel = this.selectedObjects;
     if (!sel) return;
-    const copy = { ...translate(sel.annot, 12, -12), id: newAnnotationId() };
-    // Directly above the original.
-    this.editAnnots(sel.page.id, `Duplicate ${describe(copy).toLowerCase()}`, (list) => insertAbove(list, sel.annot.id, copy));
-    this.viewer.selectAnnot({ pageId: sel.page.id, id: copy.id });
-    void tick().then(() => focusObject(copy.id));
+    const copies = copyWithNewIds(sel.members, newAnnotationId).map((a) => translate(a, 12, -12));
+    const above = unitOf(sel.members[sel.members.length - 1]);
+    this.editAnnots(sel.page.id, `Duplicate ${describeUnits(sel.list, sel.ids)}`, (list) => insertAboveUnit(list, above, copies));
+    this.selectNew(sel.page.id, copies);
+  }
+
+  /** Select objects just added (their units) and give the top one focus, so keys act on them. */
+  private selectNew(pageId: string, added: readonly Annotation[]) {
+    const ids = unitsIn(added);
+    this.viewer.selectObjects({ pageId, ids });
+    if (ids.length > 1) this.viewer.announce(`${describeUnits(added, ids, true)} selected`);
+    void tick().then(() => focusObject(added[added.length - 1].id));
   }
 
   /** Can the object move this way in its page's layer order? */
   canMoveLayer(pageId: string, id: string, move: LayerMove) {
-    return canMoveLayer(this.doc.pages.find((p) => p.id === pageId)?.annots ?? [], id, move);
+    const list = this.doc.pages.find((p) => p.id === pageId)?.annots ?? [];
+    const a = list.find((x) => x.id === id);
+    return !!a && canMoveUnits(list, [unitOf(a)], move);
   }
 
-  /** The selected object, if it can move this way (for menus, shortcuts and the panel). */
+  /** The selection, if it can move this way (for menus, shortcuts and the panel). */
   canMoveSelected(move: LayerMove) {
-    const sel = this.selectedAnnot;
-    return !!sel && this.canMoveLayer(sel.page.id, sel.annot.id, move);
+    const sel = this.selectedObjects;
+    return !!sel && canMoveUnits(sel.list, sel.ids, move);
+  }
+
+  /** Move one object (with its group, if it's in one) in the layer order. */
+  moveLayer(pageId: string, id: string, move: LayerMove) {
+    const list = this.doc.pages.find((p) => p.id === pageId)?.annots ?? [];
+    const a = list.find((x) => x.id === id);
+    if (a) this.moveUnitsLayer(pageId, [unitOf(a)], move);
   }
 
   /**
-   * Move an object in its page's layer order: to the front or back, or one step.
-   * One undo step ("Bring to front"). Every entry point (menu, context menu,
-   * shortcut, panel) calls this.
+   * Move the selection in its page's layer order, as one block: to the front or
+   * back, or one step. One undo step ("Bring to front"). Every entry point
+   * (Edit menu, context menu, shortcut, panel) calls this.
    */
-  moveLayer(pageId: string, id: string, move: LayerMove) {
-    const found = this.findAnnot(pageId, id);
-    if (!found || !this.canMoveLayer(pageId, id, move)) return;
-    // Moving the element in the page takes focus off it: put it back.
-    const hadFocus = (document.activeElement as HTMLElement | null)?.dataset?.annotId === id;
-    this.editAnnots(pageId, LAYER_LABELS[move], (list) => moveLayer(list, id, move));
-    const pos = layerPosition(this.doc.pages.find((p) => p.id === pageId)?.annots ?? [], id)!;
-    this.viewer.announce(`${LAYER_LABELS[move]}: ${describe(found.annot)}, ${pos.index} of ${pos.count}`);
-    void tick().then(() => (hadFocus || focusLost()) && focusObject(id));
-  }
-
   moveSelectedLayer(move: LayerMove) {
-    const sel = this.selectedAnnot;
-    if (sel) this.moveLayer(sel.page.id, sel.annot.id, move);
+    const sel = this.selectedObjects;
+    if (sel) this.moveUnitsLayer(sel.page.id, sel.ids, move);
   }
 
-    /**
-   * Paste onto the current page: one object, one undo step. On the page it was
-   * copied from it's offset so it's visible next to the original (each further
-   * paste a step further); on another page it lands in the same position.
+  private moveUnitsLayer(pageId: string, ids: readonly string[], move: LayerMove) {
+    const list = this.doc.pages.find((p) => p.id === pageId)?.annots ?? [];
+    if (!canMoveUnits(list, ids, move)) return;
+    // Moving elements in the page takes focus off them: put it back.
+    const focused = (document.activeElement as HTMLElement | null)?.dataset?.annotId;
+    const hadFocus = !!focused && membersOf(list, ids).some((a) => a.id === focused);
+    this.editAnnots(pageId, LAYER_LABELS[move], (l) => moveUnits(l, ids, move));
+    const after = this.doc.pages.find((p) => p.id === pageId)?.annots ?? [];
+    const what = describeUnits(after, ids, true);
+    if (ids.length === 1) {
+      const units = unitsIn(after);
+      this.viewer.announce(`${LAYER_LABELS[move]}: ${what}, ${units.indexOf(ids[0]) + 1} of ${units.length}`);
+    } else this.viewer.announce(`${LAYER_LABELS[move]}: ${what}`);
+    void tick().then(() => (hadFocus || focusLost()) && focused && focusObject(focused));
+  }
+
+  /** Move the selection by (dx, dy) in PDF space: one undo step for a run of nudges. */
+  nudgeSelection(dx: number, dy: number) {
+    const sel = this.selectedObjects;
+    if (!sel) return;
+    this.updateAnnotations(
+      sel.members.map((a) => ({ pageId: sel.page.id, annot: translate(a, dx, dy) })),
+      `Move ${describeUnits(sel.list, sel.ids)}`,
+      `nudge:${sel.ids.join(',')}`,
+    );
+  }
+
+  /** Select every object (unit) on a page. */
+  selectAllObjects(pageId: string) {
+    const list = this.doc.pages.find((p) => p.id === pageId)?.annots ?? [];
+    const ids = unitsIn(list);
+    if (!ids.length) return false;
+    this.viewer.selectObjects({ pageId, ids });
+    this.viewer.announce(`${describeUnits(list, ids, true)} selected`);
+    return true;
+  }
+
+  /**
+   * Paste the app's clipboard: the same objects (groups included, as new
+   * groups), keeping their positions relative to each other. One undo step. On
+   * the page they were copied from they're offset so they're visible next to
+   * the originals, and go directly above them; on another page they land in the
+   * same position, on top. "Paste here" centers them on a point.
    */
   pasteAnnotation(at?: { pageId: string; point?: Point }) {
     const page = at ? this.doc.pages.find((p) => p.id === at.pageId) : this.doc.pages[this.viewer.currentIndex];
     if (!annotClipboard || !page) return;
-    const { annot, pageId } = annotClipboard;
-    let copy = { ...(pageId === page.id ? translate(annot, 12, -12) : annot), id: newAnnotationId() };
+    const { members, pageId, topUnit } = annotClipboard;
+    const samePage = pageId === page.id;
+    let copies = copyWithNewIds(members, newAnnotationId).map((a) => (samePage ? translate(a, 12, -12) : a));
     if (at?.point) {
-      // "Paste here": centered on the point.
-      const r = bounds(copy);
-      copy = { ...translate(copy, at.point[0] - (r[0] + r[2]) / 2, at.point[1] - (r[1] + r[3]) / 2), id: copy.id };
+      const r = unionBounds(copies)!;
+      const [dx, dy] = [at.point[0] - (r[0] + r[2]) / 2, at.point[1] - (r[1] + r[3]) / 2];
+      copies = copies.map((a) => translate(a, dx, dy));
     }
-    annotClipboard = { annot: copy, pageId: page.id };
-    // Directly above the object it came from when that's on this page (copied here); else on top.
-    this.editAnnots(page.id, `Paste ${describe(copy).toLowerCase()}`, (list) => insertAbove(list, pageId === page.id ? annot.id : null, copy));
+    annotClipboard = { members: copies, pageId: page.id, topUnit: unitOf(copies[copies.length - 1]) };
+    this.editAnnots(page.id, `Paste ${describeUnits(copies, unitsIn(copies))}`, (list) => insertAboveUnit(list, samePage ? topUnit : null, copies));
     this.viewer.setTool('select');
-    this.viewer.selectAnnot({ pageId: page.id, id: copy.id });
-    // The new object is selected: focus goes to it, so arrow keys and Delete act on it.
-    void tick().then(() => focusObject(copy.id));
+    this.selectNew(page.id, copies);
   }
 }
 

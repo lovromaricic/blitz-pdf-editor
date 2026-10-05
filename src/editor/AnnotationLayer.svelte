@@ -2,6 +2,8 @@
   import { capturePointer } from '../lib/dom';
   import { focusObject, focusSink } from '../lib/focus';
   import { nextBeneath } from '../lib/z-order';
+  import { addUnits, clampDelta, describeUnits, isGroupId, membersOf, toggleUnit, unionBounds, unitOf, unitsTouching } from '../lib/object-selection';
+  import { isMac } from '../lib/commands';
   import { ensureTextFont, metricsState } from '../lib/font-metrics-store.svelte';
   import { alignOf, lineSpacingOf, styleAvailable } from '../lib/text-format';
   import { comboFromEvent } from '../lib/commands';
@@ -26,6 +28,7 @@
     mergeLineRects,
     newAnnotationId,
     normRect,
+    bounds,
     remap,
     round,
     simplifyPath,
@@ -67,8 +70,10 @@
   let draft = $state<Annotation | null>(null);
   /** Live geometry of the selected annotation while it's moved or resized. */
   let preview = $state<Annotation | null>(null);
+  /** Live geometry of several selected objects (or a group) while they're moved together. */
+  let blockPreview = $state.raw<Map<string, Annotation> | null>(null);
 
-  const annots = $derived((page.annots ?? []).map((a) => (preview && a.id === preview.id ? preview : a)));
+  const annots = $derived((page.annots ?? []).map((a) => (preview && a.id === preview.id ? preview : (blockPreview?.get(a.id) ?? a))));
   /** In stacking order: the list order is the order on the page, bottom first, whatever the kind. */
   /**
    * What's on the page, in stacking order. A text box being typed in is drawn
@@ -91,6 +96,12 @@
   });
   const selectedId = $derived(viewer.selectedAnnot?.pageId === page.id ? viewer.selectedAnnot.id : null);
   const selected = $derived(annots.find((a) => a.id === selectedId) ?? null);
+  /** Selected units (objects or whole groups) on this page, and their objects. */
+  const selUnits = $derived(viewer.objectSelection?.pageId === page.id ? viewer.objectSelection.ids : []);
+  const selMembers = $derived(membersOf(annots, selUnits));
+  const isSelected = (a: Annotation) => selUnits.includes(unitOf(a));
+  /** The page in PDF space (crop applied): a moved selection stays on it. */
+  const pagePdf = $derived(normRect(toPdf(pageArea[0], pageArea[1]), toPdf(pageArea[2], pageArea[3])));
   const selecting = $derived(viewer.tool === 'select');
   const placing = $derived(['text', 'stamp', 'comment', 'sign'].includes(viewer.tool));
   const capturing = $derived(viewer.tool === 'draw' || viewer.tool === 'shapes' || placing);
@@ -522,8 +533,56 @@
     });
   });
 
+  /** Select what a click on this object selects: the object, or its (outermost) group. */
   function select(a: Annotation) {
-    viewer.selectAnnot({ pageId: page.id, id: a.id });
+    viewer.selectObjects({ pageId: page.id, ids: [unitOf(a)] });
+  }
+
+  function announceSelection() {
+    const sel = viewer.objectSelection;
+    if (!sel) viewer.announce('Selection cleared');
+    else viewer.announce(`${describeUnits(viewer.doc.pages.find((p) => p.id === sel.pageId)?.annots ?? [], sel.ids, true)} selected`);
+  }
+
+  /** Shift or Cmd/Ctrl+click: add the object (its unit) to the selection, or take it out. One page at a time. */
+  function toggleSelect(a: Annotation) {
+    const r = toggleUnit(viewer.objectSelection, page.id, unitOf(a));
+    if ('otherPage' in r) {
+      viewer.notify('You can only select objects on one page at a time.');
+      return;
+    }
+    viewer.selectObjects(r.selection);
+    announceSelection();
+    if (r.selection?.ids.includes(unitOf(a))) focusObject(a.id);
+  }
+
+  /** Move several objects (a multi-selection or a group) together; the whole block stays on the page. */
+  function startBlockDrag(e: PointerEvent, ids: readonly string[]) {
+    const members = membersOf(annots, ids);
+    const box = unionBounds(members);
+    if (!box) return;
+    const start = clientToPdf(e.clientX, e.clientY);
+    let moved = false;
+    const move = (ev: PointerEvent) => {
+      if (ev.pointerId !== e.pointerId) return;
+      const p = clientToPdf(ev.clientX, ev.clientY);
+      if (!moved && Math.hypot(p[0] - start[0], p[1] - start[1]) * viewer.scale < 3) return;
+      moved = true;
+      const [dx, dy] = clampDelta(box, pagePdf, p[0] - start[0], p[1] - start[1]);
+      blockPreview = new Map(members.map((a) => [a.id, translate(a, dx, dy)]));
+    };
+    const up = (ev: PointerEvent) => {
+      if (ev.pointerId !== e.pointerId) return;
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', up);
+      const done = blockPreview;
+      blockPreview = null;
+      if (done) actions.updateAnnotations([...done.values()].map((annot) => ({ pageId: page.id, annot })), `Move ${describeUnits(annots, ids)}`);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', up);
   }
 
   // --- Context menu: right-click, or a long press on touch -------------------------
@@ -581,12 +640,14 @@
           .filter((id): id is string => !!id),
       ),
     ];
-    const id = nextBeneath(stack, selectedId);
-    const a = id ? annots.find((x) => x.id === id) : undefined;
-    if (!a) return;
-    select(a);
-    focusObject(a.id);
-    viewer.announce(`${describe(a)} selected, ${stack.indexOf(a.id) + 1} of ${stack.length} at this point`);
+    // Per unit: a group counts once, wherever its objects are.
+    const units = [...new Set(stack.map((id) => annots.find((x) => x.id === id)).filter((x): x is Annotation => !!x).map(unitOf))];
+    const id = nextBeneath(units, selUnits.length === 1 ? selUnits[0] : null);
+    if (!id) return;
+    viewer.selectObjects({ pageId: page.id, ids: [id] });
+    const top = membersOf(annots, [id]).at(-1)!;
+    focusObject(top.id);
+    viewer.announce(`${describeUnits(annots, [id], true)} selected, ${units.indexOf(id) + 1} of ${units.length} at this point`);
   }
 
   function onAnnotDown(e: PointerEvent, a: Annotation) {
@@ -594,7 +655,15 @@
     e.preventDefault();
     e.stopPropagation();
     if (e.altKey) return selectBeneath(e);
+    if (e.shiftKey || (isMac ? e.metaKey : e.ctrlKey)) return toggleSelect(a);
     if (e.pointerType === 'touch') watchLongPress(e, a);
+    // Part of a multi-selection, or in a group: they all move together.
+    const unit = unitOf(a);
+    const inSelection = selUnits.includes(unit);
+    if ((inSelection && selUnits.length > 1) || isGroupId(unit)) {
+      if (!inSelection) select(a);
+      return startBlockDrag(e, inSelection ? selUnits : [unit]);
+    }
     if (e.pointerType === 'touch' && a.type === 'image' && a.id === selectedId && onImageTouchDown(e, a)) return;
     select(a);
     startDrag(e, a);
@@ -712,8 +781,13 @@
     if (!selecting) return;
     const host = ui.parentElement!;
     const onDown = (e: PointerEvent) => {
+      const t = e.target as Element;
       // The text being edited isn't "outside" (its box stays selected while typing).
-      if (!(e.target as Element).closest('.annot, .handle, .rich-editor') && viewer.selectedAnnot?.pageId === page.id) viewer.selectAnnot(null);
+      if (t.closest('.annot, .handle, .rich-editor') || e.button !== 0) return;
+      if (!e.shiftKey && viewer.objectSelection?.pageId === page.id) viewer.selectObjects(null);
+      // A mouse drag from blank paper draws a selection rectangle. (Fingers scroll; a drag
+      // that starts on the PDF's own text selects that text, as before.)
+      if (e.pointerType !== 'touch' && !t.closest('.textLayer span')) startMarquee(e, e.shiftKey);
     };
     // Right-click on an empty spot: the page's menu ("Paste here"). Not over text
     // selected in the PDF (the browser's own menu copies it), nor in a text box being typed in.
@@ -731,6 +805,54 @@
       host.removeEventListener('pointerdown', onDown);
       host.removeEventListener('contextmenu', onMenu);
     };
+  });
+
+  // --- Marquee: drag on an empty spot to select every object it touches -----------------
+
+  let marquee = $state.raw<{ start: Point; end: Point } | null>(null);
+
+  function startMarquee(e: PointerEvent, add: boolean) {
+    const start = toLocal(e);
+    let active = false;
+    const move = (ev: PointerEvent) => {
+      if (ev.pointerId !== e.pointerId) return;
+      const end = toLocal(ev);
+      if (!active && Math.hypot(end[0] - start[0], end[1] - start[1]) < 4) return;
+      active = true;
+      window.getSelection()?.removeAllRanges();
+      marquee = { start, end };
+    };
+    const up = (ev: PointerEvent) => {
+      if (ev.pointerId !== e.pointerId) return;
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', up);
+      const m = marquee;
+      marquee = null;
+      if (!m) return;
+      const hits = unitsTouching(annots, normRect(toPdf(m.start[0], m.start[1]), toPdf(m.end[0], m.end[1])));
+      // Nothing touched: the selection stays cleared (as a plain click on the page does).
+      const next = add ? addUnits(viewer.objectSelection, page.id, hits) : hits.length ? { pageId: page.id, ids: hits } : null;
+      if (add && viewer.objectSelection && viewer.objectSelection.pageId !== page.id && hits.length) {
+        viewer.notify('You can only select objects on one page at a time.');
+        return;
+      }
+      viewer.selectObjects(next);
+      if (hits.length || add) announceSelection();
+      const top = next ? membersOf(annots, next.ids).at(-1) : undefined;
+      if (top) focusObject(top.id);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', up);
+  }
+
+  /** A multi-selection or a group: one dashed box around it all, each object lightly outlined. */
+  const blockOutline = $derived.by(() => {
+    if (selected || !selMembers.length) return null;
+    const boxOf = (r: Rect) => screenBox([toScreen([r[0], r[1]]), toScreen([r[2], r[3]])]);
+    const all = boxOf(unionBounds(selMembers)!);
+    return { all: [all[0] - 4, all[1] - 4, all[2] + 4, all[3] + 4], parts: selMembers.map((a) => boxOf(bounds(a))) };
   });
 
   /** Geometry rectangle used for resizing (without stroke). */
@@ -832,9 +954,11 @@
 
   function onAnnotKey(e: KeyboardEvent, a: Annotation) {
     if (e.key === 'Enter' && a.type === 'text') {
-      void startEdit(a, false);
+      if (a.groups) viewer.notify('This text box is in a group. Ungroup it to edit its text.');
+      else void startEdit(a, false);
     } else if (e.key === 'Delete' || e.key === 'Backspace') {
-      actions.deleteAnnotation(page.id, a.id);
+      if (isSelected(a)) actions.deleteSelection();
+      else actions.deleteAnnotation(page.id, a.id);
     } else if (e.key === 'Escape') {
       viewer.selectAnnot(null);
       focusSink();
@@ -844,7 +968,11 @@
       const d = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[e.key] ?? [0, 0];
       const origin = toPdf(0, 0);
       const moved = toPdf(d[0], d[1]);
-      actions.updateAnnotation(page.id, translate(a, moved[0] - origin[0], moved[1] - origin[1]), `Move ${describe(a).toLowerCase()}`, `nudge:${a.id}`);
+      if (!isSelected(a)) select(a);
+      // Several objects (or a group) stop at the page edge as a whole.
+      const members = isSelected(a) ? selMembers : membersOf(annots, [unitOf(a)]);
+      const [dx, dy] = members.length > 1 ? clampDelta(unionBounds(members)!, pagePdf, moved[0] - origin[0], moved[1] - origin[1]) : [moved[0] - origin[0], moved[1] - origin[1]];
+      actions.nudgeSelection(dx, dy);
     } else {
       return;
     }
@@ -859,7 +987,7 @@
   <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
   <g
     class="annot"
-    class:selected={a.id === selectedId}
+    class:selected={isSelected(a)}
     role={selecting ? 'button' : undefined}
     tabindex={selecting && a !== draft ? 0 : undefined}
     data-annot-id={a.id}
@@ -867,7 +995,7 @@
     onpointerdown={(e) => onAnnotDown(e, a)}
     oncontextmenu={(e) => onAnnotMenu(e, a)}
     onkeydown={(e) => onAnnotKey(e, a)}
-    onfocus={() => selecting && select(a)}
+    onfocus={() => selecting && !isSelected(a) && select(a)}
   >
     {#each prims as p, k (k)}
       {#if p.kind === 'polygon'}
@@ -892,7 +1020,7 @@
       {@const g = boxedGeometry(a, toScreen, viewer.scale, pageRotation)}
       <div
         class="box-hit annot"
-        class:selected={a.id === selectedId}
+        class:selected={isSelected(a)}
         role="button"
         tabindex="0"
         data-annot-id={a.id}
@@ -907,8 +1035,12 @@
         onpointerdown={(e) => onAnnotDown(e, a)}
         oncontextmenu={(e) => onAnnotMenu(e, a)}
         onkeydown={(e) => onAnnotKey(e, a)}
-        onfocus={() => select(a)}
-        ondblclick={() => a.type === 'text' && startEdit(a, false)}
+        onfocus={() => !isSelected(a) && select(a)}
+        ondblclick={() => {
+          if (a.type !== 'text') return;
+          if (a.groups) viewer.notify('This text box is in a group. Ungroup it to edit its text.');
+          else void startEdit(a, false);
+        }}
         {@attach holdPagePinch}
       ></div>
     {/if}
@@ -950,6 +1082,16 @@
       width={selectionBox[2] - selectionBox[0]}
       height={selectionBox[3] - selectionBox[1]}
     />
+  {/if}
+  {#if blockOutline}
+    {#each blockOutline.parts as b, i (i)}
+      <rect class="member-box" x={b[0]} y={b[1]} width={b[2] - b[0]} height={b[3] - b[1]} />
+    {/each}
+    <rect class="sel-box block" x={blockOutline.all[0]} y={blockOutline.all[1]} width={blockOutline.all[2] - blockOutline.all[0]} height={blockOutline.all[3] - blockOutline.all[1]} />
+  {/if}
+  {#if marquee}
+    {@const r = screenBox([marquee.start, marquee.end])}
+    <rect class="marquee" x={r[0]} y={r[1]} width={r[2] - r[0]} height={r[3] - r[1]} />
   {/if}
   {#if imageOutline}
     <polygon class="sel-box" points={pointsAttr(imageOutline.corners)} />
@@ -1021,6 +1163,23 @@
     stroke: var(--accent);
     stroke-width: 1;
     stroke-dasharray: 4 3;
+  }
+  /* Several objects or a group: the dashed box around all, each object lightly outlined. */
+  .sel-box.block {
+    stroke-width: 1.5;
+  }
+  .member-box {
+    fill: none;
+    stroke: var(--accent);
+    stroke-width: 1;
+    stroke-opacity: 0.45;
+  }
+  /* The rectangle dragged to select objects. */
+  .marquee {
+    fill: var(--accent-soft);
+    fill-opacity: 0.5;
+    stroke: var(--accent);
+    stroke-width: 1;
   }
   .handle {
     fill: var(--surface);

@@ -1,5 +1,6 @@
 <script lang="ts">
   import OrderControls from './OrderControls.svelte';
+  import { STAMP_COLORS } from '../../lib/annotations';
   import { rgbToCss, STAMPS, type Rgb } from '../../lib/annotations';
   import { useActions } from '../../lib/actions.svelte';
   import { useViewer } from '../../lib/viewer.svelte';
@@ -10,12 +11,6 @@
   const actions = useActions();
 
   const sel = $derived(actions.selectedAnnot?.annot.type === 'stamp' ? actions.selectedAnnot : null);
-  const STAMP_COLORS: { name: string; rgb: Rgb }[] = [
-    { name: 'Green', rgb: [0.08, 0.45, 0.16] },
-    { name: 'Blue', rgb: [0.1, 0.35, 0.8] },
-    { name: 'Red', rgb: [0.8, 0.1, 0.1] },
-    { name: 'Gray', rgb: [0.35, 0.35, 0.35] },
-  ];
   let custom = $state('');
 
   function choose(label: string, color: Rgb) {
@@ -67,7 +62,7 @@
     <Swatches label="Stamp color" colors={STAMP_COLORS} value={sel?.annot.color ?? viewer.toolProps.stamp.color} onChange={(c) => c && setColor(c)} />
   </div>
   {#if sel}
-    <OrderControls pageId={sel.page.id} id={sel.annot.id} />
+    <OrderControls />
     <div class="actions">
       <button type="button" class="btn btn-danger" onclick={() => actions.deleteAnnotation(sel.page.id, sel.annot.id)}>Delete</button>
     </div>

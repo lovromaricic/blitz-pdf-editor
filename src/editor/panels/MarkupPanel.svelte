@@ -146,7 +146,7 @@
     {/if}
 
     {#if sel}
-      <OrderControls pageId={sel.page.id} id={sel.annot.id} />
+      <OrderControls />
       <div class="actions">
         <button
           type="button"

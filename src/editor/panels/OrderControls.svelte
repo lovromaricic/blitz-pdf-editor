@@ -1,7 +1,7 @@
 <script lang="ts">
-  // "Order": the selected object's place in its page's layers, for every kind
-  // of object. The same action as the Edit menu, the context menu and the
-  // shortcuts (actions.moveLayer).
+  // "Order": the selection's place in its page's layers (one object, several as
+  // a block, or a group), for every kind of object. The same action as the Edit
+  // menu, the context menu and the shortcuts (actions.moveSelectedLayer).
   import ArrowUpToLine from '@lucide/svelte/icons/arrow-up-to-line';
   import ArrowUp from '@lucide/svelte/icons/arrow-up';
   import ArrowDown from '@lucide/svelte/icons/arrow-down';
@@ -12,7 +12,6 @@
   import { LAYER_LABELS, type LayerMove } from '../../lib/z-order';
   import { ICON } from '../tools';
 
-  let { pageId, id }: { pageId: string; id: string } = $props();
   const actions = useActions();
 
   const MOVES: { move: LayerMove; command: CommandId; icon: Component }[] = [
@@ -34,8 +33,8 @@
         class="order-btn"
         aria-label={LAYER_LABELS[m.move]}
         title="{LAYER_LABELS[m.move]} ({formatKeys(keys)})"
-        disabled={!actions.canMoveLayer(pageId, id, m.move)}
-        onclick={() => actions.moveLayer(pageId, id, m.move)}><m.icon {...ICON} aria-hidden="true" /></button
+        disabled={!actions.canMoveSelected(m.move)}
+        onclick={() => actions.moveSelectedLayer(m.move)}><m.icon {...ICON} aria-hidden="true" /></button
       >
     {/each}
   </div>
