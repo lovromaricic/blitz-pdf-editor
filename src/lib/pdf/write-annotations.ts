@@ -6,17 +6,20 @@ import { bubblePath, NOTE_LINE_WIDTH, NOTE_LINES, NOTE_STROKE, toPdfPath } from 
 import {
   beginText,
   concatTransformationMatrix,
+  drawObject,
   endText,
   popGraphicsState,
   pushGraphicsState,
   setFontAndSize,
   setTextMatrix,
   setTextRenderingMode,
+  setGraphicsState,
   showText,
   TextRenderingMode,
   PDFDocument,
   PDFFont,
   PDFHexString,
+  PDFImage,
   PDFName,
   PDFOperator,
   PDFPage,
@@ -34,10 +37,13 @@ import {
   uprightSize,
   type Annotation,
   type BoxedAnnotation,
+  type ImageAnnotation,
   type TextAnnotation,
   type Rect,
   type Rgb,
 } from '../annotations';
+import { multiply, placementMatrix, type Matrix, rectsOverlap, turnMatrix, uprightImageMatrix } from '../image-geometry';
+import type { ImageAsset } from '../image-store';
 
 /** A font face key from font-catalog.ts faceKey(), e.g. "roboto-bold" or "sans". */
 export type FontKey = string;
@@ -57,12 +63,56 @@ const n = (v: number) => {
 };
 const rgb = (c: Rgb) => c.map(n).join(' ');
 
-export async function addAnnotations(doc: PDFDocument, page: PDFPage, annots: readonly Annotation[], fonts: FontProvider) {
+export async function addAnnotations(
+  doc: PDFDocument,
+  page: PDFPage,
+  annots: readonly Annotation[],
+  fonts: FontProvider,
+  images: Record<string, ImageAsset> = {},
+) {
+  // Annotations always draw above the page content. So an inserted image becomes
+  // part of the page itself, unless it overlaps something below it that is
+  // written as an annotation: then it's an image annotation too, keeping the order.
+  const written: Rect[] = [];
   for (const a of annots) {
-    const ref = doc.context.register(await buildAnnotation(doc, a, fonts));
+    const asset = a.type === 'image' && a.imageKey ? images[a.imageKey] : undefined;
+    if (a.type === 'image' && asset && !written.some((r) => rectsOverlap(r, bounds(a)))) {
+      await drawImageIntoPage(doc, page, a, asset);
+      continue;
+    }
+    const ref = doc.context.register(await buildAnnotation(doc, a, fonts, asset));
     page.node.addAnnot(ref);
+    written.push(bounds(a));
     if (a.type === 'text') await addSearchableText(doc, page, a, fonts);
   }
+}
+
+/** Each image is embedded once per output file, however often it's used. */
+const embedded = new WeakMap<PDFDocument, Map<ImageAsset, Promise<PDFImage>>>();
+
+function embedImage(doc: PDFDocument, asset: ImageAsset): Promise<PDFImage> {
+  let cache = embedded.get(doc);
+  if (!cache) embedded.set(doc, (cache = new Map()));
+  let image = cache.get(asset);
+  if (!image) {
+    image = asset.kind === 'jpeg' ? doc.embedJpg(asset.bytes) : doc.embedPng(asset.bytes);
+    cache.set(asset, image);
+  }
+  return image;
+}
+
+/** Draw an inserted image into the page content (page space, so it follows rotation and crop). */
+async function drawImageIntoPage(doc: PDFDocument, page: PDFPage, a: ImageAnnotation, asset: ImageAsset) {
+  const image = await embedImage(doc, asset);
+  const name = page.node.newXObject('BlitzImage', image.ref);
+  const m = multiply(uprightImageMatrix(a, asset.orientation), placementMatrix(a)).map((v) => Math.round(v * 1e4) / 1e4 || 0) as Matrix;
+  const ops: PDFOperator[] = [pushGraphicsState()];
+  if (a.opacity < 1) {
+    const gs = page.node.newExtGState('BlitzGS', doc.context.obj({ Type: 'ExtGState', ca: a.opacity, CA: a.opacity }));
+    ops.push(setGraphicsState(gs));
+  }
+  ops.push(concatTransformationMatrix(...m), drawObject(name), popGraphicsState());
+  page.pushOperators(...ops);
 }
 
 /**
@@ -110,10 +160,10 @@ interface Appearance {
   entries: Record<string, unknown>;
 }
 
-async function buildAnnotation(doc: PDFDocument, a: Annotation, fonts: FontProvider) {
+async function buildAnnotation(doc: PDFDocument, a: Annotation, fonts: FontProvider, asset?: ImageAsset) {
   const { context } = doc;
   const rect = bounds(a);
-  const ap = a.type === 'highlight' || a.type === 'ink' || a.type === 'shape' ? vectorAppearance(a) : await boxedAppearance(doc, a, fonts);
+  const ap = a.type === 'highlight' || a.type === 'ink' || a.type === 'shape' ? vectorAppearance(a) : await boxedAppearance(doc, a, fonts, asset);
   const gs = {
     Type: 'ExtGState',
     CA: a.opacity,
@@ -217,7 +267,7 @@ function shapeAppearance(a: Extract<Annotation, { type: 'shape' }>): Appearance 
  * Boxed annotations are drawn upright in their own [0 0 w h] box, rotated by
  * the page rotation they were made for; viewers map that box onto Rect.
  */
-async function boxedAppearance(doc: PDFDocument, a: BoxedAnnotation, fonts: FontProvider): Promise<Appearance> {
+async function boxedAppearance(doc: PDFDocument, a: BoxedAnnotation, fonts: FontProvider, asset?: ImageAsset): Promise<Appearance> {
   const [w, h] = uprightSize(a);
   const rad = (a.rotate * Math.PI) / 180;
   const matrix = [Math.cos(rad), Math.sin(rad), -Math.sin(rad), Math.cos(rad), 0, 0].map((v) => Math.round(v * 1e6) / 1e6);
@@ -279,6 +329,17 @@ async function boxedAppearance(doc: PDFDocument, a: BoxedAnnotation, fonts: Font
       };
     }
     case 'image': {
+      if (asset) {
+        // An inserted image: the original bytes, turned, flipped and faded as on screen.
+        const image = await embedImage(doc, asset);
+        return {
+          bbox: [0, 0, w, h],
+          matrix: turnMatrix(a).map((v) => Math.round(v * 1e6) / 1e6),
+          content: `/GS0 gs q ${uprightImageMatrix(a, asset.orientation).map(n).join(' ')} cm /Im0 Do Q`,
+          images: { Im0: image.ref },
+          entries: { Subtype: 'Stamp', Name: 'Image', Border: [0, 0, 0] },
+        };
+      }
       const image = await doc.embedPng(a.dataUrl);
       return {
         ...base,

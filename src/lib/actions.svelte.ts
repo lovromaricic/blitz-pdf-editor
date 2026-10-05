@@ -1,7 +1,7 @@
 // Document actions. Each feature is implemented once here and invoked from
 // menus, the thumbnail context menu, keyboard shortcuts and panels alike.
-import { getContext, setContext } from 'svelte';
-import { describe, newAnnotationId, translate, type Annotation } from './annotations';
+import { getContext, setContext, tick } from 'svelte';
+import { describe, newAnnotationId, round, translate, type Annotation, type ImageAnnotation, type Point } from './annotations';
 import { baseName, loadFiles, newPageId, type EditorDocument, type PageRef } from './document.svelte';
 import { confirmDiscard, promptText, showDialog } from './dialogs.svelte';
 import { downloadBytes, downloadZip, pdfFileName } from './download';
@@ -14,7 +14,12 @@ import { canvasToBlob, createRasterizer } from './rasterize';
 import { addOcrText, analyzeSources, compressSources, estimateCompression, imagesToPdfInWorker, redactInWorker, writePdf, writePdfs } from './pdf/pdf-writer';
 import type { Rect } from './annotations';
 import { findMatchRects } from './search.svelte';
-import { FLATTEN_STRINGS } from './strings';
+import { FLATTEN_STRINGS, IMAGE_STRINGS } from './strings';
+import { addImageFile, type StoredImage } from './image-store';
+import { UnsupportedImageError } from './image-prepare';
+import { defaultImageSize } from './image-geometry';
+import { heicDecodes } from './landing/heic-probe';
+import { viewportFor } from './pdf/render';
 import { groupMarks, padTextRect } from './redact-marks';
 import type { OcrLanguage } from './ocr';
 import { isWorthwhile, type CompressSettings } from './pdf/compress';
@@ -497,6 +502,107 @@ export class Actions {
     this.viewer.goToPage(at);
   }
 
+  // --- Insert image ---------------------------------------------------------
+
+  /** Converts between a page's PDF space and points from its top-left as shown (rotation and crop applied). */
+  async pagePoints(page: PageRef) {
+    const pdfPage = await this.doc.source(page).pdf.getPage(page.sourceIndex + 1);
+    const vp = viewportFor(pdfPage, 1, page.rotation);
+    const crop = this.doc.displayedCrop(page);
+    return {
+      toShown: (p: Point): Point => {
+        const [x, y] = vp.convertToViewportPoint(p[0], p[1]);
+        return [x - crop.left, y - crop.top];
+      },
+      toPdf: (x: number, y: number): Point => {
+        const [px, py] = vp.convertToPdfPoint(x + crop.left, y + crop.top);
+        return [round(px), round(py)];
+      },
+      size: this.doc.displaySize(page),
+      rotation: this.doc.totalRotation(page),
+    };
+  }
+
+  /**
+   * Place images on a page as movable objects, in one undo step. Without `drop`
+   * they go on the current page (selected in the rail, else the one most in
+   * view), centered in its visible part; with `drop`, centered where they were
+   * dropped (points from the page's top-left as shown).
+   */
+  async insertImageFiles(files: readonly File[], drop?: { index: number; point: Point }) {
+    if (files.length === 0) return;
+    const heic = await heicDecodes();
+    const result = await this.viewer.runTask(
+      IMAGE_STRINGS.adding,
+      async (progress) => {
+        const images: StoredImage[] = [];
+        let unsupported = 0;
+        for (let i = 0; i < files.length; i++) {
+          try {
+            images.push(await addImageFile(files[i], heic));
+          } catch (e) {
+            if (!(e instanceof UnsupportedImageError)) throw e;
+            unsupported++;
+          }
+          progress((i + 1) / files.length);
+        }
+        return { images, unsupported };
+      },
+      // Most images are ready at once: only show progress for slow ones.
+      { delay: 1000 },
+    );
+    if (!result) return;
+    const notes: string[] = [];
+    if (result.unsupported) notes.push(IMAGE_STRINGS.unsupported);
+    for (const img of result.images) {
+      if (img.downscaledFrom) notes.push(IMAGE_STRINGS.downscaled(img.name, img.downscaledFrom, [img.width, img.height]));
+    }
+    if (result.images.length === 0) return this.viewer.notify(notes.join(' '));
+
+    const index = drop?.index ?? this.viewer.activePageIndex();
+    const page = this.doc.pages[index];
+    if (!page) return;
+    // Bring the page into view if it isn't.
+    if (!drop && !this.viewer.visiblePageArea(index)) {
+      this.viewer.goToPage(index);
+      await tick();
+    }
+    const view = await this.pagePoints(page);
+    const { width, height } = view.size;
+    const area = this.viewer.visiblePageArea(index) ?? [0, 0, width, height];
+    const center = drop?.point ?? [(area[0] + area[2]) / 2, (area[1] + area[3]) / 2];
+    // Several images: each a little further down and right, so none hides another.
+    const step = 16 / this.viewer.scale;
+    const placed: ImageAnnotation[] = result.images.map((img, k) => {
+      const [w, h] = defaultImageSize([img.width, img.height], [width, height]);
+      const cx = Math.min(width, Math.max(0, center[0] + k * step));
+      const cy = Math.min(height, Math.max(0, center[1] + k * step));
+      const [px, py] = view.toPdf(cx, cy);
+      const [rw, rh] = view.rotation % 180 === 0 ? [w, h] : [h, w];
+      return {
+        id: newAnnotationId(),
+        type: 'image',
+        role: 'image',
+        color: [0, 0, 0],
+        opacity: 1,
+        dataUrl: img.url,
+        imageKey: img.key,
+        rotate: view.rotation,
+        angle: 0,
+        rect: [round(px - rw / 2), round(py - rh / 2), round(px + rw / 2), round(py + rh / 2)],
+      };
+    });
+    const label = placed.length === 1 ? IMAGE_STRINGS.undoOne : IMAGE_STRINGS.undoMany(placed.length);
+    this.editAnnots(page.id, label, (list) => [...list, ...placed]);
+    this.viewer.setTool('select');
+    const last = placed[placed.length - 1];
+    this.viewer.selectAnnot({ pageId: page.id, id: last.id });
+    if (notes.length) this.viewer.notify(notes.join(' '));
+    // Keyboard users can nudge it with the arrow keys right away.
+    await tick();
+    document.querySelector<HTMLElement>(`[data-annot-id="${last.id}"]`)?.focus({ preventScroll: true });
+  }
+
   // --- Forms ----------------------------------------------------------------
 
   /** Pages whose form fields aren't flattened yet. */
@@ -587,6 +693,33 @@ export class Actions {
 
   canPaste() {
     return annotClipboard !== null && this.doc.pages.length > 0;
+  }
+
+  /** A copy next to the selected object, on the same page (the clipboard is left alone). */
+  duplicateAnnotation() {
+    const sel = this.selectedAnnot;
+    if (!sel) return;
+    const copy = { ...translate(sel.annot, 12, -12), id: newAnnotationId() };
+    this.editAnnots(sel.page.id, `Duplicate ${describe(copy).toLowerCase()}`, (list) => [...list, copy]);
+    this.viewer.selectAnnot({ pageId: sel.page.id, id: copy.id });
+  }
+
+  /** Can the object move further to the front (or back) among the objects on its page? */
+  canReorder(pageId: string, id: string, to: 'front' | 'back') {
+    const list = this.doc.pages.find((p) => p.id === pageId)?.annots ?? [];
+    const i = list.findIndex((a) => a.id === id);
+    return i >= 0 && (to === 'front' ? i < list.length - 1 : i > 0);
+  }
+
+  /** Stack the object above (or below) every other object on its page. */
+  reorderAnnotation(pageId: string, id: string, to: 'front' | 'back') {
+    const found = this.findAnnot(pageId, id);
+    if (!found || !this.canReorder(pageId, id, to)) return;
+    const what = describe(found.annot).toLowerCase();
+    this.editAnnots(pageId, to === 'front' ? `Bring ${what} to front` : `Send ${what} to back`, (list) => {
+      const rest = list.filter((a) => a.id !== id);
+      return to === 'front' ? [...rest, found.annot] : [found.annot, ...rest];
+    });
   }
 
   /** Paste onto the current page, offset so the copy is visible next to the original. */

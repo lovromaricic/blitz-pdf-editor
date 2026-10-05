@@ -28,3 +28,38 @@ export const FLATTEN_STRINGS = {
   panelPending: 'The form is flattened: the answers will be part of the page in the copy you download. Undo with Ctrl+Z.',
   panelHint: 'Flattening locks the answers into the page, so nobody can change them later. You download it as a new copy.',
 } as const;
+
+/** Insert image (Page menu, drag and drop, paste) and the Image panel. */
+export const IMAGE_STRINGS = {
+  command: 'Insert image…',
+  unsupported: "That image type isn't supported. Try JPG or PNG.",
+  dropPdf: 'To add pages from a PDF, use Page › Insert pages from file…',
+  adding: 'Adding image…',
+  undoOne: 'Insert image',
+  undoMany: (n: number) => `Insert ${n} images`,
+  downscaled: (name: string, from: [number, number], to: [number, number]) =>
+    `${name} was very large (${from[0]} × ${from[1]} px), so it was reduced to ${to[0]} × ${to[1]} px.`,
+  panelTitle: 'Image',
+  position: 'Position and size',
+  x: 'X (mm)',
+  y: 'Y (mm)',
+  width: 'Width (mm)',
+  height: 'Height (mm)',
+  lockAspect: 'Lock aspect ratio',
+  invalidNumber: 'Enter a number.',
+  tooSmall: 'Too small: use at least 1 mm.',
+  tooLarge: 'Too large for the page area.',
+  offPage: 'That would move the image off the page.',
+  rotation: 'Rotation (°)',
+  resetRotation: 'Reset rotation',
+  flip: 'Flip',
+  flipHorizontal: 'Flip horizontal',
+  flipVertical: 'Flip vertical',
+  opacity: 'Opacity',
+  order: 'Order',
+  bringToFront: 'Bring to front',
+  sendToBack: 'Send to back',
+  resetSize: 'Reset size',
+  delete: 'Delete',
+  hint: 'Drag to move, drag a corner to resize (Alt: from the center), drag the round handle to rotate (Shift: 15° steps). Arrow keys nudge.',
+} as const;

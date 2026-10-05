@@ -1,5 +1,5 @@
 <script lang="ts">
-  // Non-interactive rendering of a page's markup (thumbnails).
+  // Non-interactive rendering of a page's markup (thumbnails), in stacking order.
   import type { PageViewport } from 'pdfjs-dist';
   import { isBoxed, type Annotation, type Point } from '../lib/annotations';
   import BoxedView from './BoxedView.svelte';
@@ -8,20 +8,14 @@
   let { annots, viewport }: { annots: readonly Annotation[]; viewport: PageViewport } = $props();
 
   const toScreen = (p: Point) => viewport.convertToViewportPoint(p[0], p[1]) as Point;
-  const groups = $derived([
-    { multiply: true, prims: annots.filter((a) => a.type === 'highlight').flatMap((a) => toPrimitives(a, toScreen, viewport.scale)) },
-    { multiply: false, prims: annots.filter((a) => a.type !== 'highlight').flatMap((a) => toPrimitives(a, toScreen, viewport.scale)) },
-  ]);
 </script>
 
-{#each annots.filter(isBoxed) as a (a.id)}
-  <BoxedView {a} {toScreen} scale={viewport.scale} pageRotation={viewport.rotation} />
-{/each}
-
-{#each groups as g, gi (gi)}
-  {#if g.prims.length}
-    <svg class:multiply={g.multiply} width={viewport.width} height={viewport.height} aria-hidden="true">
-      {#each g.prims as p, i (i)}
+{#each annots as a (a.id)}
+  {#if isBoxed(a)}
+    <BoxedView {a} {toScreen} scale={viewport.scale} pageRotation={viewport.rotation} z={1} />
+  {:else}
+    <svg class:multiply={a.type === 'highlight'} width={viewport.width} height={viewport.height} aria-hidden="true">
+      {#each toPrimitives(a, toScreen, viewport.scale) as p, i (i)}
         {#if p.kind === 'polygon'}
           <polygon points={pointsAttr(p.points)} fill={p.fill} fill-opacity={p.opacity} />
         {:else if p.kind === 'polyline'}
@@ -39,6 +33,7 @@
     position: absolute;
     top: 0;
     left: 0;
+    z-index: 1;
     pointer-events: none;
   }
   .multiply {

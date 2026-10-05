@@ -9,6 +9,7 @@ import { FONT_URLS } from '../fonts';
 import { localFontList } from '../font-catalog';
 import { changedFieldValues, type FieldValue } from '../forms';
 import type { Rgb } from '../annotations';
+import { imageAssets } from '../image-store';
 import type { PageDecoration } from '../decorations';
 import { pageNumberLabels, watermarkApplies } from '../settings';
 
@@ -63,6 +64,10 @@ export async function writePdfs(
   // Structured clone copies the bytes, so the originals stay with us.
   const sources = sourceInputs(doc, used);
 
+  // Inserted images, each sent (and embedded) once however often it's used.
+  const imageKeys = new Set(outputs.flat().flatMap((p) => (p.annots ?? []).flatMap((a) => (a.type === 'image' && a.imageKey ? [a.imageKey] : []))));
+  const images = imageAssets(imageKeys);
+
   const decoFor = decorationResolver(doc);
   const protection = doc.settings.protection;
   const result = await runJob(
@@ -73,6 +78,7 @@ export async function writePdfs(
       mode,
       forms,
       flatten,
+      images,
       encrypt: protection && { ...protection },
     },
     onProgress,

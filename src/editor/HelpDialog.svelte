@@ -79,6 +79,7 @@
         <ul class="guide">
           <li><strong>Your files stay on this device.</strong> Nothing is uploaded or stored. Closing the tab clears everything, so save before you leave.</li>
           <li><strong>Pages:</strong> use the thumbnails on the left. Drag to reorder, right-click for rotate, delete and extract. The <em>Page</em> menu has the same actions.</li>
+          <li><strong>Images:</strong> <em>Page › Insert image</em> puts a picture on the current page; you can also drag an image file onto a page or paste one with {mod}+V. Drag it, its corners and its round handle to move, resize and rotate; the panel on the right has exact sizes, flip, opacity and order.</li>
           <li><strong>Tools:</strong> merge, split and other tools are in the <em>Tools</em> menu and open on the right.</li>
           <li><strong>Mistakes:</strong> everything can be undone with {mod}+Z until you close the document.</li>
           <li><strong>Saving:</strong> <em>File › Save</em> downloads the edited PDF. Your original file is never changed.</li>

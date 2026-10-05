@@ -1,10 +1,11 @@
 <script lang="ts">
   import { capturePointer } from '../lib/dom';
-  // Markup on one page: draws annotations and handles the markup tools
-  // (Highlight, Draw, Shapes, Text, Stamp, Comment, Sign) and Select. Coordinates are converted between screen and PDF
+  // Markup on one page: draws annotations (in stacking order) and handles the markup tools
+  // (Highlight, Draw, Shapes, Text, Stamp, Comment, Sign) and Select, including
+  // moving, resizing and turning inserted images. Coordinates are converted between screen and PDF
   // space with the page viewport, so rotation and zoom need no special cases.
   import type { PageViewport } from 'pdfjs-dist';
-  import { tick } from 'svelte';
+  import { tick, untrack } from 'svelte';
   import {
     describe,
     isBoxed,
@@ -13,6 +14,7 @@
     rectFromUpright,
     uprightTopLeft,
     type BoxedAnnotation,
+    type ImageAnnotation,
     type TextAnnotation,
     mergeLineRects,
     newAnnotationId,
@@ -27,6 +29,7 @@
     type Rect,
   } from '../lib/annotations';
   import { boxedGeometry, pointsAttr, screenBox, toPrimitives } from '../lib/annotation-view';
+  import { clampFrame, frameCorners, frameToImage, imageFrame, resizeFrame, turnFrame, turnHandle, MIN_IMAGE_SIZE, type Frame } from '../lib/image-geometry';
   import { cssFamily, ensureFont, LINE_HEIGHT, loadFonts, resolveStyle, TEXT_PADDING } from '../lib/fonts';
   import { DEFAULT_TEXT_WIDTH, layoutText, makeStamp, topLeftForCenter } from '../lib/text-layout';
   import BoxedView from './BoxedView.svelte';
@@ -57,11 +60,16 @@
   let preview = $state<Annotation | null>(null);
 
   const annots = $derived((page.annots ?? []).map((a) => (preview && a.id === preview.id ? preview : a)));
+  /** In stacking order: the list order is the order on the page, bottom first, whatever the kind. */
   const all = $derived(draft ? [...annots, draft] : annots);
-  const highlights = $derived(all.filter((a) => a.type === 'highlight'));
-  const others = $derived(all.filter((a) => a.type !== 'highlight' && !isBoxed(a)));
-  const boxes = $derived(all.filter(isBoxed));
   const pageRotation = $derived(viewer.doc.totalRotation(page));
+  /** The page as shown (crop applied), in this layer's px: images can't be dragged entirely outside it. */
+  const pageArea = $derived.by((): Rect => {
+    const crop = viewer.doc.displayedCrop(page);
+    const size = viewer.doc.displaySize(page);
+    const s = viewer.scale;
+    return [crop.left * s, crop.top * s, (crop.left + size.width) * s, (crop.top + size.height) * s];
+  });
   const selectedId = $derived(viewer.selectedAnnot?.pageId === page.id ? viewer.selectedAnnot.id : null);
   const selected = $derived(annots.find((a) => a.id === selectedId) ?? null);
   const selecting = $derived(viewer.tool === 'select');
@@ -407,7 +415,35 @@
 
   // --- Select, move, resize -------------------------------------------------------
 
-  let moving: { pointerId: number; start: Point; original: Annotation; moved: boolean; resize?: (p: Point) => Annotation } | null = null;
+  type Reshape = (p: Point, e: PointerEvent) => Annotation;
+
+  let moving: {
+    pointerId: number;
+    start: Point;
+    /** The pointer in this layer's px, for images (moved in screen space so they can be kept on the page). */
+    startLocal: Point;
+    original: Annotation;
+    moved: boolean;
+    resize?: Reshape;
+    label?: string;
+  } | null = null;
+
+  const toLocal = (e: { clientX: number; clientY: number }): Point => {
+    const r = ui.getBoundingClientRect();
+    return [e.clientX - r.left, e.clientY - r.top];
+  };
+  const pdfAt = (x: number, y: number) => toPdf(x, y);
+  const frameOf = (a: ImageAnnotation) => imageFrame(a, toScreen, viewer.scale, pageRotation);
+  const fromFrame = (a: ImageAnnotation, f: Frame) => frameToImage(a, f, pdfAt, viewer.scale, pageRotation);
+
+  // The panel shows the selected object's size and position live while it's dragged.
+  $effect(() => {
+    const live = preview && preview.id === selectedId ? preview : null;
+    untrack(() => {
+      if (live) viewer.livePreview = live;
+      else if (viewer.livePreview && (page.annots ?? []).some((a) => a.id === viewer.livePreview!.id)) viewer.livePreview = null;
+    });
+  });
 
   function select(a: Annotation) {
     viewer.selectAnnot({ pageId: page.id, id: a.id });
@@ -417,19 +453,20 @@
     if (!selecting || e.button !== 0) return;
     e.preventDefault();
     e.stopPropagation();
+    if (e.pointerType === 'touch' && a.type === 'image' && a.id === selectedId && onImageTouchDown(e, a)) return;
     select(a);
     startDrag(e, a);
   }
 
-  function onHandleDown(e: PointerEvent, resize: (p: Point) => Annotation) {
+  function onHandleDown(e: PointerEvent, h: Handle) {
     if (!selected || e.button !== 0) return;
     e.preventDefault();
     e.stopPropagation();
-    startDrag(e, selected, resize);
+    startDrag(e, selected, h.resize, h.label);
   }
 
-  function startDrag(e: PointerEvent, original: Annotation, resize?: (p: Point) => Annotation) {
-    moving = { pointerId: e.pointerId, start: clientToPdf(e.clientX, e.clientY), original, moved: false, resize };
+  function startDrag(e: PointerEvent, original: Annotation, resize?: Reshape, label?: string) {
+    moving = { pointerId: e.pointerId, start: clientToPdf(e.clientX, e.clientY), startLocal: toLocal(e), original, moved: false, resize, label };
     const up = (ev: PointerEvent) => {
       if (ev.pointerId !== e.pointerId) return;
       window.removeEventListener('pointermove', onUiMove);
@@ -447,19 +484,85 @@
     const p = clientToPdf(e.clientX, e.clientY);
     if (!moving.moved && Math.hypot(p[0] - moving.start[0], p[1] - moving.start[1]) * viewer.scale < 3) return;
     moving.moved = true;
-    preview = moving.resize ? moving.resize(p) : translate(moving.original, p[0] - moving.start[0], p[1] - moving.start[1]);
+    const o = moving.original;
+    if (moving.resize) preview = moving.resize(p, e);
+    else if (o.type === 'image') {
+      // Images move in screen space and keep their center on the page.
+      const f = frameOf(o);
+      const [x, y] = toLocal(e);
+      preview = fromFrame(o, clampFrame({ ...f, cx: f.cx + x - moving.startLocal[0], cy: f.cy + y - moving.startLocal[1] }, pageArea));
+    } else preview = translate(o, p[0] - moving.start[0], p[1] - moving.start[1]);
   }
 
   function onUiUp(e: PointerEvent) {
     if (!moving || e.pointerId !== moving.pointerId) return;
     const done = preview;
     const wasResize = !!moving.resize;
+    const label = moving.label;
     moving = null;
     preview = null;
     if (!done) return;
     // Text re-wraps to its new width.
     const final = done.type === 'text' && wasResize ? layoutText(done) : done;
-    actions.updateAnnotation(page.id, final, `${wasResize ? 'Resize' : 'Move'} ${describe(done).toLowerCase()}`);
+    actions.updateAnnotation(page.id, final, label ?? `${wasResize ? 'Resize' : 'Move'} ${describe(done).toLowerCase()}`);
+  }
+
+  // --- Touch: pinch a selected image to resize it ------------------------------
+
+  const imageTouches = new Map<number, Point>();
+  let pinch: { original: ImageAnnotation; frame: Frame; d0: number; ids: number[] } | null = null;
+
+  /** Two fingers on the selected image resize it (instead of zooming the page). */
+  function onImageTouchDown(e: PointerEvent, a: ImageAnnotation) {
+    imageTouches.set(e.pointerId, toLocal(e));
+    if (imageTouches.size !== 2) return false;
+    // The first finger had started a move: drop it.
+    moving = null;
+    preview = null;
+    const fingers = new Map(imageTouches);
+    const [p, q] = [...fingers.values()];
+    pinch = { original: a, frame: frameOf(a), d0: Math.hypot(p[0] - q[0], p[1] - q[1]) || 1, ids: [...fingers.keys()] };
+    const move = (ev: PointerEvent) => {
+      if (!pinch || !fingers.has(ev.pointerId)) return;
+      fingers.set(ev.pointerId, toLocal(ev));
+      const [m, n] = [...fingers.values()];
+      const f = pinch.frame;
+      const k = Math.max(MIN_IMAGE_SIZE / Math.min(f.w, f.h), Math.hypot(m[0] - n[0], m[1] - n[1]) / pinch.d0);
+      preview = fromFrame(pinch.original, { ...f, w: f.w * k, h: f.h * k });
+    };
+    const up = (ev: PointerEvent) => {
+      if (!pinch?.ids.includes(ev.pointerId)) return;
+      imageTouches.clear();
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', up);
+      const done = preview;
+      pinch = null;
+      preview = null;
+      if (done) actions.updateAnnotation(page.id, done, 'Resize image');
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', up);
+    return true;
+  }
+
+  /** Keep the page from zooming while two fingers are on the selected image. */
+  function holdPagePinch(node: HTMLElement) {
+    const stop = (e: TouchEvent) => {
+      if (node.classList.contains('selected') && node.dataset.kind === 'image') e.stopPropagation();
+    };
+    const forget = (e: PointerEvent) => imageTouches.delete(e.pointerId);
+    node.addEventListener('touchstart', stop, { passive: true });
+    node.addEventListener('touchmove', stop, { passive: true });
+    window.addEventListener('pointerup', forget);
+    window.addEventListener('pointercancel', forget);
+    return () => {
+      node.removeEventListener('touchstart', stop);
+      node.removeEventListener('touchmove', stop);
+      window.removeEventListener('pointerup', forget);
+      window.removeEventListener('pointercancel', forget);
+    };
   }
 
   // Clicking the page outside any annotation deselects.
@@ -482,9 +585,39 @@
     return null;
   }
 
-  const handles = $derived.by(() => {
+  interface Handle {
+    at: Point;
+    cursor: string;
+    resize: Reshape;
+    /** Undo label, when not "Resize …". */
+    label?: string;
+    /** The round handle that turns an image. */
+    turn?: boolean;
+  }
+
+  /** Distance of an image's turn handle above its top edge, in px. */
+  const TURN_HANDLE_GAP = 24;
+
+  /** Images: handles on the turned box; resize keeps proportions unless unlocked, Alt resizes from the center. */
+  function imageHandles(a: ImageAnnotation): Handle[] {
+    const f = frameOf(a);
+    const lock = a.role === 'signature' || viewer.imageAspectLock;
+    const list: Handle[] = frameCorners(f).map((at, i) => ({
+      at,
+      cursor: i % 2 === 0 ? 'nwse-resize' : 'nesw-resize',
+      resize: (p, e) => fromFrame(a, resizeFrame(f, i, toScreen(p), { lock, fromCenter: e.altKey })),
+    }));
+    if (a.role === 'image') {
+      const base = f.turn - (a.angle ?? 0);
+      list.push({ at: turnHandle(f, TURN_HANDLE_GAP), cursor: 'grab', turn: true, label: 'Rotate image', resize: (p, e) => fromFrame(a, turnFrame(f, toScreen(p), base, e.shiftKey)) });
+    }
+    return list;
+  }
+
+  const handles = $derived.by((): Handle[] => {
     const a = preview ?? selected;
     if (!a || !selecting) return [];
+    if (a.type === 'image') return imageHandles(a);
     if (a.type === 'shape' && (a.shape === 'line' || a.shape === 'arrow')) {
       const original = a;
       return [
@@ -501,8 +634,8 @@
       [r[0], r[3]],
     ];
     const original = a;
-    // Stamps and images keep their proportions.
-    const keepAspect = a.type === 'stamp' || a.type === 'image';
+    // Stamps keep their proportions.
+    const keepAspect = a.type === 'stamp';
     return corners.map((c, i) => {
       const fixed = corners[(i + 2) % 4];
       const resize = (p: Point) => {
@@ -517,9 +650,17 @@
     });
   });
 
+  /** An image's selection outline, following its turn. */
+  const imageOutline = $derived.by(() => {
+    const a = preview ?? selected;
+    if (!a || a.type !== 'image') return null;
+    const f = frameOf(a);
+    return { corners: frameCorners(f, 3), top: turnHandle(f, 3), handle: a.role === 'image' ? turnHandle(f, TURN_HANDLE_GAP) : null };
+  });
+
   const selectionBox = $derived.by(() => {
     const a = preview ?? selected;
-    if (!a) return null;
+    if (!a || a.type === 'image') return null;
     if (isBoxed(a)) {
       const b = screenBox([toScreen([a.rect[0], a.rect[1]]), toScreen([a.rect[2], a.rect[3]])]);
       return [b[0] - 3, b[1] - 3, b[2] + 3, b[3] + 3];
@@ -554,56 +695,49 @@
   }
 </script>
 
-{#snippet shapes(list: Annotation[])}
-  {#each list as a (a.id)}
-    {@const prims = toPrimitives(a, toScreen, viewer.scale)}
-    <!-- Focusable as a button only while the Select tool is active. -->
-    <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-    <g
-      class="annot"
-      class:selected={a.id === selectedId}
-      class:live={selecting}
-      role={selecting ? 'button' : undefined}
-      tabindex={selecting && a !== draft ? 0 : undefined}
-      aria-label={selecting ? `${describe(a)} (Delete to remove, arrow keys to move)` : undefined}
-      onpointerdown={(e) => onAnnotDown(e, a)}
-      onkeydown={(e) => onAnnotKey(e, a)}
-      onfocus={() => selecting && select(a)}
-    >
-      {#each prims as p, k (k)}
-        {#if p.kind === 'polygon'}
-          <polygon points={pointsAttr(p.points)} fill={p.fill} fill-opacity={p.opacity} />
-        {:else if p.kind === 'polyline'}
-          <polyline class="hit" points={pointsAttr(p.points)} stroke-width={Math.max(p.width, 12)} />
-          <polyline points={pointsAttr(p.points)} fill="none" stroke={p.stroke} stroke-width={p.width} stroke-opacity={p.opacity} stroke-linecap="round" stroke-linejoin="round" />
-        {:else}
-          <ellipse class="hit" cx={p.cx} cy={p.cy} rx={p.rx} ry={p.ry} stroke-width={Math.max(p.width, 12)} fill={p.fill ? 'transparent' : 'none'} />
-          <ellipse cx={p.cx} cy={p.cy} rx={p.rx} ry={p.ry} fill={p.fill ?? 'none'} fill-opacity={p.opacity} stroke={p.stroke} stroke-width={p.width} stroke-opacity={p.opacity} />
-        {/if}
-      {/each}
-    </g>
-  {/each}
+{#snippet shape(a: Annotation)}
+  {@const prims = toPrimitives(a, toScreen, viewer.scale)}
+  <!-- Focusable as a button only while the Select tool is active. -->
+  <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+  <g
+    class="annot"
+    class:selected={a.id === selectedId}
+    role={selecting ? 'button' : undefined}
+    tabindex={selecting && a !== draft ? 0 : undefined}
+    data-annot-id={a.id}
+    aria-label={selecting ? `${describe(a)} (Delete to remove, arrow keys to move)` : undefined}
+    onpointerdown={(e) => onAnnotDown(e, a)}
+    onkeydown={(e) => onAnnotKey(e, a)}
+    onfocus={() => selecting && select(a)}
+  >
+    {#each prims as p, k (k)}
+      {#if p.kind === 'polygon'}
+        <polygon points={pointsAttr(p.points)} fill={p.fill} fill-opacity={p.opacity} />
+      {:else if p.kind === 'polyline'}
+        <polyline class="hit" points={pointsAttr(p.points)} stroke-width={Math.max(p.width, 12)} />
+        <polyline points={pointsAttr(p.points)} fill="none" stroke={p.stroke} stroke-width={p.width} stroke-opacity={p.opacity} stroke-linecap="round" stroke-linejoin="round" />
+      {:else}
+        <ellipse class="hit" cx={p.cx} cy={p.cy} rx={p.rx} ry={p.ry} stroke-width={Math.max(p.width, 12)} fill={p.fill ? 'transparent' : 'none'} />
+        <ellipse cx={p.cx} cy={p.cy} rx={p.rx} ry={p.ry} fill={p.fill ?? 'none'} fill-opacity={p.opacity} stroke={p.stroke} stroke-width={p.width} stroke-opacity={p.opacity} />
+      {/if}
+    {/each}
+  </g>
 {/snippet}
 
-<svg class="layer multiply" class:live={selecting} width={viewport.width} height={viewport.height} aria-hidden={!selecting}>
-  {@render shapes(highlights)}
-</svg>
-<svg class="layer" class:live={selecting} width={viewport.width} height={viewport.height} aria-hidden={!selecting}>
-  {@render shapes(others)}
-</svg>
-
-<div class="layer boxes" aria-hidden={!selecting}>
-  {#each boxes as a (a.id)}
-    <BoxedView {a} {toScreen} scale={viewer.scale} {pageRotation} hidden={editing?.annot.id === a.id} />
-  {/each}
-  {#if selecting}
-    {#each boxes as a (a.id)}
+<!-- One element per object, in stacking order (bottom first), all on the same level:
+     what's drawn on top is also what's clicked and tabbed to last. -->
+{#each all as a (a.id)}
+  {#if isBoxed(a)}
+    <BoxedView {a} {toScreen} scale={viewer.scale} {pageRotation} hidden={editing?.annot.id === a.id} z={4} />
+    {#if selecting}
       {@const g = boxedGeometry(a, toScreen, viewer.scale, pageRotation)}
       <div
         class="box-hit annot"
         class:selected={a.id === selectedId}
         role="button"
         tabindex="0"
+        data-annot-id={a.id}
+        data-kind={a.type}
         aria-label="{describe(a)}{a.type === 'text' ? ': ' + a.text.slice(0, 60) : a.type === 'note' && a.text ? ': ' + a.text.slice(0, 60) : ''}. {a.type === 'text' ? 'Enter to edit, ' : ''}Delete to remove, arrow keys to move."
         title={a.type === 'note' ? a.text || 'Empty comment' : undefined}
         style:left="{g.cx}px"
@@ -615,10 +749,15 @@
         onkeydown={(e) => onAnnotKey(e, a)}
         onfocus={() => select(a)}
         ondblclick={() => a.type === 'text' && startEdit(a, false)}
+        {@attach holdPagePinch}
       ></div>
-    {/each}
+    {/if}
+  {:else}
+    <svg class="layer" class:multiply={a.type === 'highlight'} class:live={selecting} width={viewport.width} height={viewport.height} aria-hidden={!selecting}>
+      {@render shape(a)}
+    </svg>
   {/if}
-</div>
+{/each}
 
 {#if editing && editGeom}
   {@const a = editing.annot}
@@ -662,18 +801,24 @@
       height={selectionBox[3] - selectionBox[1]}
     />
   {/if}
+  {#if imageOutline}
+    <polygon class="sel-box" points={pointsAttr(imageOutline.corners)} />
+    {#if imageOutline.handle}
+      <line class="turn-stem" x1={imageOutline.top[0]} y1={imageOutline.top[1]} x2={imageOutline.handle[0]} y2={imageOutline.handle[1]} />
+    {/if}
+  {/if}
   {#each handles as h, i (i)}
-    <!-- Resize handles are a pointer convenience; keyboard users move with arrow keys. -->
+    <!-- Handles are a pointer convenience; keyboard users use arrow keys and the panel's fields. -->
     <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <rect
-      class="handle"
-      x={h.at[0] - 5}
-      y={h.at[1] - 5}
-      width="10"
-      height="10"
-      style:cursor={h.cursor}
-      onpointerdown={(e) => onHandleDown(e, h.resize)}
-    />
+    <g style:cursor={h.cursor} onpointerdown={(e) => onHandleDown(e, h)}>
+      <!-- A finger-sized target on touch screens. -->
+      <rect class="handle-touch" x={h.at[0] - 22} y={h.at[1] - 22} width="44" height="44" />
+      {#if h.turn}
+        <circle class="handle" cx={h.at[0]} cy={h.at[1]} r="6" />
+      {:else}
+        <rect class="handle" x={h.at[0] - 5} y={h.at[1] - 5} width="10" height="10" />
+      {/if}
+    </g>
   {/each}
 </svg>
 
@@ -732,6 +877,21 @@
     stroke-width: 1.5;
     pointer-events: all;
   }
+  .turn-stem {
+    stroke: var(--accent);
+    stroke-width: 1;
+  }
+  .handle-touch {
+    display: none;
+    fill: transparent;
+    pointer-events: all;
+    touch-action: none;
+  }
+  @media (pointer: coarse), (max-width: 720px) {
+    .handle-touch {
+      display: block;
+    }
+  }
   .capture {
     position: absolute;
     inset: 0;
@@ -742,14 +902,15 @@
   .capture.placing {
     cursor: copy;
   }
-  .boxes {
-    width: 100%;
-    height: 100%;
-  }
   .box-hit {
     position: absolute;
+    z-index: 4;
     pointer-events: auto;
     cursor: move;
+  }
+  /* A selected image follows one finger (and two pinch it) instead of scrolling the page. */
+  .box-hit.selected[data-kind='image'] {
+    touch-action: none;
   }
   .box-hit:focus-visible {
     outline: 2px solid var(--accent);

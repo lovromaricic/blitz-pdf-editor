@@ -97,9 +97,9 @@ export function primitivesToSvg(prims: Primitive[], width: number, height: numbe
 /**
  * Where a boxed annotation sits on screen: the center of its box, its upright
  * size in px, and how far its content is turned (clockwise degrees) because the
- * page has been rotated since it was made.
+ * page has been rotated since it was made (plus an image's own turn).
  */
-export function boxedGeometry(a: { rect: Rect; rotate: number }, toScreen: ToScreen, scale: number, pageRotation: number) {
+export function boxedGeometry(a: { rect: Rect; rotate: number; angle?: number }, toScreen: ToScreen, scale: number, pageRotation: number) {
   const [x1, y1, x2, y2] = a.rect;
   const b = screenBox([toScreen([x1, y1]), toScreen([x2, y2])]);
   const w = a.rotate % 180 === 0 ? x2 - x1 : y2 - y1;
@@ -109,6 +109,7 @@ export function boxedGeometry(a: { rect: Rect; rotate: number }, toScreen: ToScr
     cy: (b[1] + b[3]) / 2,
     w: w * scale,
     h: h * scale,
-    turn: (((pageRotation - a.rotate) % 360) + 360) % 360,
+    // Images can also be turned freely on top of that.
+    turn: (((pageRotation - a.rotate + (a.angle ?? 0)) % 360) + 360) % 360,
   };
 }

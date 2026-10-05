@@ -69,6 +69,10 @@ export async function drawBoxed(
       const img = new Image();
       img.src = a.dataUrl;
       await img.decode();
+      if (a.flipX || a.flipY) {
+        ctx.translate(a.flipX ? g.w : 0, a.flipY ? g.h : 0);
+        ctx.scale(a.flipX ? -1 : 1, a.flipY ? -1 : 1);
+      }
       ctx.drawImage(img, 0, 0, g.w, g.h);
     }
     ctx.restore();

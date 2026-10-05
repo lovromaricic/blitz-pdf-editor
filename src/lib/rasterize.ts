@@ -58,25 +58,23 @@ export async function createRasterizer(doc: EditorDocument): Promise<Rasterizer>
   };
 }
 
-/** Draw editor markup onto a rendered page (highlights multiply, like on screen). */
+/** Draw editor markup onto a rendered page in stacking order (highlights multiply, like on screen). */
 async function drawAnnotations(canvas: HTMLCanvasElement, annots: readonly Annotation[], viewport: PageViewport) {
   const ctx = canvas.getContext('2d')!;
   const toScreen = (p: Point) => viewport.convertToViewportPoint(p[0], p[1]) as Point;
-  const groups: [GlobalCompositeOperation, readonly Annotation[]][] = [
-    ['multiply', annots.filter((a) => a.type === 'highlight')],
-    ['source-over', annots.filter((a) => a.type !== 'highlight' && !isBoxed(a))],
-  ];
-  for (const [op, list] of groups) {
-    if (!list.length) continue;
-    const svg = primitivesToSvg(list.flatMap((a) => toPrimitives(a, toScreen, viewport.scale)), canvas.width, canvas.height);
+  for (const a of annots) {
+    if (isBoxed(a)) {
+      await drawBoxed(ctx, [a], toScreen, viewport.scale, viewport.rotation);
+      continue;
+    }
+    const svg = primitivesToSvg(toPrimitives(a, toScreen, viewport.scale), canvas.width, canvas.height);
     const img = new Image();
     img.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
     await img.decode();
-    ctx.globalCompositeOperation = op;
+    ctx.globalCompositeOperation = a.type === 'highlight' ? 'multiply' : 'source-over';
     ctx.drawImage(img, 0, 0);
+    ctx.globalCompositeOperation = 'source-over';
   }
-  ctx.globalCompositeOperation = 'source-over';
-  await drawBoxed(ctx, annots.filter(isBoxed), toScreen, viewport.scale, viewport.rotation);
 }
 
 function drawDecoration(ctx: CanvasRenderingContext2D, deco: PageDecoration, width: number, height: number, scale: number) {

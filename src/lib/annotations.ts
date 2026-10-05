@@ -80,9 +80,16 @@ export interface NoteAnnotation extends Boxed {
 
 export interface ImageAnnotation extends Boxed {
   type: 'image';
-  /** PNG data URL. */
+  /** What the editor shows: a PNG data URL (signatures) or an object URL from the image store (inserted images). */
   dataUrl: string;
   role: 'signature' | 'image';
+  /** Inserted images: the image store key of the original bytes (embedded once per saved file). */
+  imageKey?: string;
+  /** Extra clockwise turn in degrees, as seen on screen, on top of `rotate`. */
+  angle?: number;
+  /** Mirrored left-right / top-bottom (as seen upright). */
+  flipX?: boolean;
+  flipY?: boolean;
 }
 
 export type BoxedAnnotation = TextAnnotation | StampAnnotation | NoteAnnotation | ImageAnnotation;
@@ -205,9 +212,30 @@ export function bounds(a: Annotation): Rect {
       const extra = a.shape === 'arrow' ? arrowSize(a.width) : 0;
       return pad(r, a.width / 2 + extra);
     }
+    case 'image':
+      return a.angle ? turnedBounds(a) : a.rect;
     default:
       return a.rect;
   }
+}
+
+/**
+ * Counter-clockwise turn (degrees, PDF space) of a boxed annotation's upright
+ * content: the page rotation it was made for, less its own clockwise turn.
+ */
+export function contentTurn(a: { rotate: number; angle?: number }) {
+  return a.rotate - (a.angle ?? 0);
+}
+
+/** Box around a turned image: its upright box turned about the center of `rect`. */
+function turnedBounds(a: ImageAnnotation): Rect {
+  const [w, h] = uprightSize(a);
+  const cx = (a.rect[0] + a.rect[2]) / 2;
+  const cy = (a.rect[1] + a.rect[3]) / 2;
+  const t = (contentTurn(a) * Math.PI) / 180;
+  const ex = (Math.abs(Math.cos(t)) * w + Math.abs(Math.sin(t)) * h) / 2;
+  const ey = (Math.abs(Math.sin(t)) * w + Math.abs(Math.cos(t)) * h) / 2;
+  return [round(cx - ex), round(cy - ey), round(cx + ex), round(cy + ey)];
 }
 
 export function unionRects(rects: Rect[]): Rect {

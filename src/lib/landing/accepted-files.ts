@@ -43,3 +43,9 @@ export function dragLooksValid(items: readonly { kind: string; type: string }[],
   if (files.length === 0) return items.length === 0; // types only, no item list: give it the benefit of the doubt
   return files.some((i) => i.type === '' || kindOf({ name: '', type: i.type }, heic) !== null);
 }
+
+/** The accept attribute for picking images only (Insert image). */
+export function imageAcceptAttr(heic = false): string {
+  const groups = heic ? [IMAGES, HEIC] : [IMAGES];
+  return groups.flatMap((g) => [...g.types, ...g.ext.map((x) => `.${x}`)]).join(',');
+}

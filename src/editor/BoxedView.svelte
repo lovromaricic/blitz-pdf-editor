@@ -13,7 +13,16 @@
     scale,
     pageRotation,
     hidden = false,
-  }: { a: BoxedAnnotation; toScreen: (p: Point) => Point; scale: number; pageRotation: number; hidden?: boolean } = $props();
+    z,
+  }: {
+    a: BoxedAnnotation;
+    toScreen: (p: Point) => Point;
+    scale: number;
+    pageRotation: number;
+    hidden?: boolean;
+    /** Stacking level, shared with the other objects on the page so their order decides. */
+    z?: number;
+  } = $props();
 
   const box = $derived(boxedGeometry(a, toScreen, scale, pageRotation));
 
@@ -33,6 +42,8 @@
   style:transform="translate(-50%, -50%) rotate({box.turn}deg)"
   style:opacity={a.opacity}
   style:visibility={hidden ? 'hidden' : undefined}
+  style:z-index={z}
+  aria-hidden="true"
 >
   {#if a.type === 'text'}
     <div
@@ -66,7 +77,12 @@
       <path d={LINES_SVG} fill="none" stroke={rgbToCss(NOTE_OUTLINE)} stroke-width={NOTE_LINE_WIDTH} />
     </svg>
   {:else}
-    <img src={a.dataUrl} alt="" draggable="false" />
+    <img
+      src={a.dataUrl}
+      alt=""
+      draggable="false"
+      style:transform={a.type === 'image' && (a.flipX || a.flipY) ? `scale(${a.flipX ? -1 : 1}, ${a.flipY ? -1 : 1})` : undefined}
+    />
   {/if}
 </div>
 

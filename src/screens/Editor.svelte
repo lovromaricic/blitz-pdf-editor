@@ -4,7 +4,10 @@
   import { Actions, provideActions } from '../lib/actions.svelte';
   import { describe } from '../lib/annotations';
   import { IMAGE_ACCEPT } from '../lib/image-input';
-  import { CommandRegistry } from '../lib/commands';
+  import { CommandRegistry, comboFromEvent, isTextField, type CommandId } from '../lib/commands';
+  import { imageAcceptAttr, kindOf } from '../lib/landing/accepted-files';
+  import { heicDecodes } from '../lib/landing/heic-probe';
+  import { IMAGE_STRINGS } from '../lib/strings';
   import type { EditorDocument } from '../lib/document.svelte';
   import { openFiles } from '../lib/open-files.svelte';
   import { viewportFor } from '../lib/pdf/render';
@@ -39,10 +42,14 @@
   provideActions(actions);
   // Handy for debugging in the browser console during development only.
   // svelte-ignore state_referenced_locally
-  if (import.meta.env.DEV) Object.assign(window, { __viewer: viewer, __doc: doc });
+  if (import.meta.env.DEV) Object.assign(window, { __viewer: viewer, __doc: doc, __actions: actions });
 
   let openInput: HTMLInputElement;
   let insertInput: HTMLInputElement;
+  let imageInput: HTMLInputElement;
+  /** HEIC is offered only where this browser can decode it. */
+  let heic = $state(false);
+  void heicDecodes().then((ok) => (heic = ok));
   let compareInput: HTMLInputElement;
   /** The other file in Compare, while it's open. */
   let compareFile = $state<File | null>(null);
@@ -127,6 +134,7 @@
     'edit.cut': { run: () => actions.cutAnnotation(), enabled: () => !!viewer.selectedAnnot },
     'edit.copy': { run: () => actions.copyAnnotation(), enabled: () => !!viewer.selectedAnnot },
     'edit.paste': { run: () => actions.pasteAnnotation(), enabled: () => actions.canPaste() },
+    'edit.duplicate': { run: () => actions.duplicateAnnotation(), enabled: () => !!viewer.selectedAnnot },
     'edit.delete': {
       run: () => {
         const sel = viewer.selectedAnnot;
@@ -162,6 +170,7 @@
     'page.delete': { run: () => actions.delete(), enabled: () => actions.canDelete() },
     'page.extract': { run: () => openPanel('extract'), enabled: idle },
     'page.insertBlank': { run: () => void actions.insertBlank() },
+    'page.insertImage': { run: () => imageInput.click(), enabled: idle },
     'page.insertFromFile': { run: () => insertInput.click(), enabled: idle },
     'page.crop': { run: () => openPanel('crop'), enabled: idle },
     'page.numbers': { run: () => openPanel('pageNumbers') },
@@ -210,6 +219,86 @@
     if (list.length) await actions.insertFromFiles(list);
   }
 
+  async function onPickImages(files: FileList | null) {
+    const list = files ? Array.from(files) : [];
+    imageInput.value = '';
+    if (list.length) await actions.insertImageFiles(list);
+  }
+
+  // --- Clipboard: objects copied in the app, and images from other apps --------
+
+  /**
+   * Copy, cut and paste shortcuts go through the browser's clipboard events, so
+   * an image copied elsewhere can be pasted. Copying an object puts only this
+   * marker on the system clipboard (never its content); the object itself stays
+   * in the tab. Browsers that send no event (Safari without a text selection)
+   * fall back to the in-app command.
+   */
+  const CLIPBOARD_MARK = 'application/x-blitz-object';
+  const CLIPBOARD_KEYS: Record<string, CommandId> = { 'mod+c': 'edit.copy', 'mod+x': 'edit.cut', 'mod+v': 'edit.paste' };
+  let clipboardPending: string | null = null;
+
+  function clipboardShortcut(e: KeyboardEvent) {
+    const combo = comboFromEvent(e);
+    const id = combo ? CLIPBOARD_KEYS[combo] : undefined;
+    if (!id || isTextField(e.target) || document.querySelector('dialog[open]')) return false;
+    clipboardPending = combo;
+    // The clipboard event (if any) fires before this runs.
+    setTimeout(() => {
+      if (clipboardPending !== combo) return;
+      clipboardPending = null;
+      commands.run(id);
+    });
+    return true;
+  }
+
+  function onClipboard(e: ClipboardEvent) {
+    clipboardPending = null;
+    if (compareFile || isTextField(e.target) || document.querySelector('dialog[open]')) return;
+    if (e.type === 'paste') {
+      const data = e.clipboardData;
+      const images = Array.from(data?.files ?? []).filter((f) => f.type.startsWith('image/'));
+      if (images.length && !data?.types.includes(CLIPBOARD_MARK)) {
+        e.preventDefault();
+        void actions.insertImageFiles(images);
+      } else if (actions.canPaste()) {
+        e.preventDefault();
+        actions.pasteAnnotation();
+      }
+      return;
+    }
+    // Copy or cut: an object if one is selected, else the browser copies selected text.
+    if (!viewer.selectedAnnot) return;
+    e.preventDefault();
+    e.clipboardData?.setData(CLIPBOARD_MARK, '1');
+    if (e.type === 'cut') actions.cutAnnotation();
+    else actions.copyAnnotation();
+  }
+
+  // --- Dropping image files onto a page -------------------------------------------
+
+  const carriesFiles = (e: DragEvent) => !!e.dataTransfer?.types.includes('Files');
+
+  function onDragOver(e: DragEvent) {
+    if (!carriesFiles(e) || compareFile) return;
+    // Never let the browser open the file instead of the editor.
+    e.preventDefault();
+    e.dataTransfer!.dropEffect = 'copy';
+  }
+
+  function onDrop(e: DragEvent) {
+    if (!carriesFiles(e) || compareFile) return;
+    e.preventDefault();
+    const files = Array.from(e.dataTransfer!.files);
+    if (files.length === 0 || document.querySelector('dialog[open]')) return;
+    if (files.every((f) => kindOf(f) === 'pdf')) return viewer.notify(IMAGE_STRINGS.dropPdf);
+    // On a page: centered under the cursor. Anywhere else: the current page.
+    const pageEl = (e.target as Element).closest?.<HTMLElement>('.page[data-index]');
+    const box = pageEl?.getBoundingClientRect();
+    const drop = pageEl && box ? { index: Number(pageEl.dataset.index), point: [(e.clientX - box.left) / viewer.scale, (e.clientY - box.top) / viewer.scale] as [number, number] } : undefined;
+    void actions.insertImageFiles(files, drop);
+  }
+
   // After any page edit (including undo/redo): keep selection valid and refresh search hits.
   $effect(() => {
     void doc.pages;
@@ -226,6 +315,7 @@
     const plain = !e.ctrlKey && !e.metaKey && !e.altKey;
     // Single-key shortcuts don't apply inside dialogs or menus.
     const inOverlay = !!document.querySelector('dialog[open]') || !!(e.target as HTMLElement).closest?.('[role="menu"], [role="menubar"]');
+    if (!inOverlay && clipboardShortcut(e)) return;
     if (!(plain && inOverlay) && commands.handleKey(e)) return;
     // Esc steps back: deselect the annotation, then return to the Select tool.
     if (e.key === 'Escape' && !e.defaultPrevented && !document.querySelector('dialog[open]')) {
@@ -255,7 +345,15 @@
   }
 </script>
 
-<svelte:window onkeydown={onKeyDown} onbeforeunload={onBeforeUnload} />
+<svelte:window
+  onkeydown={onKeyDown}
+  onbeforeunload={onBeforeUnload}
+  oncopy={onClipboard}
+  oncut={onClipboard}
+  onpaste={onClipboard}
+  ondragover={onDragOver}
+  ondrop={onDrop}
+/>
 <svelte:document onfullscreenchange={() => (isFullscreen = !!document.fullscreenElement)} />
 
 <div
@@ -332,6 +430,16 @@
     tabindex="-1"
     aria-hidden="true"
     onchange={(e) => onPickInsert(e.currentTarget.files)}
+  />
+  <input
+    bind:this={imageInput}
+    class="visually-hidden"
+    type="file"
+    accept={imageAcceptAttr(heic)}
+    multiple
+    tabindex="-1"
+    aria-hidden="true"
+    onchange={(e) => onPickImages(e.currentTarget.files)}
   />
   <input
     bind:this={compareInput}

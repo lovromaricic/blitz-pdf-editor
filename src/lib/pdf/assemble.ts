@@ -20,6 +20,7 @@ import {
 } from '@cantoo/pdf-lib';
 import type { Annotation } from '../annotations';
 import type { FieldValue } from '../forms';
+import type { ImageAsset } from '../image-store';
 import type { PageDecoration } from '../decorations';
 import { addAnnotations, type FontProvider } from './write-annotations';
 import { drawDecoration } from './write-decorations';
@@ -73,6 +74,8 @@ export interface AssembleOptions {
   forms?: Record<string, FieldValue[]>;
   /** Source ids whose form fields are flattened into page content. */
   flatten?: string[];
+  /** Inserted images by key (annotations refer to them by `imageKey`). */
+  images?: Record<string, ImageAsset>;
   /** Password-protect the output (AES-256). */
   encrypt?: Encryption;
 }
@@ -147,7 +150,7 @@ export async function assemble(
       if (!options.fonts && plan[pos].annots!.some((a) => a.type === 'text' || a.type === 'stamp')) {
         throw new UserError('Fonts are required to save text and stamps.');
       }
-      await addAnnotations(out, page, plan[pos].annots!, options.fonts ?? noFonts);
+      await addAnnotations(out, page, plan[pos].annots!, options.fonts ?? noFonts, options.images ?? {});
     }
     if (crop) {
       const box = page.getCropBox();

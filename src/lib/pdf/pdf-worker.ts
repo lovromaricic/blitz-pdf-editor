@@ -21,6 +21,7 @@ import { imagesToPdf, type ImageInput, type ImagesToPdfOptions } from './images-
 import type { FontKey } from './write-annotations';
 import { registerLocalFonts, type FontInfo } from '../font-catalog';
 import type { FieldValue } from '../forms';
+import type { ImageAsset } from '../image-store';
 
 export type Job =
   | {
@@ -30,6 +31,7 @@ export type Job =
       mode: AssembleMode;
       forms: Record<string, FieldValue[]>;
       flatten: string[];
+      images: Record<string, ImageAsset>;
       encrypt?: Encryption;
     }
   | { kind: 'images'; images: ImageInput[]; options: ImagesToPdfOptions }
@@ -79,7 +81,7 @@ async function run(
       for (let i = 0; i < job.outputs.length; i++) {
         // Only send the sources each output needs.
         const used = new Set(job.outputs[i].map((p) => p.sourceId));
-        const options = { fonts, forms: job.forms, flatten: job.flatten, encrypt: job.encrypt };
+        const options = { fonts, forms: job.forms, flatten: job.flatten, images: job.images, encrypt: job.encrypt };
         files.push(await assemble(job.sources.filter((s) => used.has(s.id)), job.outputs[i], job.mode, options));
         progress(i + 1, job.outputs.length);
       }

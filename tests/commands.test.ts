@@ -53,3 +53,20 @@ describe('Flatten / lock form', () => {
     expect(Object.values(COMMANDS).some((c) => (c.label as string) === 'Flatten form')).toBe(false);
   });
 });
+
+describe('Insert image', () => {
+  const flat = (entries: MenuEntry[]): string[] => entries.flatMap((e) => (e === '-' ? [] : typeof e === 'string' ? [e] : flat(e.items)));
+
+  it('comes right after "Insert blank page" in the Page menu (desktop and the phone accordion share it)', () => {
+    const page = flat(MENUS.find((m) => m.label === 'Page')!.items);
+    expect(page.indexOf('page.insertImage')).toBe(page.indexOf('page.insertBlank') + 1);
+    expect(COMMANDS['page.insertImage'].label).toBe('Insert image…');
+  });
+
+  it('is in no other menu and has no toolbar tool', async () => {
+    const elsewhere = MENUS.filter((m) => m.label !== 'Page').flatMap((m) => flat(m.items));
+    expect(elsewhere).not.toContain('page.insertImage');
+    const { MARKUP_TOOLS } = await import('../src/editor/tools');
+    expect(MARKUP_TOOLS.map((t) => String(t.id))).not.toContain('image');
+  });
+});

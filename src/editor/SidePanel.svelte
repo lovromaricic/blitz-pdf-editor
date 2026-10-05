@@ -20,6 +20,7 @@
   import FormPanel from './panels/FormPanel.svelte';
   import MarkupPanel from './panels/MarkupPanel.svelte';
   import SignPanel from './panels/SignPanel.svelte';
+  import ImagePanel from './panels/ImagePanel.svelte';
   import StampPanel from './panels/StampPanel.svelte';
   import TextPanel from './panels/TextPanel.svelte';
   import MergePanel from './panels/MergePanel.svelte';
@@ -44,7 +45,10 @@
 
   /** Which markup panel to show: the selected annotation's kind, else the active tool's. */
   const markup = $derived.by(() => {
-    const key = actions.selectedAnnot?.annot.type ?? viewer.tool;
+    const annot = actions.selectedAnnot?.annot;
+    // Inserted images have their own panel; signatures stay with Sign.
+    if (annot?.type === 'image' && annot.role === 'image') return 'image';
+    const key = annot?.type ?? viewer.tool;
     const map: Record<string, string> = {
       highlight: 'vector', ink: 'vector', draw: 'vector', shape: 'vector', shapes: 'vector',
       text: 'text', stamp: 'stamp', note: 'comment', comment: 'comment', image: 'sign', sign: 'sign',
@@ -92,6 +96,8 @@
     <CommentPanel />
   {:else if markup === 'sign'}
     <SignPanel />
+  {:else if markup === 'image'}
+    <ImagePanel />
   {:else if markup === 'form'}
     <FormPanel {commands} />
   {:else if viewer.selection.size > 0}

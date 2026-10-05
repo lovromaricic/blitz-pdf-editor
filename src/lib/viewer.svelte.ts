@@ -2,7 +2,7 @@
 import { getContext, setContext, tick } from 'svelte';
 import type { EditorDocument, PageRef } from './document.svelte';
 import type { Margins } from './page-ops';
-import { HIGHLIGHT_COLORS, INK_COLORS, NOTE_COLORS, STAMPS, type FontFamily, type Rgb, type ShapeKind } from './annotations';
+import { HIGHLIGHT_COLORS, INK_COLORS, NOTE_COLORS, STAMPS, type Annotation, type FontFamily, type Rgb, type ShapeKind } from './annotations';
 import { lastTextStyle, loadFonts } from './fonts';
 import { decorationResolver } from './pdf/pdf-writer';
 import { computeLayout, indexAtY, pagesPerRow, rowAtY, rowStartOf, type ViewMode } from './layout';
@@ -99,6 +99,10 @@ export class Viewer {
   focusNoteText = $state(false);
   /** The annotation selected with the Select tool. */
   selectedAnnot = $state<AnnotRef | null>(null);
+  /** The selected annotation while it's being dragged (not yet in the document), for live panel values. */
+  livePreview = $state.raw<Annotation | null>(null);
+  /** Image panel: corner handles and size fields keep the image's proportions. */
+  imageAspectLock = $state(true);
 
   /** Page ids selected in the thumbnail rail. */
   selection = $state.raw<ReadonlySet<string>>(new Set());
@@ -230,6 +234,47 @@ export class Viewer {
     return current ? [current] : [];
   }
 
+  /** The page most of the view shows (between the floating controls). */
+  mostVisibleIndex(): number {
+    if (this.mode === 'single' || !this.scrollEl) return this.currentIndex;
+    const top = this.scrollTop + this.insetTop;
+    const bottom = this.scrollTop + this.viewHeight - this.insetBottom;
+    let best = this.currentIndex;
+    let most = 0;
+    const { start, end } = this.visibleRange;
+    for (let i = start; i <= end; i++) {
+      const b = this.layout.boxes[i];
+      const shown = Math.min(bottom, b.top + b.height) - Math.max(top, b.top);
+      if (shown > most) [best, most] = [i, shown];
+    }
+    return best;
+  }
+
+  /** "The current page" for adding things: the page selected in the rail, else the one most in view. */
+  activePageIndex(): number {
+    const pages = this.doc.pages;
+    const selected = pages.findIndex((p) => this.selection.has(p.id));
+    return selected >= 0 ? selected : this.mostVisibleIndex();
+  }
+
+  /**
+   * The part of page `index` that is on screen and not under the floating
+   * controls, in points from the top-left of the page as shown. Null when none.
+   */
+  visiblePageArea(index: number): [number, number, number, number] | null {
+    const el = this.scrollEl?.querySelector<HTMLElement>(`.page[data-index="${index}"]`);
+    if (!this.scrollEl || !el) return null;
+    const view = this.scrollEl.getBoundingClientRect();
+    const box = el.getBoundingClientRect();
+    const x1 = Math.max(view.left, box.left);
+    const x2 = Math.min(view.left + this.scrollEl.clientWidth, box.right);
+    const y1 = Math.max(view.top + this.insetTop, box.top);
+    const y2 = Math.min(view.top + this.scrollEl.clientHeight - this.insetBottom, box.bottom);
+    if (x2 - x1 < 1 || y2 - y1 < 1) return null;
+    const s = this.scale;
+    return [(x1 - box.left) / s, (y1 - box.top) / s, (x2 - box.left) / s, (y2 - box.top) / s];
+  }
+
   /** Keep selection and current page valid after the page list changes. */
   syncAfterEdit() {
     const ids = new Set(this.doc.pages.map((p) => p.id));
@@ -261,12 +306,18 @@ export class Viewer {
   async runTask<T>(
     label: string,
     job: (progress: (p: number) => void, signal: AbortSignal) => Promise<T>,
-    { cancellable = false } = {},
+    { cancellable = false, delay = 0 } = {},
   ): Promise<T | undefined> {
     const controller = new AbortController();
-    this.task = { label, progress: null, cancel: cancellable ? () => controller.abort() : undefined };
+    const task: Task = { label, progress: null, cancel: cancellable ? () => controller.abort() : undefined };
+    // With a delay, quick jobs finish without flashing a progress message.
+    const shown = delay ? setTimeout(() => (this.task = task), delay) : undefined;
+    if (!delay) this.task = task;
     try {
-      return await job((p) => this.task && (this.task.progress = p), controller.signal);
+      return await job((p) => {
+        task.progress = p;
+        if (this.task) this.task.progress = p;
+      }, controller.signal);
     } catch (e) {
       if (controller.signal.aborted) {
         this.notify('Cancelled.');
@@ -275,6 +326,7 @@ export class Viewer {
       this.notify(friendlyError(e), { error: true });
       return undefined;
     } finally {
+      clearTimeout(shown);
       this.task = null;
     }
   }

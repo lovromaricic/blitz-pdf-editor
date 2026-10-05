@@ -38,6 +38,7 @@ export const COMMANDS = {
   'edit.cut': { label: 'Cut', keys: ['mod+x'], nativeInFields: true },
   'edit.copy': { label: 'Copy', keys: ['mod+c'], nativeInFields: true },
   'edit.paste': { label: 'Paste', keys: ['mod+v'], nativeInFields: true },
+  'edit.duplicate': { label: 'Duplicate', keys: ['mod+d'] },
   'edit.delete': { label: 'Delete', keys: ['delete', 'backspace'], nativeInFields: true },
   'edit.selectAll': { label: 'Select all', keys: ['mod+a'], nativeInFields: true },
   'edit.find': { label: 'Find…', keys: ['mod+f'] },
@@ -62,6 +63,7 @@ export const COMMANDS = {
   'page.delete': { label: 'Delete pages' },
   'page.extract': { label: 'Extract pages…' },
   'page.insertBlank': { label: 'Insert blank page' },
+  'page.insertImage': { label: 'Insert image…' },
   'page.insertFromFile': { label: 'Insert pages from file…' },
   'page.crop': { label: 'Crop pages…' },
   'page.numbers': { label: 'Add page numbers…' },
@@ -181,7 +183,7 @@ export function formatKeys(combo: string): string {
   return [...['mod', 'shift', 'alt'].filter((m) => mods.includes(m)).map((m) => name[m]), keyLabel].join('+');
 }
 
-function isTextField(target: EventTarget | null): boolean {
+export function isTextField(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
   if (target.isContentEditable) return true;
   if (target instanceof HTMLTextAreaElement) return true;
