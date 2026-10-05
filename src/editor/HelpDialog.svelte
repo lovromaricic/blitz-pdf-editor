@@ -55,6 +55,13 @@
       ],
     },
     {
+      menu: 'Objects on the page',
+      rows: [
+        { label: 'Object menu (cut, copy, order, delete…)', keys: ['Shift+F10', 'Menu key', 'right-click'] },
+        { label: 'Move the selected object (Shift: 10× further)', keys: ['← ↑ → ↓', 'Shift+arrows'] },
+      ],
+    },
+    {
       menu: 'Page thumbnails',
       rows: [
         { label: 'Select several pages', keys: ['Shift+click', `${mod}+click`] },

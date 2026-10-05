@@ -125,6 +125,12 @@ export class Viewer {
   selectedAnnot = $state<AnnotRef | null>(null);
   /** The selected annotation while it's being dragged (not yet in the document), for live panel values. */
   livePreview = $state.raw<Annotation | null>(null);
+  /**
+   * The canvas context menu: for an object (`objectId`) or an empty spot of a
+   * page (`point`, in PDF space, where "Paste here" puts things). Opened by a
+   * right-click, a long press, the Menu key or Shift+F10; Editor.svelte shows it.
+   */
+  contextMenu = $state.raw<{ x: number; y: number; pageId: string; objectId: string | null; point: [number, number] | null } | null>(null);
   /** While a text box is being typed in: its editor (formats the selection or the typing style). */
   textEditor = $state.raw<RichEditorApi | null>(null);
   /** Image panel: corner handles and size fields keep the image's proportions. */

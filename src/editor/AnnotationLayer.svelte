@@ -525,10 +525,50 @@
     viewer.selectAnnot({ pageId: page.id, id: a.id });
   }
 
+  // --- Context menu: right-click, or a long press on touch -------------------------
+
+  /** Open the canvas context menu for an object (selecting it) or for an empty spot of this page. */
+  function openMenu(x: number, y: number, a: Annotation | null) {
+    if (a && a.id !== selectedId) select(a);
+    viewer.contextMenu = { x, y, pageId: page.id, objectId: a?.id ?? null, point: a ? null : clientToPdf(x, y) };
+  }
+
+  function onAnnotMenu(e: MouseEvent, a: Annotation) {
+    if (!selecting) return;
+    e.preventDefault();
+    e.stopPropagation();
+    // Already open for it (a long press, then the browser's own long-press menu event).
+    if (viewer.contextMenu?.objectId === a.id) return;
+    openMenu(e.clientX, e.clientY, a);
+  }
+
+  const LONG_PRESS_MS = 550;
+  /** A finger held still on an object opens its menu. */
+  function watchLongPress(e: PointerEvent, a: Annotation) {
+    const start = { x: e.clientX, y: e.clientY };
+    const stop = () => {
+      clearTimeout(timer);
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', stop);
+      window.removeEventListener('pointercancel', stop);
+    };
+    const onMove = (m: PointerEvent) => {
+      if (m.pointerId === e.pointerId && Math.hypot(m.clientX - start.x, m.clientY - start.y) > 8) stop();
+    };
+    const timer = setTimeout(() => {
+      stop();
+      openMenu(start.x, start.y, a);
+    }, LONG_PRESS_MS);
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', stop);
+    window.addEventListener('pointercancel', stop);
+  }
+
   function onAnnotDown(e: PointerEvent, a: Annotation) {
     if (!selecting || e.button !== 0) return;
     e.preventDefault();
     e.stopPropagation();
+    if (e.pointerType === 'touch') watchLongPress(e, a);
     if (e.pointerType === 'touch' && a.type === 'image' && a.id === selectedId && onImageTouchDown(e, a)) return;
     select(a);
     startDrag(e, a);
@@ -649,8 +689,22 @@
       // The text being edited isn't "outside" (its box stays selected while typing).
       if (!(e.target as Element).closest('.annot, .handle, .rich-editor') && viewer.selectedAnnot?.pageId === page.id) viewer.selectAnnot(null);
     };
+    // Right-click on an empty spot: the page's menu ("Paste here"). Not over text
+    // selected in the PDF (the browser's own menu copies it), nor in a text box being typed in.
+    const onMenu = (e: MouseEvent) => {
+      const t = e.target as Element;
+      if (t.closest('.annot, .handle, .rich-editor')) return;
+      const sel = window.getSelection();
+      if (t.closest('.textLayer') && sel && !sel.isCollapsed && sel.containsNode(t, true)) return;
+      e.preventDefault();
+      openMenu(e.clientX, e.clientY, null);
+    };
     host.addEventListener('pointerdown', onDown);
-    return () => host.removeEventListener('pointerdown', onDown);
+    host.addEventListener('contextmenu', onMenu);
+    return () => {
+      host.removeEventListener('pointerdown', onDown);
+      host.removeEventListener('contextmenu', onMenu);
+    };
   });
 
   /** Geometry rectangle used for resizing (without stroke). */
@@ -785,6 +839,7 @@
     data-annot-id={a.id}
     aria-label={selecting ? `${describe(a)} (Delete to remove, arrow keys to move)` : undefined}
     onpointerdown={(e) => onAnnotDown(e, a)}
+    oncontextmenu={(e) => onAnnotMenu(e, a)}
     onkeydown={(e) => onAnnotKey(e, a)}
     onfocus={() => selecting && select(a)}
   >
@@ -824,6 +879,7 @@
         style:height="{g.h}px"
         style:transform="translate(-50%, -50%) rotate({g.turn}deg)"
         onpointerdown={(e) => onAnnotDown(e, a)}
+        oncontextmenu={(e) => onAnnotMenu(e, a)}
         onkeydown={(e) => onAnnotKey(e, a)}
         onfocus={() => select(a)}
         ondblclick={() => a.type === 'text' && startEdit(a, false)}

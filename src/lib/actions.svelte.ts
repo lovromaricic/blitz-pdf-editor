@@ -885,12 +885,12 @@ export class Actions {
    * copied from it's offset so it's visible next to the original (each further
    * paste a step further); on another page it lands in the same position.
    */
-  pasteAnnotation(at?: { pageId: string; point: Point }) {
+  pasteAnnotation(at?: { pageId: string; point?: Point }) {
     const page = at ? this.doc.pages.find((p) => p.id === at.pageId) : this.doc.pages[this.viewer.currentIndex];
     if (!annotClipboard || !page) return;
     const { annot, pageId } = annotClipboard;
     let copy = { ...(pageId === page.id ? translate(annot, 12, -12) : annot), id: newAnnotationId() };
-    if (at) {
+    if (at?.point) {
       // "Paste here": centered on the point.
       const r = bounds(copy);
       copy = { ...translate(copy, at.point[0] - (r[0] + r[2]) / 2, at.point[1] - (r[1] + r[3]) / 2), id: copy.id };

@@ -9,12 +9,13 @@
 
 <script lang="ts">
   import { tick, untrack } from 'svelte';
-  import { focusLost, focusSink, installFocusModality } from '../lib/focus';
+  import { focusLost, focusObject, focusSink, installFocusModality } from '../lib/focus';
+  import ContextMenu, { type ContextItem } from '../components/ContextMenu.svelte';
   import { app, closeDocument } from '../lib/app-state.svelte';
   import { Actions, provideActions } from '../lib/actions.svelte';
   import { describe } from '../lib/annotations';
   import { IMAGE_ACCEPT } from '../lib/image-input';
-  import { COMMANDS, CommandRegistry, comboFromEvent, isTextField, type CommandId, type CommandMeta } from '../lib/commands';
+  import { COMMANDS, CommandRegistry, comboFromEvent, formatKeys, isTextField, type CommandId, type CommandMeta } from '../lib/commands';
   import { CLIPBOARD_KEYS, ClipboardShortcuts } from '../lib/clipboard-shortcuts';
   import { imageAcceptAttr, kindOf } from '../lib/landing/accepted-files';
   import { heicDecodes } from '../lib/landing/heic-probe';
@@ -231,6 +232,56 @@
     if (!(COMMANDS[id] as CommandMeta).whileEditing) viewer.textEditor?.finish();
   });
 
+  // --- Canvas context menu (objects and empty spots of a page) ----------------------
+
+  /** A command as a menu item: same label, state and shortcut as in the menu bar. */
+  function commandItem(id: CommandId, label = commands.label(id)): ContextItem {
+    const keys = (COMMANDS[id] as CommandMeta).keys;
+    return { label, run: () => commands.run(id), disabled: !commands.isEnabled(id), keys: keys ? formatKeys(keys[0]) : undefined };
+  }
+
+  const canvasMenuItems = $derived.by((): ContextItem[] => {
+    const m = viewer.contextMenu;
+    if (!m) return [];
+    const pasteKeys = formatKeys('mod+v');
+    if (!m.objectId) {
+      return [{ label: 'Paste here', run: () => actions.pasteAnnotation({ pageId: m.pageId, point: m.point! }), disabled: !actions.canPaste() }];
+    }
+    return [
+      commandItem('edit.cut', 'Cut'),
+      commandItem('edit.copy', 'Copy'),
+      // Onto this object's page.
+      { label: 'Paste', run: () => actions.pasteAnnotation({ pageId: m.pageId }), disabled: !actions.canPaste(), keys: pasteKeys },
+      commandItem('edit.duplicate', 'Duplicate'),
+      '-',
+      commandItem('object.bringToFront'),
+      commandItem('object.bringForward'),
+      commandItem('object.sendBackward'),
+      commandItem('object.sendToBack'),
+      '-',
+      commandItem('edit.delete', 'Delete'),
+    ];
+  });
+
+  function closeCanvasMenu(restoreFocus: boolean) {
+    const m = viewer.contextMenu;
+    viewer.contextMenu = null;
+    if (!restoreFocus || !m) return;
+    // Back to the object (or, if it's gone or there was none, the editor's focus sink: never the canvas).
+    if (m.objectId) focusObject(m.objectId);
+    else focusSink();
+  }
+
+  /** The Menu key or Shift+F10 with an object selected: its menu, beside it. */
+  function openSelectedObjectMenu() {
+    const sel = viewer.selectedAnnot;
+    const el = sel && document.querySelector<HTMLElement>(`[data-annot-id="${sel.id}"]`);
+    if (!sel || !el) return false;
+    const r = el.getBoundingClientRect();
+    viewer.contextMenu = { x: r.left + r.width / 2, y: r.top + r.height / 2, pageId: sel.pageId, objectId: sel.id, point: null };
+    return true;
+  }
+
   function lowerFirst(s: string) {
     return s[0].toLowerCase() + s.slice(1);
   }
@@ -367,6 +418,11 @@
     // Single-key shortcuts don't apply inside dialogs or menus.
     const inOverlay = !!document.querySelector('dialog[open]') || !!(e.target as HTMLElement).closest?.('[role="menu"], [role="menubar"]');
     if (!inOverlay && clipboardShortcut(e)) return;
+    // The context menu of the selected object (the thumbnails handle these keys for pages themselves).
+    if ((e.key === 'ContextMenu' || (e.key === 'F10' && e.shiftKey)) && !e.defaultPrevented && !inOverlay && !isTextField(e.target) && openSelectedObjectMenu()) {
+      e.preventDefault();
+      return;
+    }
     if (!(plain && inOverlay) && commands.handleKey(e)) return;
     // Backspace never navigates back (older browsers did), unless it's editing text.
     if (e.key === 'Backspace' && !isTextField(e.target)) e.preventDefault();
@@ -464,6 +520,10 @@
   <div class="visually-hidden" aria-live="polite">{viewer.announcement}</div>
 
   <HelpDialog topic={help} onClose={() => (help = null)} />
+  {#if viewer.contextMenu}
+    {@const m = viewer.contextMenu}
+    <ContextMenu x={m.x} y={m.y} label={m.objectId ? 'Object actions' : 'Page actions'} items={canvasMenuItems} onClose={closeCanvasMenu} />
+  {/if}
   {#if compareFile}<CompareView {doc} file={compareFile} onClose={() => (compareFile = null)} />{/if}
   <SignatureDialog />
   <NewPdfDialog
