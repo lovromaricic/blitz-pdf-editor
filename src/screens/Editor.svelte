@@ -166,6 +166,12 @@
     },
     'edit.find': { run: () => focusById('doc-search') },
 
+    // Layer order of the selected object (also in the context menu and the Properties panel).
+    'object.bringToFront': { run: () => actions.moveSelectedLayer('front'), enabled: () => actions.canMoveSelected('front') },
+    'object.bringForward': { run: () => actions.moveSelectedLayer('forward'), enabled: () => actions.canMoveSelected('forward') },
+    'object.sendBackward': { run: () => actions.moveSelectedLayer('backward'), enabled: () => actions.canMoveSelected('backward') },
+    'object.sendToBack': { run: () => actions.moveSelectedLayer('back'), enabled: () => actions.canMoveSelected('back') },
+
     // Text formatting shortcuts (only while a text box is selected or edited; otherwise the key is left alone).
     'text.bold': { run: () => void actions.toggleTextStyle('bold'), enabled: () => actions.canStyleText() },
     'text.italic': { run: () => void actions.toggleTextStyle('italic'), enabled: () => actions.canStyleText() },

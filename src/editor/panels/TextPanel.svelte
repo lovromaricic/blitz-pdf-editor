@@ -3,6 +3,7 @@
   // font and B / I / U / S, size, alignment, line spacing, color, background,
   // opacity. Formatting applies to whole boxes. Written for a list of boxes so
   // a mixed selection shows "Mixed"; the editor selects one at a time for now.
+  import OrderControls from './OrderControls.svelte';
   import Bold from '@lucide/svelte/icons/bold';
   import Italic from '@lucide/svelte/icons/italic';
   import Underline from '@lucide/svelte/icons/underline';
@@ -429,6 +430,7 @@
     <LocalFontsDialog open={localOpen} onClose={() => (localOpen = false)} onChoose={(font) => apply({ font }, 'Font')} />
   {/if}
   {#if targets.length}
+    <OrderControls pageId={targets[0].page.id} id={targets[0].annot.id} />
     <div class="actions delete">
       <button type="button" class="btn btn-danger" onclick={() => targets.forEach((t) => actions.deleteAnnotation(t.page.id, t.annot.id))}>Delete</button>
     </div>

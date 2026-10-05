@@ -174,7 +174,8 @@
     switch (viewer.tool) {
       case 'text': {
         // Clicking an existing text box edits it; anywhere else starts a new one.
-        const existing = annots.find(
+        // The topmost text box there (the one you see).
+        const existing = [...annots].reverse().find(
           (a): a is TextAnnotation => a.type === 'text' && at[0] >= a.rect[0] && at[0] <= a.rect[2] && at[1] >= a.rect[1] && at[1] <= a.rect[3],
         );
         if (existing) return startEdit(existing, false);
@@ -757,8 +758,8 @@
     } else if (e.key === 'Escape') {
       viewer.selectAnnot(null);
       focusSink();
-    } else if (e.key.startsWith('Arrow')) {
-      // Nudge in screen direction: 1 px, or 10 px with Shift.
+    } else if (e.key.startsWith('Arrow') && !e.metaKey && !e.ctrlKey) {
+      // Nudge (Cmd/Ctrl+arrows change the layer order: the app's shortcuts handle them) in screen direction: 1 px, or 10 px with Shift.
       const step = e.shiftKey ? 10 : 1;
       const d = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[e.key] ?? [0, 0];
       const origin = toPdf(0, 0);

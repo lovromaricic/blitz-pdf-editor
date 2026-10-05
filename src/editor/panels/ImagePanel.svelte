@@ -3,10 +3,9 @@
   // stacking order. Every change is one undo step; values follow live while the
   // image is dragged on the page.
   // Mirror left-right: triangles either side of a vertical line (and the other way round).
+  import OrderControls from './OrderControls.svelte';
   import FlipHorizontal from '@lucide/svelte/icons/triangles-centerline-dashed-vertical';
   import FlipVertical from '@lucide/svelte/icons/triangles-centerline-dashed-horizontal';
-  import BringToFront from '@lucide/svelte/icons/bring-to-front';
-  import SendToBack from '@lucide/svelte/icons/send-to-back';
   import type { ImageAnnotation } from '../../lib/annotations';
   import { useActions, type Actions } from '../../lib/actions.svelte';
   import { useViewer } from '../../lib/viewer.svelte';
@@ -99,8 +98,6 @@
     apply({ ...frame, w, h }, 'Reset image size');
   }
 
-  const canFront = $derived(sel ? actions.canReorder(sel.page.id, sel.annot.id, 'front') : false);
-  const canBack = $derived(sel ? actions.canReorder(sel.page.id, sel.annot.id, 'back') : false);
 </script>
 
 <PanelHeader title={T.panelTitle} onClose={() => viewer.selectAnnot(null)} />
@@ -186,17 +183,7 @@
       />
     </div>
 
-    <div class="field">
-      <span class="label" id="img-order-label">{T.order}</span>
-      <div class="row-buttons" role="group" aria-labelledby="img-order-label">
-        <button type="button" class="btn" disabled={!canFront} onclick={() => actions.reorderAnnotation(sel.page.id, sel.annot.id, 'front')}>
-          <BringToFront size={18} strokeWidth={ICON.strokeWidth} aria-hidden="true" />{T.bringToFront}
-        </button>
-        <button type="button" class="btn" disabled={!canBack} onclick={() => actions.reorderAnnotation(sel.page.id, sel.annot.id, 'back')}>
-          <SendToBack size={18} strokeWidth={ICON.strokeWidth} aria-hidden="true" />{T.sendToBack}
-        </button>
-      </div>
-    </div>
+    <OrderControls pageId={sel.page.id} id={sel.annot.id} />
 
     <div class="actions">
       <button type="button" class="btn" disabled={!stored} onclick={resetSize}>{T.resetSize}</button>
@@ -263,9 +250,6 @@
     background: var(--accent-soft);
     border-color: var(--accent-soft);
     color: var(--accent-strong);
-  }
-  .row-buttons .btn {
-    font-size: var(--font-size-sm);
   }
   @media (max-width: 720px), (pointer: coarse) {
     .toggle {

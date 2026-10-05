@@ -1,6 +1,7 @@
 <script lang="ts">
   // Properties of the active markup tool, or of the selected annotation.
   // Changing a selected annotation also becomes the tool's default for the next one.
+  import OrderControls from './OrderControls.svelte';
   import { describe, HIGHLIGHT_COLORS, INK_COLORS, type Annotation, type Rgb, type ShapeKind } from '../../lib/annotations';
   import { useActions } from '../../lib/actions.svelte';
   import { useViewer } from '../../lib/viewer.svelte';
@@ -145,6 +146,7 @@
     {/if}
 
     {#if sel}
+      <OrderControls pageId={sel.page.id} id={sel.annot.id} />
       <div class="actions">
         <button
           type="button"

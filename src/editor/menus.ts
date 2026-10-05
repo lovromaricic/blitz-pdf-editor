@@ -36,6 +36,7 @@ export const MENUS: Menu[] = [
       'edit.paste',
       'edit.duplicate',
       'edit.delete',
+      { label: 'Order', items: ['object.bringToFront', 'object.bringForward', 'object.sendBackward', 'object.sendToBack'] },
       '-',
       'edit.selectAll',
       'edit.find',

@@ -46,6 +46,13 @@ export const COMMANDS = {
   'edit.delete': { label: 'Delete', keys: ['delete', 'backspace'], nativeInFields: true },
   'edit.selectAll': { label: 'Select all', keys: ['mod+a'], nativeInFields: true },
   'edit.find': { label: 'Find…', keys: ['mod+f'] },
+  // Layer order of the selected object. Not Cmd/Ctrl+[ and ]: on macOS those are the
+  // browsers' Back and Forward, which a page can't reliably take over (see README).
+  // Cmd/Ctrl+arrows only scroll by default (which the page may cancel) in every browser.
+  'object.bringToFront': { label: 'Bring to front', keys: ['mod+shift+arrowup'], nativeInFields: true },
+  'object.bringForward': { label: 'Bring forward', keys: ['mod+arrowup'], nativeInFields: true },
+  'object.sendBackward': { label: 'Send backward', keys: ['mod+arrowdown'], nativeInFields: true },
+  'object.sendToBack': { label: 'Send to back', keys: ['mod+shift+arrowdown'], nativeInFields: true },
   // While typing in a text box (the editor handles the key itself; the menu item runs the same).
   'text.link': { label: 'Add link…', keys: ['mod+k'], whileEditing: true },
 
@@ -189,7 +196,8 @@ export function formatKeys(combo: string): string {
   // 'mod++' splits into ['mod'], restore the plus key.
   if (combo.endsWith('++')) parts.push('+');
   const key = parts[parts.length - 1];
-  const keyLabel = key.length === 1 ? key.toUpperCase() : key[0].toUpperCase() + key.slice(1);
+  const ARROWS: Record<string, string> = { arrowup: '↑', arrowdown: '↓', arrowleft: '←', arrowright: '→' };
+  const keyLabel = ARROWS[key] ?? (key.length === 1 ? key.toUpperCase() : key[0].toUpperCase() + key.slice(1));
   const mods = parts.slice(0, -1);
   if (isMac) {
     const sym: Record<string, string> = { shift: '⇧', alt: '⌥', mod: '⌘' };

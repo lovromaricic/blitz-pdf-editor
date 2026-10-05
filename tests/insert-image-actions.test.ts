@@ -95,14 +95,14 @@ describe('Insert image', () => {
 
     // Inserted on top of the drawing.
     expect(order()).toEqual(['ink', id]);
-    expect(actions.canReorder('p0', id, 'front')).toBe(false);
-    actions.reorderAnnotation('p0', id, 'back');
+    expect(actions.canMoveLayer('p0', id, 'front')).toBe(false);
+    actions.moveLayer('p0', id, 'back');
     expect(order()).toEqual([id, 'ink']);
-    expect(steps()).toBe('Send image to back');
-    expect(actions.canReorder('p0', id, 'back')).toBe(false);
-    actions.reorderAnnotation('p0', id, 'front');
+    expect(steps()).toBe('Send to back');
+    expect(actions.canMoveLayer('p0', id, 'back')).toBe(false);
+    actions.moveLayer('p0', id, 'front');
     expect(order()).toEqual(['ink', id]);
-    expect(steps()).toBe('Bring image to front');
+    expect(steps()).toBe('Bring to front');
 
     const image = () => doc.pages[0].annots!.find((a) => a.id === id) as ImageAnnotation;
     actions.updateAnnotation('p0', { ...image(), flipX: true }, 'Flip image');
@@ -130,6 +130,6 @@ describe('Insert image', () => {
       labels.push(doc.history.undoLabel!);
       doc.undo();
     }
-    expect(labels).toEqual(['Delete image', 'Duplicate image', 'Paste image', 'Flip image', 'Flip image', 'Bring image to front', 'Send image to back', 'Insert image']);
+    expect(labels).toEqual(['Delete image', 'Duplicate image', 'Paste image', 'Flip image', 'Flip image', 'Bring to front', 'Send to back', 'Insert image']);
   });
 });

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import OrderControls from './OrderControls.svelte';
   import { rgbToCss, STAMPS, type Rgb } from '../../lib/annotations';
   import { useActions } from '../../lib/actions.svelte';
   import { useViewer } from '../../lib/viewer.svelte';
@@ -66,6 +67,7 @@
     <Swatches label="Stamp color" colors={STAMP_COLORS} value={sel?.annot.color ?? viewer.toolProps.stamp.color} onChange={(c) => c && setColor(c)} />
   </div>
   {#if sel}
+    <OrderControls pageId={sel.page.id} id={sel.annot.id} />
     <div class="actions">
       <button type="button" class="btn btn-danger" onclick={() => actions.deleteAnnotation(sel.page.id, sel.annot.id)}>Delete</button>
     </div>

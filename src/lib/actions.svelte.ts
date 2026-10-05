@@ -1,7 +1,7 @@
 // Document actions. Each feature is implemented once here and invoked from
 // menus, the thumbnail context menu, keyboard shortcuts and panels alike.
 import { getContext, setContext, tick } from 'svelte';
-import { describe, newAnnotationId, rectFromUpright, round, translate, type Annotation, type ImageAnnotation, type Point, type TextAnnotation } from './annotations';
+import { bounds, describe, newAnnotationId, rectFromUpright, round, translate, type Annotation, type ImageAnnotation, type Point, type TextAnnotation } from './annotations';
 import { baseName, loadFiles, newPageId, type EditorDocument, type PageRef } from './document.svelte';
 import { confirmDiscard, promptText, showDialog } from './dialogs.svelte';
 import { downloadBytes, downloadZip, pdfFileName } from './download';
@@ -20,7 +20,8 @@ import { UnsupportedImageError } from './image-prepare';
 import { defaultImageSize } from './image-geometry';
 import { heicDecodes } from './landing/heic-probe';
 import { viewportFor } from './pdf/render';
-import { focusObject, settleFocusAfterRemoval } from './focus';
+import { focusLost, focusObject, settleFocusAfterRemoval } from './focus';
+import { canMoveLayer, insertAbove, LAYER_LABELS, layerPosition, moveLayer, type LayerMove } from './z-order';
 import { styleAvailable } from './text-format';
 import { ensureTextFont } from './font-metrics-store.svelte';
 import { DEFAULT_TEXT_WIDTH, formatTextBox, layoutText, topLeftForCenter } from './text-layout';
@@ -841,27 +842,42 @@ export class Actions {
     const sel = this.selectedAnnot;
     if (!sel) return;
     const copy = { ...translate(sel.annot, 12, -12), id: newAnnotationId() };
-    this.editAnnots(sel.page.id, `Duplicate ${describe(copy).toLowerCase()}`, (list) => [...list, copy]);
+    // Directly above the original.
+    this.editAnnots(sel.page.id, `Duplicate ${describe(copy).toLowerCase()}`, (list) => insertAbove(list, sel.annot.id, copy));
     this.viewer.selectAnnot({ pageId: sel.page.id, id: copy.id });
     void tick().then(() => focusObject(copy.id));
   }
 
-  /** Can the object move further to the front (or back) among the objects on its page? */
-  canReorder(pageId: string, id: string, to: 'front' | 'back') {
-    const list = this.doc.pages.find((p) => p.id === pageId)?.annots ?? [];
-    const i = list.findIndex((a) => a.id === id);
-    return i >= 0 && (to === 'front' ? i < list.length - 1 : i > 0);
+  /** Can the object move this way in its page's layer order? */
+  canMoveLayer(pageId: string, id: string, move: LayerMove) {
+    return canMoveLayer(this.doc.pages.find((p) => p.id === pageId)?.annots ?? [], id, move);
   }
 
-  /** Stack the object above (or below) every other object on its page. */
-  reorderAnnotation(pageId: string, id: string, to: 'front' | 'back') {
+  /** The selected object, if it can move this way (for menus, shortcuts and the panel). */
+  canMoveSelected(move: LayerMove) {
+    const sel = this.selectedAnnot;
+    return !!sel && this.canMoveLayer(sel.page.id, sel.annot.id, move);
+  }
+
+  /**
+   * Move an object in its page's layer order: to the front or back, or one step.
+   * One undo step ("Bring to front"). Every entry point (menu, context menu,
+   * shortcut, panel) calls this.
+   */
+  moveLayer(pageId: string, id: string, move: LayerMove) {
     const found = this.findAnnot(pageId, id);
-    if (!found || !this.canReorder(pageId, id, to)) return;
-    const what = describe(found.annot).toLowerCase();
-    this.editAnnots(pageId, to === 'front' ? `Bring ${what} to front` : `Send ${what} to back`, (list) => {
-      const rest = list.filter((a) => a.id !== id);
-      return to === 'front' ? [...rest, found.annot] : [found.annot, ...rest];
-    });
+    if (!found || !this.canMoveLayer(pageId, id, move)) return;
+    // Moving the element in the page takes focus off it: put it back.
+    const hadFocus = (document.activeElement as HTMLElement | null)?.dataset?.annotId === id;
+    this.editAnnots(pageId, LAYER_LABELS[move], (list) => moveLayer(list, id, move));
+    const pos = layerPosition(this.doc.pages.find((p) => p.id === pageId)?.annots ?? [], id)!;
+    this.viewer.announce(`${LAYER_LABELS[move]}: ${describe(found.annot)}, ${pos.index} of ${pos.count}`);
+    void tick().then(() => (hadFocus || focusLost()) && focusObject(id));
+  }
+
+  moveSelectedLayer(move: LayerMove) {
+    const sel = this.selectedAnnot;
+    if (sel) this.moveLayer(sel.page.id, sel.annot.id, move);
   }
 
     /**
@@ -869,13 +885,19 @@ export class Actions {
    * copied from it's offset so it's visible next to the original (each further
    * paste a step further); on another page it lands in the same position.
    */
-  pasteAnnotation() {
-    const page = this.doc.pages[this.viewer.currentIndex];
+  pasteAnnotation(at?: { pageId: string; point: Point }) {
+    const page = at ? this.doc.pages.find((p) => p.id === at.pageId) : this.doc.pages[this.viewer.currentIndex];
     if (!annotClipboard || !page) return;
     const { annot, pageId } = annotClipboard;
-    const copy = { ...(pageId === page.id ? translate(annot, 12, -12) : annot), id: newAnnotationId() };
+    let copy = { ...(pageId === page.id ? translate(annot, 12, -12) : annot), id: newAnnotationId() };
+    if (at) {
+      // "Paste here": centered on the point.
+      const r = bounds(copy);
+      copy = { ...translate(copy, at.point[0] - (r[0] + r[2]) / 2, at.point[1] - (r[1] + r[3]) / 2), id: copy.id };
+    }
     annotClipboard = { annot: copy, pageId: page.id };
-    this.editAnnots(page.id, `Paste ${describe(copy).toLowerCase()}`, (list) => [...list, copy]);
+    // Directly above the object it came from when that's on this page (copied here); else on top.
+    this.editAnnots(page.id, `Paste ${describe(copy).toLowerCase()}`, (list) => insertAbove(list, pageId === page.id ? annot.id : null, copy));
     this.viewer.setTool('select');
     this.viewer.selectAnnot({ pageId: page.id, id: copy.id });
     // The new object is selected: focus goes to it, so arrow keys and Delete act on it.

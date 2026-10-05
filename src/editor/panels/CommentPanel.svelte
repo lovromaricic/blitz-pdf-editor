@@ -1,4 +1,5 @@
 <script lang="ts">
+  import OrderControls from './OrderControls.svelte';
   import { tick } from 'svelte';
   import { NOTE_COLORS, type NoteAnnotation, type Rgb } from '../../lib/annotations';
   import { useActions } from '../../lib/actions.svelte';
@@ -51,6 +52,7 @@
     <Swatches label="Comment color" colors={NOTE_COLORS} value={sel?.annot.color ?? viewer.toolProps.comment.color} onChange={(c) => c && setColor(c)} />
   </div>
   {#if sel}
+    <OrderControls pageId={sel.page.id} id={sel.annot.id} />
     <div class="actions">
       <button type="button" class="btn btn-danger" onclick={() => actions.deleteAnnotation(sel.page.id, sel.annot.id)}>Delete comment</button>
     </div>

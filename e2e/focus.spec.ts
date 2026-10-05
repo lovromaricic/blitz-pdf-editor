@@ -49,6 +49,8 @@ test('the canvas shows its ring only when reached with Tab', async ({ page }) =>
   const canvas = page.locator('#document-view');
   await expect(canvas).toBeVisible({ timeout: 15000 }); // the first open can be slow while the dev server is busy
   const outline = () => canvas.evaluate((el) => getComputedStyle(el).outlineStyle);
+  // Opening is over (it moves focus to the editor; a click before that would lose focus to it).
+  await expect(page.locator('#editor-main')).toBeFocused();
 
   // Clicked, then keys pressed (scrolling, undo): no ring.
   const box = (await canvas.boundingBox())!;
