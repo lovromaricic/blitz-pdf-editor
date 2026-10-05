@@ -93,4 +93,6 @@ export const OBJECT_STRINGS = {
   ungroup: 'Ungroup',
   onePage: 'You can only select objects on one page at a time.',
   ungroupToEdit: 'This text box is in a group. Ungroup it to edit its text.',
+  textFull: 'This text box is full: the page ends here.',
+  movedBack: (n: number) => `${n === 1 ? 'An object was' : `${n} objects were`} moved back onto the page.`,
 };

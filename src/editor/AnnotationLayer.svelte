@@ -2,7 +2,8 @@
   import { capturePointer } from '../lib/dom';
   import { focusObject, focusSink } from '../lib/focus';
   import { nextBeneath } from '../lib/z-order';
-  import { addUnits, clampDelta, describeUnits, isGroupId, membersOf, toggleUnit, unionBounds, unitOf, unitsTouching } from '../lib/object-selection';
+  import { boxOf, clampMove, growInside, inside, newTextBoxSpan } from '../lib/page-bounds';
+  import { addUnits, describeUnits, isGroupId, membersOf, toggleUnit, unionBounds, unitOf, unitsTouching } from '../lib/object-selection';
   import { isMac } from '../lib/commands';
   import { OBJECT_STRINGS } from '../lib/strings';
   import { ensureTextFont, metricsState } from '../lib/font-metrics-store.svelte';
@@ -40,7 +41,7 @@
     type Rect,
   } from '../lib/annotations';
   import { boxedGeometry, pointsAttr, screenBox, toPrimitives } from '../lib/annotation-view';
-  import { clampFrame, frameCorners, frameToImage, imageFrame, resizeFrame, turnFrame, turnHandle, MIN_IMAGE_SIZE, type Frame } from '../lib/image-geometry';
+  import { frameCorners, frameToImage, imageFrame, resizeFrame, turnFrame, turnHandle, MIN_IMAGE_SIZE, type Frame } from '../lib/image-geometry';
   import { cssFamily, loadFonts, resolveStyle, TEXT_PADDING } from '../lib/fonts';
   import { boxHeight } from '../lib/text-box-layout';
   import { DEFAULT_TEXT_WIDTH, layoutText, makeStamp, topLeftForCenter } from '../lib/text-layout';
@@ -101,8 +102,13 @@
   const selUnits = $derived(viewer.objectSelection?.pageId === page.id ? viewer.objectSelection.ids : []);
   const selMembers = $derived(membersOf(annots, selUnits));
   const isSelected = (a: Annotation) => selUnits.includes(unitOf(a));
-  /** The page in PDF space (crop applied): a moved selection stays on it. */
-  const pagePdf = $derived(normRect(toPdf(pageArea[0], pageArea[1]), toPdf(pageArea[2], pageArea[3])));
+  /** The page as shown, in PDF space (crop applied): added objects never leave it (zoom doesn't matter). */
+  const pagePdf = $derived(viewer.doc.pageBounds(page));
+  /** A point kept on the page, `inset` from its edges (a stroke's half width). */
+  const onPage = (p: Point, inset = 0): Point => [
+    Math.min(Math.max(p[0], pagePdf[0] + inset), pagePdf[2] - inset),
+    Math.min(Math.max(p[1], pagePdf[1] + inset), pagePdf[3] - inset),
+  ];
   const selecting = $derived(viewer.tool === 'select');
   const placing = $derived(['text', 'stamp', 'comment', 'sign'].includes(viewer.tool));
   const capturing = $derived(viewer.tool === 'draw' || viewer.tool === 'shapes' || placing);
@@ -131,7 +137,8 @@
       return;
     }
     capturePointer(e.currentTarget as Element, e.pointerId);
-    const start = clientToPdf(e.clientX, e.clientY);
+    const half = (viewer.tool === 'draw' ? viewer.toolProps.draw.width : viewer.toolProps.shapes.width) / 2;
+    const start = onPage(clientToPdf(e.clientX, e.clientY), half);
     drawing = { pointerId: e.pointerId, start, raw: [start] };
     viewer.selectAnnot(null);
     if (viewer.tool === 'draw') {
@@ -148,10 +155,11 @@
     if (!drawing || e.pointerId !== drawing.pointerId || !draft) return;
     if (draft.type === 'ink') {
       const events = e.getCoalescedEvents?.() ?? [e];
-      for (const ev of events.length ? events : [e]) drawing.raw.push(clientToPdf(ev.clientX, ev.clientY));
+      // Strokes stay on the page (the pointer may go past its edge).
+      for (const ev of events.length ? events : [e]) drawing.raw.push(onPage(clientToPdf(ev.clientX, ev.clientY), draft.width / 2));
       draft = { ...draft, paths: [simplifyPath(drawing.raw, 0.6 / viewer.zoom)] };
     } else if (draft.type === 'shape') {
-      draft = { ...draft, to: constrain(draft.shape, drawing.start, clientToPdf(e.clientX, e.clientY), e.shiftKey) };
+      draft = { ...draft, to: onPage(constrain(draft.shape, drawing.start, clientToPdf(e.clientX, e.clientY), e.shiftKey), draft.width / 2) };
     }
   }
 
@@ -195,8 +203,12 @@
         if (existing) return startEdit(existing, false);
         const t = $state.snapshot(viewer.toolProps.text);
         const h = boxHeight(1, t.size, t.lineSpacing);
-        // The box starts at the click, with the first line's middle on it.
-        const shifted = topLeftForCenter(at, 0, h, pageRotation);
+        // The box starts at the click, with the first line's middle on it; near the right
+        // edge it's narrower (or, with too little room, moved left) so it stays on the page.
+        const s = viewer.scale;
+        const click = toScreen(at);
+        const span = newTextBoxSpan(click[0] / s, DEFAULT_TEXT_WIDTH, pageArea[0] / s, pageArea[2] / s);
+        const shifted = topLeftForCenter(toPdf(span.x * s, click[1]), 0, h, pageRotation);
         return startEdit(
           {
             id: newAnnotationId(),
@@ -215,7 +227,7 @@
             text: '',
             lines: [''],
             rotate: pageRotation,
-            rect: rectFromUpright(shifted, DEFAULT_TEXT_WIDTH, h, pageRotation),
+            rect: rectFromUpright(shifted, span.width, h, pageRotation),
           },
           true,
         );
@@ -301,8 +313,29 @@
     const box = { ...(savedEditing ?? editing.base), ...editing.box };
     if (!editing.paragraphs) return box;
     void metricsState.version;
-    return layoutText({ ...box, paragraphs: editing.paragraphs, text: editing.text });
+    return growOnPage(layoutText({ ...box, paragraphs: editing.paragraphs, text: editing.text })).annot;
   });
+
+  /**
+   * A text box grown by typing stays on the page: past the bottom edge it moves
+   * up (as far as the page top allows). `fits` is false when even that isn't
+   * enough: the change that made it grow is refused (RichTextEditor `fits`).
+   */
+  function growOnPage(a: TextAnnotation): { annot: TextAnnotation; fits: boolean } {
+    const b = bounds(a);
+    const g = growInside(screenBox([toScreen([b[0], b[1]]), toScreen([b[2], b[3]])]), pageArea);
+    if (!g.dy) return { annot: a, fits: g.fits };
+    const o = toPdf(0, 0);
+    const d = toPdf(0, g.dy);
+    return { annot: translate(a, d[0] - o[0], d[1] - o[1]) as TextAnnotation, fits: g.fits };
+  }
+
+  /** Would the box being typed in still fit on the page with this content (and these box settings)? */
+  function editFits(paragraphs: TextParagraph[], box: Partial<TextAnnotation>) {
+    if (!editing) return true;
+    const base = { ...(savedEditing ?? editing.base), ...box };
+    return growOnPage(layoutText({ ...base, paragraphs, text: plainText(paragraphs) })).fits;
+  }
 
   async function startEdit(a: TextAnnotation, isNew: boolean) {
     await commitEdit();
@@ -343,7 +376,7 @@
     const sameBox = !saved || (Object.keys(e.box) as (keyof TextAnnotation)[]).every((k) => JSON.stringify(saved[k]) === JSON.stringify(e.box[k]));
     if (!e.isNew && saved && sameBox && JSON.stringify(normalize(paragraphsOf(saved))) === JSON.stringify(paragraphs)) return;
     await Promise.all(paragraphs.flatMap((p) => p.runs).map((r) => ensureTextFont(r.font)));
-    const laid = layoutText({ ...(saved ?? e.base), ...e.box, paragraphs, text });
+    const laid = growOnPage(layoutText({ ...(saved ?? e.base), ...e.box, paragraphs, text })).annot;
     if (e.isNew) actions.addAnnotation(page.id, laid);
     else actions.updateAnnotation(page.id, laid, 'Edit text');
   }
@@ -565,7 +598,7 @@
    */
   function startBlockDrag(e: PointerEvent, ids: readonly string[], clicked?: string) {
     const members = membersOf(annots, ids);
-    const box = unionBounds(members);
+    const box = boxOf(members);
     if (!box) return;
     const start = clientToPdf(e.clientX, e.clientY);
     let moved = false;
@@ -574,8 +607,9 @@
       const p = clientToPdf(ev.clientX, ev.clientY);
       if (!moved && Math.hypot(p[0] - start[0], p[1] - start[1]) * viewer.scale < 3) return;
       moved = true;
-      const [dx, dy] = clampDelta(box, pagePdf, p[0] - start[0], p[1] - start[1]);
-      blockPreview = new Map(members.map((a) => [a.id, translate(a, dx, dy)]));
+      const m = clampMove(box, pagePdf, p[0] - start[0], p[1] - start[1]);
+      if (m.limited) viewer.edgeHit(page.id);
+      blockPreview = new Map(members.map((a) => [a.id, translate(a, m.dx, m.dy)]));
     };
     const up = (ev: PointerEvent) => {
       if (ev.pointerId !== e.pointerId) return;
@@ -704,13 +738,17 @@
     if (!moving.moved && Math.hypot(p[0] - moving.start[0], p[1] - moving.start[1]) * viewer.scale < 3) return;
     moving.moved = true;
     const o = moving.original;
-    if (moving.resize) preview = moving.resize(p, e);
-    else if (o.type === 'image') {
-      // Images move in screen space and keep their center on the page.
-      const f = frameOf(o);
-      const [x, y] = toLocal(e);
-      preview = fromFrame(o, clampFrame({ ...f, cx: f.cx + x - moving.startLocal[0], cy: f.cy + y - moving.startLocal[1] }, pageArea));
-    } else preview = translate(o, p[0] - moving.start[0], p[1] - moving.start[1]);
+    if (moving.resize) {
+      // The handle stops at the page edge: past it, the object keeps its last size on the page.
+      const next = moving.resize(onPage(p), e);
+      if (inside(bounds(next), pagePdf)) preview = next;
+      else viewer.edgeHit(page.id);
+    } else {
+      // The whole object (a turned one by its upright box) stays on the page.
+      const m = clampMove(bounds(o), pagePdf, p[0] - moving.start[0], p[1] - moving.start[1]);
+      if (m.limited) viewer.edgeHit(page.id);
+      preview = translate(o, m.dx, m.dy);
+    }
   }
 
   function onUiUp(e: PointerEvent) {
@@ -747,7 +785,9 @@
       const [m, n] = [...fingers.values()];
       const f = pinch.frame;
       const k = Math.max(MIN_IMAGE_SIZE / Math.min(f.w, f.h), Math.hypot(m[0] - n[0], m[1] - n[1]) / pinch.d0);
-      preview = fromFrame(pinch.original, { ...f, w: f.w * k, h: f.h * k });
+      const next = fromFrame(pinch.original, { ...f, w: f.w * k, h: f.h * k });
+      if (inside(bounds(next), pagePdf)) preview = next;
+      else viewer.edgeHit(page.id);
     };
     const up = (ev: PointerEvent) => {
       if (!pinch?.ids.includes(ev.pointerId)) return;
@@ -979,8 +1019,9 @@
       if (!isSelected(a)) select(a);
       // Several objects (or a group) stop at the page edge as a whole.
       const members = isSelected(a) ? selMembers : membersOf(annots, [unitOf(a)]);
-      const [dx, dy] = members.length > 1 ? clampDelta(unionBounds(members)!, pagePdf, moved[0] - origin[0], moved[1] - origin[1]) : [moved[0] - origin[0], moved[1] - origin[1]];
-      actions.nudgeSelection(dx, dy);
+      const m = clampMove(boxOf(members)!, pagePdf, moved[0] - origin[0], moved[1] - origin[1]);
+      if (m.limited) viewer.edgeHit(page.id);
+      if (m.dx || m.dy) actions.nudgeSelection(m.dx, m.dy);
     } else {
       return;
     }
@@ -1063,6 +1104,8 @@
   {#await loadRichEditor() then RichTextEditor}
     {#key editing.id}
       <RichTextEditor
+        fits={editFits}
+        onFull={() => viewer.notify(OBJECT_STRINGS.textFull)}
         annot={editDraft}
         geom={editGeom}
         scale={viewer.scale}

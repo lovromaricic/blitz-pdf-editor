@@ -71,10 +71,15 @@ describe('Insert image', () => {
     expect(first.imageKey).toBe(second.imageKey);
   });
 
-  it('lands where it was dropped', async () => {
+  it('lands where it was dropped; near an edge, just inside the page', async () => {
     const { doc, actions } = setup();
+    await actions.insertImageFiles([png()], { index: 0, point: [300, 200] });
+    expect(center(images(doc.pages[0])[0])).toEqual([300, 792 - 200]);
+    // 225 pt wide, centered 100 pt from the left edge: it would stick out, so it moves right.
     await actions.insertImageFiles([png()], { index: 0, point: [100, 200] });
-    expect(center(images(doc.pages[0])[0])).toEqual([100, 792 - 200]);
+    const r = images(doc.pages[0])[1].rect;
+    expect(r[0]).toBe(0);
+    expect(center(images(doc.pages[0])[1])[1]).toBe(792 - 200);
   });
 
   it('says so for an unsupported type and changes nothing', async () => {

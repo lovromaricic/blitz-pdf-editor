@@ -69,6 +69,8 @@
     onComposing,
     onReady,
     onBox,
+    fits,
+    onFull,
   }: {
     /** The box being edited: its content to start from, and its box settings (live). */
     annot: TextAnnotation;
@@ -82,6 +84,10 @@
     onReady: (api: RichEditorApi) => void;
     /** Box settings changed while editing: all of this session's changes (they change with undo and redo too). */
     onBox: (box: Partial<TextAnnotation>) => void;
+    /** Does the box still fit on its page with this content and these box settings? (Else the change is refused.) */
+    fits?: (paragraphs: TextParagraph[], box: Partial<TextAnnotation>) => boolean;
+    /** A change was refused (or a paste cut short): the box is full. */
+    onFull?: () => void;
   } = $props();
 
   let host: HTMLDivElement;
@@ -141,6 +147,52 @@
       },
     },
   });
+
+  // --- The page ends here: the box may not grow past it -------------------------------------
+
+  let lastFull = 0;
+  function full() {
+    const now = Date.now();
+    if (now - lastFull > 1500) onFull?.();
+    lastFull = now;
+  }
+  const docFits = (doc: import('prosemirror-model').Node) => !fits || fits(paragraphsFromDoc(doc, fallback), (doc.attrs.box as Partial<TextAnnotation>) ?? {});
+  let fitsBefore: { doc: import('prosemirror-model').Node; ok: boolean } | null = null;
+
+  /**
+   * Changes that would make the box too big for the page (more lines, a bigger
+   * size) are refused. Never undo and redo, and never anything when the box was
+   * already too big (from before): text already there is never lost.
+   */
+  const stayOnPage = new Plugin({
+    filterTransaction(tr, state) {
+      if (!tr.docChanged || !fits || tr.getMeta('history$')) return true;
+      if (fitsBefore?.doc !== state.doc) fitsBefore = { doc: state.doc, ok: docFits(state.doc) };
+      if (!fitsBefore.ok || docFits(tr.doc)) return true;
+      full();
+      return false;
+    },
+  });
+
+  /**
+   * Plain text pasted into a box with no room for all of it: as much as fits,
+   * cut after the last whole word that does (one step), and a message.
+   */
+  function pasteFitting(state: EditorState, text: string): Transaction | null {
+    const whole = insertPlainText(state, text, fallback);
+    if (!fits || docFits(whole.doc) || !docFits(state.doc)) return whole;
+    const cuts = [...text.matchAll(/\s+/g)].map((m) => m.index!);
+    let lo = -1;
+    let hi = cuts.length - 1;
+    // The longest prefix (ending before a space or line break) that still fits.
+    while (lo < hi) {
+      const mid = Math.ceil((lo + hi + 1) / 2);
+      if (docFits(insertPlainText(state, text.slice(0, cuts[mid]), fallback).doc)) lo = mid;
+      else hi = mid - 1;
+    }
+    full();
+    return lo >= 0 ? insertPlainText(state, text.slice(0, cuts[lo]), fallback) : null;
+  }
 
   /** While the panel has focus, the selection still shows (as a highlight) so you see what you format. */
   const keepSelectionVisible = new Plugin({
@@ -411,6 +463,7 @@
         linkEdges,
         keepSelectionVisible,
         listSemantics,
+        stayOnPage,
       ],
     });
     state = state.apply(selectEnd(state));
@@ -464,7 +517,11 @@
         if (!data) return false;
         const text = data.getData('text/plain');
         const slice = copiedSlice(data.getData(RICH_MARK) || markerFromHtml(data.getData('text/html')), text);
-        v.dispatch(slice ? v.state.tr.replaceSelection(slice).scrollIntoView() : insertPlainText(v.state, text, fallback));
+        if (slice) v.dispatch(v.state.tr.replaceSelection(slice).scrollIntoView());
+        else {
+          const tr = pasteFitting(v.state, text);
+          if (tr) v.dispatch(tr);
+        }
         return true;
       },
       // Dropped text from outside is plain text too; moving text inside the box keeps its formats.

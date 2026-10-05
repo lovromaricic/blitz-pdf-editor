@@ -347,6 +347,28 @@ export class Viewer {
 
   // --- Feedback ---------------------------------------------------------
 
+  /** The page whose edge an object just stopped at (a brief outline). */
+  edgeFlash = $state<string | null>(null);
+  private edgeTimer: ReturnType<typeof setTimeout> | undefined;
+  private lastEdgeNotice = 0;
+
+  /**
+   * Something stopped at the page edge: outline the page briefly (not with
+   * reduced motion) and say so, at most once a second.
+   */
+  edgeHit(pageId: string) {
+    if (!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+      this.edgeFlash = pageId;
+      clearTimeout(this.edgeTimer);
+      this.edgeTimer = setTimeout(() => (this.edgeFlash = null), 350);
+    }
+    const now = Date.now();
+    if (now - this.lastEdgeNotice >= 1000) {
+      this.lastEdgeNotice = now;
+      this.announce('Stopped at the page edge');
+    }
+  }
+
   /** Tell screen-reader users what just happened, without anything on screen. */
   announce(text: string) {
     // Cleared first, so the same words twice in a row are read again.

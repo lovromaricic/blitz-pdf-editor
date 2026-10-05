@@ -1,9 +1,11 @@
 <script lang="ts">
   import { formatPageRange, marginsFromDisplayed, setCrop, type Margins } from '../../lib/page-ops';
+  import { useActions } from '../../lib/actions.svelte';
   import { useViewer } from '../../lib/viewer.svelte';
   import PanelHeader from './PanelHeader.svelte';
 
   const viewer = useViewer();
+  const actions = useActions();
   const doc = viewer.doc;
 
   const MM = 72 / 25.4;
@@ -56,9 +58,10 @@
     const ids = new Set(pages.map((p) => p.id));
     const next = setCrop(doc.pages, ids, (p) => (clear ? undefined : marginsFromDisplayed(margins, doc.totalRotation(p))));
     const n = pages.length;
-    doc.edit(`${clear ? 'Remove crop from' : 'Crop'} ${n} ${n === 1 ? 'page' : 'pages'}`, next);
+    // Objects the crop leaves off a page come back onto it (same undo step, with their own notice).
+    const moved = actions.editPagesKeepingObjects(`${clear ? 'Remove crop from' : 'Crop'} ${n} ${n === 1 ? 'page' : 'pages'}`, next);
     viewer.panel = null;
-    viewer.notify(clear ? 'Crop removed.' : `Cropped ${n} ${n === 1 ? 'page' : 'pages'}. The cut-off area is hidden, not deleted.`);
+    if (!moved) viewer.notify(clear ? 'Crop removed.' : `Cropped ${n} ${n === 1 ? 'page' : 'pages'}. The cut-off area is hidden, not deleted.`);
   }
 
   function onSubmit(e: SubmitEvent) {

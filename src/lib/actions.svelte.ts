@@ -14,7 +14,7 @@ import { canvasToBlob, createRasterizer } from './rasterize';
 import { addOcrText, analyzeSources, blankPdfInWorker, compressSources, estimateCompression, imagesToPdfInWorker, redactInWorker, writePdf, writePdfs } from './pdf/pdf-writer';
 import type { Rect } from './annotations';
 import { findMatchRects } from './search.svelte';
-import { FLATTEN_STRINGS, IMAGE_STRINGS, NEW_PDF_STRINGS } from './strings';
+import { FLATTEN_STRINGS, IMAGE_STRINGS, NEW_PDF_STRINGS, OBJECT_STRINGS } from './strings';
 import { addImageFile, type StoredImage } from './image-store';
 import { UnsupportedImageError } from './image-prepare';
 import { defaultImageSize } from './image-geometry';
@@ -22,6 +22,7 @@ import { heicDecodes } from './landing/heic-probe';
 import { viewportFor } from './pdf/render';
 import { focusLost, focusObject, settleFocusAfterRemoval } from './focus';
 import { canMoveUnits, insertAboveUnit, LAYER_LABELS, moveUnits, type LayerMove } from './z-order';
+import { fitIntoPage, placeInside } from './page-bounds';
 import { copyWithNewIds, describeUnits, GROUP_PREFIX, groupUnits, isGroupId, membersOf, ungroupUnits, unionBounds, unitOf, unitsIn } from './object-selection';
 import { styleAvailable } from './text-format';
 import { ensureTextFont } from './font-metrics-store.svelte';
@@ -116,6 +117,32 @@ export class Actions {
     if (next === this.doc.pages) return;
     this.doc.edit(pages.length === 1 ? 'Move page' : `Move ${pages.length} pages`, next);
     this.viewer.goToPage(next.indexOf(pages[0]));
+  }
+
+  /**
+   * A change to the pages (a crop) that may leave objects off a page: those
+   * are brought back (shrunk first if bigger than the page), in the same undo
+   * step as the change itself. Returns how many objects (or groups) moved.
+   */
+  editPagesKeepingObjects(label: string, next: readonly PageRef[]) {
+    let moved = 0;
+    const fixed = next.map((p) => {
+      if (!p.annots?.length) return p;
+      const page = this.doc.pageBounds(p);
+      let changed = false;
+      const annots = unitsIn(p.annots).flatMap((u) => {
+        const r = fitIntoPage(membersOf(p.annots!, [u]), page);
+        if (r.changed) {
+          moved++;
+          changed = true;
+        }
+        return r.members;
+      });
+      return changed ? { ...p, annots } : p;
+    });
+    this.doc.edit(label, fixed);
+    if (moved) this.viewer.notify(OBJECT_STRINGS.movedBack(moved));
+    return moved;
   }
 
   /** Index just after the last target page (where inserted pages go). */
@@ -659,9 +686,11 @@ export class Actions {
       };
     });
     const label = placed.length === 1 ? IMAGE_STRINGS.undoOne : IMAGE_STRINGS.undoMany(placed.length);
-    this.editAnnots(page.id, label, (list) => [...list, ...placed]);
+    // Each image on the page as a whole (a drop near the edge moves it just inside).
+    const fitted = placed.flatMap((a) => this.onPage(page.id, [a]) as ImageAnnotation[]);
+    this.editAnnots(page.id, label, (list) => [...list, ...fitted]);
     this.viewer.setTool('select');
-    const last = placed[placed.length - 1];
+    const last = fitted[fitted.length - 1];
     this.viewer.selectAnnot({ pageId: page.id, id: last.id });
     if (notes.length) this.viewer.notify(notes.join(' '));
     // Keyboard users can nudge it with the arrow keys right away.
@@ -729,8 +758,18 @@ export class Actions {
     this.doc.edit(label, next, coalesceKey);
   }
 
+  /** Objects (one block) placed just inside a page: added objects never leave it. */
+  private onPage(pageId: string, members: readonly Annotation[]) {
+    const page = this.doc.pages.find((p) => p.id === pageId);
+    if (!page) return [...members];
+    const r = placeInside(members, this.doc.pageBounds(page));
+    if (r.moved) this.viewer.edgeHit(pageId);
+    return r.members;
+  }
+
   addAnnotation(pageId: string, annot: Annotation) {
-    this.editAnnots(pageId, `Add ${describe(annot).toLowerCase()}`, (list) => [...list, annot]);
+    const [placed] = this.onPage(pageId, [annot]);
+    this.editAnnots(pageId, `Add ${describe(placed).toLowerCase()}`, (list) => [...list, placed]);
   }
 
   /** Replace several annotations (on any pages) as one undo step. */
@@ -839,7 +878,7 @@ export class Actions {
       rotate: view.rotation,
       rect: rectFromUpright(topLeftForCenter(center, DEFAULT_TEXT_WIDTH, t.size, view.rotation), DEFAULT_TEXT_WIDTH, t.size, view.rotation),
     };
-    const laid = layoutText(box);
+    const [laid] = this.onPage(page.id, [layoutText(box)]) as TextAnnotation[];
     this.editAnnots(page.id, 'Paste text', (list) => [...list, laid]);
     this.viewer.setTool('select');
     this.viewer.selectAnnot({ pageId: page.id, id: laid.id });
@@ -872,7 +911,7 @@ export class Actions {
   duplicateAnnotation() {
     const sel = this.selectedObjects;
     if (!sel) return;
-    const copies = copyWithNewIds(sel.members, newAnnotationId).map((a) => translate(a, 12, -12));
+    const copies = this.onPage(sel.page.id, copyWithNewIds(sel.members, newAnnotationId).map((a) => translate(a, 12, -12)));
     const above = unitOf(sel.members[sel.members.length - 1]);
     this.editAnnots(sel.page.id, `Duplicate ${describeUnits(sel.list, sel.ids)}`, (list) => insertAboveUnit(list, above, copies));
     this.selectNew(sel.page.id, copies);
@@ -1046,6 +1085,8 @@ export class Actions {
       const [dx, dy] = [at.point[0] - (r[0] + r[2]) / 2, at.point[1] - (r[1] + r[3]) / 2];
       copies = copies.map((a) => translate(a, dx, dy));
     }
+    // A paste that would land past the edge goes just inside.
+    copies = this.onPage(page.id, copies);
     annotClipboard = { members: copies, pageId: page.id, topUnit: unitOf(copies[copies.length - 1]) };
     this.editAnnots(page.id, `Paste ${describeUnits(copies, unitsIn(copies))}`, (list) => insertAboveUnit(list, samePage ? topUnit : null, copies));
     this.viewer.setTool('select');

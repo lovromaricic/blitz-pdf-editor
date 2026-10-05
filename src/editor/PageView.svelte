@@ -128,6 +128,7 @@
 <div
   class="page"
   class:loading={!rendered}
+  class:edge-flash={viewer.edgeFlash === page.id}
   style:top="{top}px"
   style:left="{left}px"
   style:width="{width}px"
@@ -194,6 +195,10 @@
   }
   .page {
     overflow: hidden;
+  }
+  /* An object just stopped at this page's edge. */
+  .page.edge-flash {
+    outline: 2px solid var(--danger);
   }
   .inner {
     position: absolute;

@@ -23,6 +23,8 @@ export class Source {
   sizes = $state<PageSize[]>([]);
   /** Each page's own /Rotate, in degrees. */
   rotations = $state<number[]>([]);
+  /** Each page's visible box in PDF user space (PDF.js's view: crop box within media box). */
+  views = $state<Rect[]>([]);
 
   constructor(
     public id: string,
@@ -128,6 +130,23 @@ export class EditorDocument {
     return ((this.source(page).rotations[page.sourceIndex] ?? 0) + page.rotation) % 360;
   }
 
+  /**
+   * The page as shown, in PDF user space: its visible box less the crop. Added
+   * objects must stay inside it (whatever the zoom or the page's rotation).
+   */
+  pageBounds(page: PageRef): Rect {
+    const s = this.source(page);
+    let v = s.views[page.sourceIndex];
+    if (!v) {
+      // Not measured (yet): the displayed size, with the page's own turn undone.
+      const size = s.sizes[page.sourceIndex] ?? { width: 612, height: 792 };
+      const own = s.rotations[page.sourceIndex] ?? 0;
+      v = own % 180 === 0 ? [0, 0, size.width, size.height] : [0, 0, size.height, size.width];
+    }
+    const c = page.crop ?? NO_MARGINS;
+    return [v[0] + c.left, v[1] + c.bottom, v[2] - c.right, v[3] - c.top];
+  }
+
   /** Crop margins as they appear on screen (rotation applied), in points. */
   displayedCrop(page: PageRef): Margins {
     return page.crop ? marginsToDisplayed(page.crop, this.totalRotation(page)) : NO_MARGINS;
@@ -204,6 +223,7 @@ export class EditorDocument {
     const first = firstPage.getViewport({ scale: 1 });
     source.sizes = Array.from({ length: pdf.numPages }, () => ({ width: first.width, height: first.height }));
     source.rotations = Array.from({ length: pdf.numPages }, () => firstPage.rotate);
+    source.views = Array.from({ length: pdf.numPages }, () => [...firstPage.view] as Rect);
     void measureSource(source);
 
     return Array.from({ length: pdf.numPages }, (_, i) => ({
@@ -224,6 +244,7 @@ export class EditorDocument {
     const source = new Source(id, old.name, bytes.length, bytes, pdf, undefined, old.kind);
     source.sizes = old.sizes;
     source.rotations = old.rotations;
+    source.views = old.views;
     source.hasForm = old.hasForm;
     (pdf.annotationStorage as unknown as { onSetModified: () => void }).onSetModified = () => {
       this.formDirty = true;
@@ -264,14 +285,19 @@ async function measureSource(source: Source) {
         indexes.map(async (i) => {
           const page = await source.pdf.getPage(i + 1);
           const vp = page.getViewport({ scale: 1 });
-          return { width: vp.width, height: vp.height, rotate: page.rotate };
+          return { width: vp.width, height: vp.height, rotate: page.rotate, view: [...page.view] as Rect };
         }),
       );
       const sizes = source.sizes.slice();
       const rotations = source.rotations.slice();
+      const views = source.views.slice();
       let changed = false;
       measured.forEach((m, k) => {
         const i = indexes[k];
+        if (!views[i] || views[i].some((v, k) => v !== m.view[k])) {
+          views[i] = m.view;
+          changed = true;
+        }
         if (sizes[i].width !== m.width || sizes[i].height !== m.height || rotations[i] !== m.rotate) {
           sizes[i] = { width: m.width, height: m.height };
           rotations[i] = m.rotate;
@@ -281,6 +307,7 @@ async function measureSource(source: Source) {
       if (changed) {
         source.sizes = sizes;
         source.rotations = rotations;
+        source.views = views;
       }
     } catch {
       return; // Document closed while measuring.
