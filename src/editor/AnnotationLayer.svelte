@@ -190,6 +190,7 @@
         const existing = [...annots].reverse().find(
           (a): a is TextAnnotation => a.type === 'text' && at[0] >= a.rect[0] && at[0] <= a.rect[2] && at[1] >= a.rect[1] && at[1] <= a.rect[3],
         );
+        if (existing?.groups) return viewer.notify('This text box is in a group. Ungroup it to edit its text.');
         if (existing) return startEdit(existing, false);
         const t = $state.snapshot(viewer.toolProps.text);
         const h = boxHeight(1, t.size, t.lineSpacing);

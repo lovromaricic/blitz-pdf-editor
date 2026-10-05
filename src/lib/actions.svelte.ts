@@ -22,7 +22,7 @@ import { heicDecodes } from './landing/heic-probe';
 import { viewportFor } from './pdf/render';
 import { focusLost, focusObject, settleFocusAfterRemoval } from './focus';
 import { canMoveUnits, insertAboveUnit, LAYER_LABELS, moveUnits, type LayerMove } from './z-order';
-import { copyWithNewIds, describeUnits, membersOf, unionBounds, unitOf, unitsIn } from './object-selection';
+import { copyWithNewIds, describeUnits, GROUP_PREFIX, groupUnits, isGroupId, membersOf, ungroupUnits, unionBounds, unitOf, unitsIn } from './object-selection';
 import { styleAvailable } from './text-format';
 import { ensureTextFont } from './font-metrics-store.svelte';
 import { DEFAULT_TEXT_WIDTH, formatTextBox, layoutText, topLeftForCenter } from './text-layout';
@@ -940,6 +940,49 @@ export class Actions {
       `Move ${describeUnits(sel.list, sel.ids)}`,
       `nudge:${sel.ids.join(',')}`,
     );
+  }
+
+  /** Group needs two or more units (objects or groups) selected. */
+  canGroup() {
+    const sel = this.selectedObjects;
+    return !!sel && sel.ids.length >= 2;
+  }
+
+  /**
+   * Group the selection: one new group (groups may hold groups), placed in the
+   * layer order where the topmost of them was. One undo step ("Group 3
+   * objects"); the new group is selected.
+   */
+  groupSelection() {
+    const sel = this.selectedObjects;
+    if (!sel || sel.ids.length < 2) return;
+    const id = `${GROUP_PREFIX}${newAnnotationId()}`;
+    const what = describeUnits(sel.list, sel.ids);
+    this.editAnnots(sel.page.id, `Group ${what}`, (list) => groupUnits(list, sel.ids, id));
+    this.viewer.selectObjects({ pageId: sel.page.id, ids: [id] });
+    this.viewer.announce(`Grouped ${what}`);
+  }
+
+  /** Ungroup needs a group in the selection. */
+  canUngroup() {
+    return !!this.selectedObjects?.ids.some(isGroupId);
+  }
+
+  /**
+   * Ungroup the selected groups by one level: their objects (and groups inside
+   * them, which stay groups) are selected, in the same places and order.
+   */
+  ungroupSelection() {
+    const sel = this.selectedObjects;
+    if (!sel) return;
+    const groups = sel.ids.filter(isGroupId);
+    if (!groups.length) return;
+    const { children } = ungroupUnits(sel.list, groups);
+    this.editAnnots(sel.page.id, groups.length === 1 ? 'Ungroup' : `Ungroup ${groups.length} groups`, (list) => ungroupUnits(list, groups).list);
+    const ids = [...sel.ids.filter((id) => !groups.includes(id)), ...children];
+    this.viewer.selectObjects({ pageId: sel.page.id, ids });
+    const after = this.doc.pages.find((p) => p.id === sel.page.id)?.annots ?? [];
+    this.viewer.announce(`Ungrouped: ${describeUnits(after, ids)} selected`);
   }
 
   /** Select every object (unit) on a page. */

@@ -97,3 +97,40 @@ export function copyWithNewIds(members: readonly Annotation[], newId: () => stri
   };
   return members.map((a) => ({ ...a, id: newId(), ...(a.groups ? { groups: a.groups.map(groupId) } : {}) }));
 }
+
+// --- Groups ----------------------------------------------------------------------------------
+
+/**
+ * Group units (objects or groups: groups nest) into a new group. Their objects
+ * move together in the layer order, to where the topmost of them was, keeping
+ * their order among themselves. Returns the list unchanged for fewer than two.
+ */
+export function groupUnits(list: readonly Annotation[], ids: readonly string[], groupId: string): readonly Annotation[] {
+  const sel = new Set(ids);
+  const units = unitsIn(list);
+  if (units.filter((u) => sel.has(u)).length < 2) return list;
+  const topIndex = Math.max(...units.map((u, i) => (sel.has(u) ? i : -1)));
+  // Unselected units below the topmost selected one stay below the group.
+  const below = units.slice(0, topIndex).filter((u) => !sel.has(u));
+  const above = units.slice(topIndex + 1);
+  const block = units.filter((u) => sel.has(u));
+  const tagged = (u: string) => membersOf(list, [u]).map((a) => ({ ...a, groups: [groupId, ...(a.groups ?? [])] }));
+  return [...below.flatMap((u) => membersOf(list, [u])), ...block.flatMap(tagged), ...above.flatMap((u) => membersOf(list, [u]))];
+}
+
+/**
+ * Remove one level of grouping from these groups: their objects (and the
+ * groups inside, which stay intact) become units of their own, in the same
+ * places and order. Returns the new list and the former children's units.
+ */
+export function ungroupUnits(list: readonly Annotation[], groupIds: readonly string[]): { list: readonly Annotation[]; children: string[] } {
+  const sel = new Set(groupIds.filter(isGroupId));
+  const next = list.map((a) => {
+    if (!a.groups || !sel.has(a.groups[0])) return a;
+    const rest = a.groups.slice(1);
+    const { groups: _g, ...plain } = a;
+    return (rest.length ? { ...a, groups: rest } : plain) as Annotation;
+  });
+  const children = unitsIn(next.filter((a, i) => list[i].groups && sel.has(list[i].groups![0])));
+  return { list: next, children };
+}

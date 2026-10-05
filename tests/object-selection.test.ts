@@ -2,7 +2,7 @@
 import { describe, expect, it } from 'vitest';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import type { Annotation } from '../src/lib/annotations';
-import { addUnits, clampDelta, copyWithNewIds, describeUnits, membersOf, toggleUnit, unionBounds, unitsIn, unitsTouching } from '../src/lib/object-selection';
+import { addUnits, clampDelta, copyWithNewIds, describeUnits, groupUnits, membersOf, toggleUnit, ungroupUnits, unionBounds, unitsIn, unitsTouching } from '../src/lib/object-selection';
 import { canMoveUnits, insertAboveUnit, moveUnits } from '../src/lib/z-order';
 import { EditorDocument, Source, type PageRef } from '../src/lib/document.svelte';
 import { Viewer } from '../src/lib/viewer.svelte';
@@ -161,5 +161,125 @@ describe('the selection commands', () => {
     expect(copies[1].groups).toEqual(['group-n2', 'group-n4']);
     expect(unitsIn(copies)).toEqual(['group-n2']);
     expect(membersOf(copies, ['group-n2'])).toHaveLength(2);
+  });
+});
+
+describe('groups', () => {
+  const list = ['a', 'b', 'c', 'd', 'e'].map((id, i) => stamp(id, i * 60));
+  const groupsOf = (l: readonly Annotation[]) => l.map((a) => `${a.id}${a.groups ? ':' + a.groups.join('/') : ''}`).join(' ');
+
+  it('groups units where the topmost of them is, keeping their order; units in between stay below', () => {
+    const g = groupUnits(list, ['b', 'd'], 'group-1');
+    expect(groupsOf(g)).toBe('a c b:group-1 d:group-1 e');
+    expect(unitsIn(g)).toEqual(['a', 'c', 'group-1', 'e']);
+    // One object is no group.
+    expect(groupUnits(list, ['b'], 'group-x')).toBe(list);
+  });
+
+  it('nests: a group of a group and an object; ungroup removes one level only', () => {
+    const inner = groupUnits(list, ['a', 'b'], 'group-in');
+    const outer = groupUnits(inner, ['group-in', 'c'], 'group-out');
+    expect(groupsOf(outer)).toBe('a:group-out/group-in b:group-out/group-in c:group-out d e');
+    expect(unitsIn(outer)).toEqual(['group-out', 'd', 'e']);
+    expect(describeUnits(outer, ['group-out'])).toBe('group (3 objects)');
+    const { list: one, children } = ungroupUnits(outer, ['group-out']);
+    expect(groupsOf(one)).toBe('a:group-in b:group-in c d e');
+    expect(children).toEqual(['group-in', 'c']);
+    const { list: none } = ungroupUnits(one, ['group-in']);
+    expect(groupsOf(none)).toBe('a b c d e');
+    expect(none[0]).not.toHaveProperty('groups');
+  });
+
+  it('a group moves in the layer order as one unit, its objects together', () => {
+    const g = groupUnits(list, ['a', 'b'], 'group-1');
+    expect(ids(moveUnits(g, ['group-1'], 'front'))).toBe('c d e a b');
+    expect(ids(moveUnits(g, ['group-1'], 'forward'))).toBe('c a b d e');
+    expect(canMoveUnits(g, ['group-1'], 'back')).toBe(false);
+    expect(ids(moveUnits(g, ['e'], 'backward'))).toBe('a b c e d');
+    expect(ids(moveUnits(g, ['c'], 'back'))).toBe('c a b d e'); // below the whole group, not inside it
+  });
+
+  it('its bounding box is around all its objects', () => {
+    const g = groupUnits(list, ['a', 'c'], 'group-1');
+    expect(unionBounds(membersOf(g, ['group-1']))).toEqual([0, 100, 170, 120]);
+  });
+
+  it('copied groups become new groups with copies of their objects', () => {
+    const g = groupUnits(groupUnits(list, ['a', 'b'], 'group-in'), ['group-in', 'c'], 'group-out');
+    let n = 0;
+    const copies = copyWithNewIds(membersOf(g, ['group-out']), () => `k${++n}`);
+    expect(unitsIn(copies)).toHaveLength(1);
+    expect(copies.every((a) => a.groups![0] === copies[0].groups![0] && a.groups![0] !== 'group-out')).toBe(true);
+    expect(copies[0].groups![1]).toBe(copies[1].groups![1]);
+    expect(copies[2].groups).toHaveLength(1);
+  });
+});
+
+describe('group and ungroup commands', () => {
+  const fakePdf = { getPage: async () => ({ rotate: 0, getViewport: () => ({}) }) } as unknown as PDFDocumentProxy;
+  function setup() {
+    const doc = new EditorDocument();
+    doc.sources.set('s', new Source('s', 'test.pdf', 1, new Uint8Array(), fakePdf));
+    doc.pages = [0, 1].map((i): PageRef => ({ id: `p${i}`, sourceId: 's', sourceIndex: i, rotation: 0, annots: i === 0 ? ['a', 'b', 'c', 'd'].map((id, k) => stamp(id, k * 100)) : [] }));
+    const viewer = new Viewer(doc);
+    return { doc, viewer, actions: new Actions(doc, viewer) };
+  }
+  const order = (doc: EditorDocument, i = 0) => doc.pages[i].annots!.map((a) => `${(a as { label: string }).label}${a.groups ? '*' : ''}`).join(' ');
+
+  it('group: one undo step, the group selected; undo and redo restore exactly', () => {
+    const { doc, viewer, actions } = setup();
+    viewer.selectObjects({ pageId: 'p0', ids: ['a', 'c', 'd'] });
+    expect(actions.canGroup()).toBe(true);
+    actions.groupSelection();
+    expect(order(doc)).toBe('b a* c* d*');
+    expect(doc.history.undoLabel).toBe('Group 3 objects');
+    const g = viewer.objectSelection!.ids[0];
+    expect(g.startsWith('group-')).toBe(true);
+    expect(actions.describeSelection()).toBe('group (3 objects)');
+    doc.undo();
+    expect(order(doc)).toBe('a b c d');
+    doc.redo();
+    expect(order(doc)).toBe('b a* c* d*');
+  });
+
+  it('ungroup: one level, the former children selected, positions and order kept; one undo step', () => {
+    const { doc, viewer, actions } = setup();
+    viewer.selectObjects({ pageId: 'p0', ids: ['a', 'b'] });
+    actions.groupSelection();
+    const inner = viewer.objectSelection!.ids[0];
+    viewer.selectObjects({ pageId: 'p0', ids: [inner, 'c'] });
+    actions.groupSelection();
+    const outer = viewer.objectSelection!.ids[0];
+    const before = JSON.stringify(doc.pages[0].annots!.map((a) => (a as { rect: number[] }).rect));
+    expect(actions.canUngroup()).toBe(true);
+    actions.ungroupSelection();
+    expect(doc.history.undoLabel).toBe('Ungroup');
+    expect(viewer.objectSelection!.ids).toEqual([inner, 'c']);
+    expect(JSON.stringify(doc.pages[0].annots!.map((a) => (a as { rect: number[] }).rect))).toBe(before);
+    expect(doc.pages[0].annots!.filter((a) => a.groups?.length === 1).map((a) => a.id)).toEqual(['a', 'b']);
+    doc.undo();
+    expect(viewer.objectSelection).not.toBeNull();
+    expect(doc.pages[0].annots!.find((a) => a.id === 'a')!.groups).toEqual([outer, inner]);
+  });
+
+  it('a group is copied, pasted (on another page too), duplicated, moved and deleted as a whole', () => {
+    const { doc, viewer, actions } = setup();
+    viewer.selectObjects({ pageId: 'p0', ids: ['a', 'b'] });
+    actions.groupSelection();
+    actions.copyAnnotation();
+    viewer.currentIndex = 1;
+    actions.pasteAnnotation();
+    expect(order(doc, 1)).toBe('a* b*');
+    expect(doc.history.undoLabel).toBe('Paste group (2 objects)');
+    expect(unitsIn(doc.pages[1].annots!)).toHaveLength(1);
+    expect(unitsIn(doc.pages[1].annots!)[0]).not.toBe(unitsIn(doc.pages[0].annots!)[0]);
+    viewer.selectObjects({ pageId: 'p0', ids: [unitsIn(doc.pages[0].annots!)[0]] });
+    actions.duplicateAnnotation();
+    expect(order(doc)).toBe('a* b* a* b* c d');
+    actions.moveSelectedLayer('front');
+    expect(order(doc)).toBe('a* b* c d a* b*');
+    actions.deleteSelection();
+    expect(order(doc)).toBe('a* b* c d');
+    expect(doc.history.undoLabel).toBe('Delete group (2 objects)');
   });
 });
