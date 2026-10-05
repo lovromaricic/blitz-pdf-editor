@@ -12,6 +12,7 @@ export const MENUS: Menu[] = [
   {
     label: 'File',
     items: [
+      'file.newBlank',
       'file.open',
       'file.createFromImages',
       '-',

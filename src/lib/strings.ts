@@ -63,3 +63,29 @@ export const IMAGE_STRINGS = {
   delete: 'Delete',
   hint: 'Drag to move, drag a corner to resize (Alt: from the center), drag the round handle to rotate (Shift: 15° steps). Arrow keys nudge.',
 } as const;
+
+/** File › New blank PDF… */
+export const NEW_PDF_STRINGS = {
+  command: 'New blank PDF…',
+  title: 'New blank PDF',
+  pageSize: 'Page size',
+  custom: 'Custom',
+  width: 'Width',
+  height: 'Height',
+  unit: 'Unit',
+  units: { mm: 'mm', in: 'in', pt: 'pt' },
+  orientation: 'Orientation',
+  portrait: 'Portrait',
+  landscape: 'Landscape',
+  pages: 'Number of pages',
+  preview: (size: string) => `Page preview: ${size}`,
+  create: 'Create',
+  cancel: 'Cancel',
+  creating: 'Creating PDF…',
+  fileName: 'Untitled.pdf',
+  created: (pages: number) => `New blank PDF created, ${pages} ${pages === 1 ? 'page' : 'pages'}`,
+  unsavedTitle: 'Save a copy first?',
+  unsavedMessage: "This document has changes that haven't been saved. They'll be lost when the new PDF opens.",
+  saveCopy: 'Save a copy…',
+  discard: 'Discard changes',
+} as const;

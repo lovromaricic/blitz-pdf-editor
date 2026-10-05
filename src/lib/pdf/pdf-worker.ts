@@ -18,6 +18,7 @@ import { CompressCancelled, type Analysis, type CompressSettings } from './compr
 import type { OcrWord } from './ocr-text';
 import { createFontProvider } from './font-provider';
 import { imagesToPdf, type ImageInput, type ImagesToPdfOptions } from './images-to-pdf';
+import { newBlankPdf } from './new-blank';
 import type { FontKey } from './write-annotations';
 import { registerLocalFonts, type FontInfo } from '../font-catalog';
 import type { FieldValue } from '../forms';
@@ -35,6 +36,7 @@ export type Job =
       encrypt?: Encryption;
     }
   | { kind: 'images'; images: ImageInput[]; options: ImagesToPdfOptions }
+  | { kind: 'blank'; width: number; height: number; pages: number }
   | { kind: 'compress'; sources: SourceInput[]; settings: CompressSettings; forms: Record<string, FieldValue[]> }
   | { kind: 'estimate'; sources: SourceInput[]; settings: CompressSettings[] }
   | { kind: 'analyze'; sources: SourceInput[] }
@@ -87,6 +89,8 @@ async function run(
       }
       return { files };
     }
+    case 'blank':
+      return { files: [await newBlankPdf(job.width, job.height, job.pages)] };
     case 'images':
       return { files: [await imagesToPdf(job.images, job.options, (done) => progress(done, job.images.length))] };
     case 'compress': {

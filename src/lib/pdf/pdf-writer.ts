@@ -158,6 +158,11 @@ export async function redactInWorker(doc: EditorDocument, sourceId: string, page
   return (await runJob({ kind: 'redact', source, pages, forms, removeInfo })).files[0];
 }
 
+/** A new PDF of `pages` empty pages, `width` × `height` points. */
+export async function blankPdfInWorker(width: number, height: number, pages: number) {
+  return (await runJob({ kind: 'blank', width, height, pages })).files[0];
+}
+
 export async function imagesToPdfInWorker(images: ImageInput[], options: ImagesToPdfOptions, onProgress?: (done: number, total: number) => void) {
   return (await runJob({ kind: 'images', images, options }, onProgress)).files[0];
 }

@@ -91,6 +91,8 @@ export class EditorDocument {
   formDirty = $state(false);
   /** Made in the app (e.g. from images) and never saved. */
   createdUnsaved = $state(false);
+  /** Read out when the editor opens, instead of "<name> opened, n pages" (e.g. for a new blank PDF). */
+  openedAnnouncement: string | null = null;
   /** Things worth knowing about the opened files (shown as a dismissible banner). */
   warnings = $state<string[]>([]);
 

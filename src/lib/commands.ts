@@ -22,6 +22,7 @@ export interface CommandImpl {
 
 export const COMMANDS = {
   // File
+  'file.newBlank': { label: 'New blank PDF…' },
   'file.open': { label: 'Open…', keys: ['mod+o'] },
   'file.createFromImages': { label: 'Create PDF from images…' },
   'file.save': { label: 'Save', keys: ['mod+s'] },
@@ -30,7 +31,8 @@ export const COMMANDS = {
   'file.exportText': { label: 'Plain text' },
   'file.exportWord': { label: 'Word', later: true },
   'file.print': { label: 'Print…', keys: ['mod+p'] },
-  'file.close': { label: 'Close', keys: ['mod+w'] },
+  // No shortcut: Ctrl/Cmd+W closes the browser tab in every browser and never reaches the page.
+  'file.close': { label: 'Close' },
 
   // Edit
   'edit.undo': { label: 'Undo', keys: ['mod+z'], nativeInFields: true },
@@ -54,7 +56,8 @@ export const COMMANDS = {
   'view.twoPages': { label: 'Two pages side by side' },
   'view.thumbnails': { label: 'Show page thumbnails' },
   'view.panel': { label: 'Show properties panel' },
-  'view.fullscreen': { label: 'Full screen', keys: ['f11'] },
+  // No shortcut: F11 is the browser's own full screen (Windows) or the system's (macOS).
+  'view.fullscreen': { label: 'Full screen' },
 
   // Page
   'page.rotateLeft': { label: 'Rotate left' },

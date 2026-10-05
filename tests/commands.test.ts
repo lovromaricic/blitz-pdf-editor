@@ -92,3 +92,27 @@ describe('Edit menu', () => {
     expect(MENUS.find((m) => m.label === 'Edit')!.items.at(-1)).toBe('edit.find');
   });
 });
+
+describe('New blank PDF', () => {
+  it('is the first item of the File menu (desktop and phone share it), with no shortcut', () => {
+    const file = MENUS.find((m) => m.label === 'File')!.items;
+    expect(file[0]).toBe('file.newBlank');
+    expect(file[1]).toBe('file.open');
+    expect(file.indexOf('file.createFromImages')).toBe(2);
+    expect(COMMANDS['file.newBlank'].label).toBe('New blank PDF…');
+    expect((COMMANDS['file.newBlank'] as { keys?: string[] }).keys).toBeUndefined();
+  });
+});
+
+describe('shortcut hints', () => {
+  it('only show keys a web page can actually receive', () => {
+    const keys = (id: keyof typeof COMMANDS) => (COMMANDS[id] as { keys?: readonly string[] }).keys ?? [];
+    // Browsers keep these for themselves (close tab, new window/tab, tab switching, full screen).
+    const reserved = ['mod+w', 'mod+n', 'mod+t', 'mod+shift+n', 'mod+shift+t', 'mod+tab', 'f11'];
+    for (const id of Object.keys(COMMANDS) as (keyof typeof COMMANDS)[]) {
+      for (const k of keys(id)) expect(reserved, `${id} uses ${k}`).not.toContain(k);
+    }
+    expect(keys('file.close')).toEqual([]);
+    expect(keys('view.fullscreen')).toEqual([]);
+  });
+});

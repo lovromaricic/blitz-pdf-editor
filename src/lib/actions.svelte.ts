@@ -11,10 +11,10 @@ import { deletePages, formatPageRange, insertPages, movePages, rotatePages } fro
 import { blankPdf } from './pdf/blank';
 import { documentText, printDocument } from './print';
 import { canvasToBlob, createRasterizer } from './rasterize';
-import { addOcrText, analyzeSources, compressSources, estimateCompression, imagesToPdfInWorker, redactInWorker, writePdf, writePdfs } from './pdf/pdf-writer';
+import { addOcrText, analyzeSources, blankPdfInWorker, compressSources, estimateCompression, imagesToPdfInWorker, redactInWorker, writePdf, writePdfs } from './pdf/pdf-writer';
 import type { Rect } from './annotations';
 import { findMatchRects } from './search.svelte';
-import { FLATTEN_STRINGS, IMAGE_STRINGS } from './strings';
+import { FLATTEN_STRINGS, IMAGE_STRINGS, NEW_PDF_STRINGS } from './strings';
 import { addImageFile, type StoredImage } from './image-store';
 import { UnsupportedImageError } from './image-prepare';
 import { defaultImageSize } from './image-geometry';
@@ -194,6 +194,41 @@ export class Actions {
     const name = await promptText('Save a copy', 'File name', suggested, 'Save');
     if (name === null) return false;
     return this.save(pdfFileName(name, suggested), false);
+  }
+
+  /**
+   * Before replacing the document with a new one: if it has unsaved changes,
+   * offer to save a copy first. Returns false if the user cancels (or cancels
+   * saving the copy).
+   */
+  async confirmReplace(): Promise<boolean> {
+    if (!this.doc.dirty) return true;
+    const r = await showDialog({
+      title: NEW_PDF_STRINGS.unsavedTitle,
+      message: NEW_PDF_STRINGS.unsavedMessage,
+      buttons: [
+        { value: 'cancel', label: NEW_PDF_STRINGS.cancel },
+        { value: 'discard', label: NEW_PDF_STRINGS.discard, danger: true },
+        { value: 'save', label: NEW_PDF_STRINGS.saveCopy, primary: true },
+      ],
+      cancelValue: 'cancel',
+      initialFocus: 'save',
+    });
+    if (r.button === 'save') return this.saveCopy();
+    return r.button === 'discard';
+  }
+
+  /** File › New blank PDF…: empty pages of the chosen size, opened as "Untitled.pdf" (nothing to save yet). */
+  async newBlankPdf(width: number, height: number, pages: number) {
+    if (!(await this.confirmReplace())) return false;
+    const bytes = await this.viewer.runTask(NEW_PDF_STRINGS.creating, () => blankPdfInWorker(width, height, pages));
+    if (!bytes) return false;
+    const name = NEW_PDF_STRINGS.fileName;
+    const { doc } = await openDocument([{ id: `new-${Date.now()}`, name, size: bytes.length, bytes }], async () => null);
+    if (!doc) return false;
+    doc.openedAnnouncement = NEW_PDF_STRINGS.created(pages);
+    setDocument(doc);
+    return true;
   }
 
   /** Before closing or replacing the document. Returns false if the user cancels. */

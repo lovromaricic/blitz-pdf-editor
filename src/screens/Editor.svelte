@@ -19,6 +19,7 @@
   import CompareView from '../editor/compare/CompareView.svelte';
   import HelpDialog, { type HelpTopic } from '../editor/HelpDialog.svelte';
   import SignatureDialog from '../editor/SignatureDialog.svelte';
+  import NewPdfDialog from '../editor/NewPdfDialog.svelte';
   import MobileMenu from '../editor/mobile/MobileMenu.svelte';
   import MobileTopBar from '../editor/mobile/MobileTopBar.svelte';
   import PagesSheet from '../editor/mobile/PagesSheet.svelte';
@@ -102,9 +103,11 @@
   /** The properties sheet shows only when there's something to set. */
   const sheetVisible = $derived(!!viewer.panel || !!viewer.selectedAnnot || viewer.tool !== 'select');
   let help = $state<HelpTopic | null>(null);
+  let newPdfOpen = $state(false);
 
   const commands = new CommandRegistry({
     // File
+    'file.newBlank': { run: () => (newPdfOpen = true), enabled: idle },
     'file.open': { run: () => openInput.click() },
     'file.save': { run: () => void actions.save(), enabled: idle },
     'file.saveCopy': { run: () => void actions.saveCopy(), enabled: idle },
@@ -434,6 +437,14 @@
   <HelpDialog topic={help} onClose={() => (help = null)} />
   {#if compareFile}<CompareView {doc} file={compareFile} onClose={() => (compareFile = null)} />{/if}
   <SignatureDialog />
+  <NewPdfDialog
+    open={newPdfOpen}
+    onCancel={() => (newPdfOpen = false)}
+    onCreate={(s) => {
+      newPdfOpen = false;
+      void actions.newBlankPdf(s.width, s.height, s.pages);
+    }}
+  />
 
   <input
     bind:this={openInput}

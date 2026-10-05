@@ -161,7 +161,7 @@
   $effect(() => {
     const n = viewer.pageCount;
     const text = opened
-      ? `${doc.name} opened, ${n} ${n === 1 ? 'page' : 'pages'}`
+      ? (doc.openedAnnouncement ?? `${doc.name} opened, ${n} ${n === 1 ? 'page' : 'pages'}`)
       : `Page ${viewer.currentIndex + 1} of ${n}`;
     const t = setTimeout(() => {
       announced = text;

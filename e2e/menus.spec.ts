@@ -87,7 +87,8 @@ test('keyboard: Right opens and focuses, Up/Down move, Left and Escape return, E
   await file.focus();
   await page.keyboard.press('Enter');
   const exportAs = page.getByRole('menuitem', { name: 'Export as' });
-  for (let i = 0; i < 4; i++) await page.keyboard.press('ArrowDown');
+  // New blank PDF…, Open…, Create PDF from images…, Save, Save a copy…, Export as
+  for (let i = 0; i < 5; i++) await page.keyboard.press('ArrowDown');
   await expect(exportAs).toBeFocused();
   await expect(exportAs).toHaveAttribute('aria-haspopup', 'menu');
   await expect(exportAs).toHaveAttribute('aria-expanded', 'false');
