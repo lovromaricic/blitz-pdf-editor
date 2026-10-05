@@ -11,21 +11,46 @@ import {
   type TextAnnotation,
 } from './annotations';
 import { measure } from './fonts';
-import { textMeasure } from './font-metrics-store.svelte';
-import { boxHeight, TEXT_PADDING, wrapParagraphs } from './text-box-layout';
-import { lineSpacingOf } from './text-format';
+import { screenEnv } from './font-metrics-store.svelte';
+import { baseRun, formatAllRuns, layoutTextAnnotation, paragraphsOf, plainParagraphs, plainText, RUN_KEYS, toRich } from './text-rich';
 
 export const DEFAULT_TEXT_WIDTH = 200;
 export const STAMP_HEIGHT = 30;
 
 /**
- * Re-wrap text to the box width (or `width`) with the font's own metrics, and
- * fit the box height to the lines. The width stays as the user set it.
+ * Lay a text box out again (after typing, formatting or resizing): the width
+ * stays as the user set it and the height follows the text. A box from before
+ * rich text becomes rich text here (one run per paragraph, same look).
  */
 export function layoutText(a: TextAnnotation, width = uprightSize(a)[0]): TextAnnotation {
-  const { lines, ends } = wrapParagraphs(a.text, textMeasure(a, a.size), Math.max(a.size, width - 2 * TEXT_PADDING));
-  const height = boxHeight(lines.length, a.size, lineSpacingOf(a));
-  return { ...a, lines, ends, rect: rectFromUpright(uprightTopLeft(a), width, height, a.rotate) };
+  const rich = toRich(a);
+  const sized = { ...rich, rect: rectFromUpright(uprightTopLeft(a), width, 1, a.rotate) };
+  const { height } = layoutTextAnnotation(sized, screenEnv);
+  return { ...rich, text: plainText(rich.paragraphs!), rect: rectFromUpright(uprightTopLeft(a), width, height, a.rotate) };
+}
+
+/**
+ * New plain text for a box, typed in the plain text field. Keeps the format
+ * when the box has one (a box with mixed formats takes its first run's format
+ * until the rich editor arrives).
+ */
+export function withPlainText(a: TextAnnotation, text: string): TextAnnotation {
+  const runs = paragraphsOf(a).flatMap((p) => p.runs);
+  const format = runs.find((r) => r.text) ?? runs[0] ?? baseRun(a);
+  const { text: _t, ...style } = format;
+  return layoutText({ ...toRich(a), text, paragraphs: plainParagraphs(text, style) });
+}
+
+/**
+ * Formatting for a whole box: box settings (alignment, line spacing,
+ * background, opacity) and run formats, which apply to all its text.
+ */
+export function formatTextBox(a: TextAnnotation, changes: Partial<TextAnnotation>): TextAnnotation {
+  const runChanges = Object.fromEntries(Object.entries(changes).filter(([k]) => (RUN_KEYS as readonly string[]).includes(k)));
+  const next = { ...a, ...changes };
+  if (Object.keys(runChanges).length === 0) return next.paragraphs ? layoutText(next) : next;
+  const rich = toRich(next);
+  return layoutText({ ...rich, paragraphs: formatAllRuns(rich.paragraphs!, runChanges) });
 }
 
 /** A stamp sized to its label, centered on `center` (PDF space). */

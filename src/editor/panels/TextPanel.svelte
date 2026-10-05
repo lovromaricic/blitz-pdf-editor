@@ -18,7 +18,8 @@
   import { useActions } from '../../lib/actions.svelte';
   import { FALLBACK_FONT } from '../../lib/font-catalog';
   import { ensureFont, lastTextStyle, loadFonts } from '../../lib/fonts';
-  import { layoutText } from '../../lib/text-layout';
+  import { formatTextBox } from '../../lib/text-layout';
+  import { runsOf } from '../../lib/text-rich';
   import { ensureTextFont } from '../../lib/font-metrics-store.svelte';
   import { useViewer } from '../../lib/viewer.svelte';
   import {
@@ -64,13 +65,11 @@
     const list = targets;
     if (list.length === 0) return;
     const relayout = Object.keys(changes).some((k) => RELAYOUT.has(k as keyof TextAnnotation));
-    if (relayout) await Promise.all([loadFonts(), ...list.map((t) => ensureTextFont(changes.font ?? t.annot.font))]);
+    if (relayout) await Promise.all([loadFonts(), ...list.flatMap((t) => [...new Set([changes.font ?? t.annot.font, ...runsOf(t.annot).map((r) => r.font)])].map(ensureTextFont))]);
     actions.updateAnnotations(
-      list.map((t) => {
-        const next = { ...t.annot, ...changes };
-        // The width stays as the user set it; the height follows the text.
-        return { pageId: t.page.id, annot: relayout ? layoutText(next) : next };
-      }),
+      // The whole box: box settings, and run formats on all its text. The width
+      // stays as the user set it; the height follows the text.
+      list.map((t) => ({ pageId: t.page.id, annot: formatTextBox(t.annot, changes) })),
       label,
       coalesceKey,
     );

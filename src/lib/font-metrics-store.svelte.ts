@@ -1,6 +1,7 @@
 // Font metrics in the browser: read from the same font files the editor shows
 // and the PDF embeds (fetched once; the browser has them cached by then).
-import { faceKey } from './font-catalog';
+import { faceKey, fontMetrics } from './font-catalog';
+import type { RichEnv } from './text-rich-layout';
 import { ensureFont, FONT_URLS, measureStyled, type TextStyle } from './fonts';
 import { FALLBACK_STRIKE_OFFSET, FALLBACK_UNDERLINE, parseFontMetrics, textWidth, type FontMetrics } from './font-metrics';
 import type { DecorationMetrics, Measure } from './text-box-layout';
@@ -62,3 +63,18 @@ export async function ensureTextFont(font: string) {
   const [ok] = await Promise.all([ensureFont(font), loadFontMetrics(font)]);
   return ok;
 }
+
+/** Measuring for the rich text layout on screen: the font files' own metrics (the browser's measure until they arrive). */
+export const screenEnv: RichEnv = {
+  measure: (run, text) => {
+    const m = metricsFor(run);
+    if (m) return textWidth(m, text, run.size);
+    void loadMetrics(run);
+    return measureStyled(text, run, run.size);
+  },
+  vertical: (run) => {
+    const [ascent, descent] = fontMetrics(run.font);
+    return { ascent, descent };
+  },
+  decoration: (run) => decorationMetrics(run),
+};

@@ -4,9 +4,9 @@
   import { NOTE_OUTLINE, rgbToCss, type BoxedAnnotation, type Point } from '../lib/annotations';
   import { boxedGeometry } from '../lib/annotation-view';
   import { cssFamily, resolveStyle, TEXT_PADDING } from '../lib/fonts';
-  import { decorationMetrics, metricsState, textMeasure } from '../lib/font-metrics-store.svelte';
-  import { layoutTextBox } from '../lib/text-box-layout';
+  import { metricsState, screenEnv } from '../lib/font-metrics-store.svelte';
   import { lineSpacingOf } from '../lib/text-format';
+  import { layoutTextAnnotation } from '../lib/text-rich';
   import { STAMP_TEXT_RATIO } from '../lib/annotations';
   import { bubblePath, NOTE_LINE_WIDTH, NOTE_LINES, NOTE_STROKE, toSvgPath, type Segment } from '../lib/note-shape';
 
@@ -32,7 +32,7 @@
   /** Text boxes: lines and underline/strikethrough bars from the shared layout (the PDF uses the same). */
   const layout = $derived.by(() => {
     void metricsState.version; // lay out again once the font's metrics arrive
-    return a.type === 'text' ? layoutTextBox(a, textMeasure(a, a.size), decorationMetrics(a)) : null;
+    return a.type === 'text' ? layoutTextAnnotation(a, screenEnv) : null;
   });
 
   const BUBBLE_SVG = toSvgPath(bubblePath());
@@ -56,19 +56,33 @@
   aria-hidden="true"
 >
   {#if a.type === 'text' && layout}
-    <div
-      class="text"
-      style:font-family={cssFamily(a.font)}
-      style:font-weight={resolveStyle(a).bold ? 700 : 400}
-      style:font-style={resolveStyle(a).italic ? 'italic' : 'normal'}
-      style:font-size="{a.size * scale}px"
-      style:line-height={lineSpacingOf(a)}
-      style:padding-top="{TEXT_PADDING * scale}px"
-      style:color={rgbToCss(a.color)}
-    >
+    <!-- Normal line flow, like the editing surface: each line a block whose
+         height CSS computes from its runs (each run's size × line spacing, on one
+         baseline), the same model the layout engine and the PDF use. The line
+         starts where the layout puts it (alignment); runs follow inline. -->
+    <div class="text" style:padding-top="{TEXT_PADDING * scale}px" style:line-height={lineSpacingOf(a)}>
       {#each layout.lines as l, i (i)}
-        <div class="line" style:padding-left="{l.x * scale}px">
-          {#if l.wordSpacing}<span>{l.text.slice(0, l.indent)}</span><span style:word-spacing="{l.wordSpacing * scale}px">{l.text.slice(l.indent)}</span>{:else}{l.text || ' '}{/if}
+        {@const lead = resolveStyle(l.styleRun)}
+        <div
+          class="line"
+          style:padding-left="{l.x * scale}px"
+          style:font-family={cssFamily(l.styleRun.font)}
+          style:font-weight={lead.bold ? 700 : 400}
+          style:font-style={lead.italic ? 'italic' : 'normal'}
+          style:font-size="{l.styleRun.size * scale}px"
+          style:color={rgbToCss(l.styleRun.color)}
+        >
+          {#each l.segments as s, k (k)}
+            {@const style = resolveStyle(s.run)}
+            <span
+              style:font-family={cssFamily(s.run.font)}
+              style:font-weight={style.bold ? 700 : 400}
+              style:font-style={style.italic ? 'italic' : 'normal'}
+              style:font-size="{s.run.size * scale}px"
+              style:color={rgbToCss(s.run.color)}
+              >{#if s.wordSpacing}{s.text.slice(0, s.indent)}<span style:word-spacing="{s.wordSpacing * scale}px">{s.text.slice(s.indent)}</span>{:else}{s.text}{/if}</span
+            >
+          {:else}{'\u00a0'}{/each}
         </div>
       {/each}
     </div>
@@ -79,7 +93,7 @@
         style:top="{b.y * scale}px"
         style:width="{b.w * scale}px"
         style:height="{Math.max(1, b.h * scale)}px"
-        style:background={rgbToCss(a.color)}
+        style:background={rgbToCss(b.run.color)}
       ></div>
     {/each}
   {:else if a.type === 'stamp'}

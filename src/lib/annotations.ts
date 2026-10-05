@@ -57,17 +57,51 @@ interface Boxed extends Base {
 
 export type TextAlign = 'left' | 'center' | 'right' | 'justify';
 
+/** Where a link goes: a web or email address, or a page of this document (by page id, so it follows the page). */
+export type TextLink = { kind: 'url'; href: string } | { kind: 'page'; pageId: string };
+
+/** A stretch of text with one formatting. */
+export interface TextRun {
+  text: string;
+  font: FontFamily;
+  /** Points. */
+  size: number;
+  bold?: boolean;
+  italic?: boolean;
+  underline?: boolean;
+  strike?: boolean;
+  color: Rgb;
+  link?: TextLink;
+}
+
+/** A paragraph: runs in order. An empty paragraph keeps one empty run (its size sets the line height). */
+export interface TextParagraph {
+  runs: TextRun[];
+}
+
 export interface TextAnnotation extends Boxed {
   type: 'text';
+  /**
+   * Rich text: paragraphs of formatted runs. When present, it is the content
+   * and the line breaks are computed (text-rich-layout.ts). Text boxes from
+   * before rich text don't have it: they use the fields below and their stored
+   * `lines`, so they look exactly as they did until they are edited.
+   */
+  paragraphs?: TextParagraph[];
+  /** The plain text (paragraphs joined by line breaks), for search, labels and older code. */
   text: string;
-  /** Line breaks as laid out in the editor; screen, print and PDF all use these. */
-  lines: string[];
+  /**
+   * Boxes from before rich text: the line breaks as they were laid out, which
+   * screen, print and PDF keep using. Not used by rich boxes (computed).
+   */
+  lines?: string[];
   /**
    * Per line: does it end a paragraph (a manual line break or the end of the
    * text)? Justified text leaves those lines unstretched. Missing on text from
    * before alignment existed (it is never justified).
    */
   ends?: boolean[];
+  /** The box's base style: the whole text's style before rich text; for rich text, the style of new text. */
   font: FontFamily;
   bold?: boolean;
   italic?: boolean;

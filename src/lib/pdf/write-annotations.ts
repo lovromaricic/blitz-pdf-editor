@@ -1,9 +1,10 @@
 // Writes markup as standard PDF annotations (Highlight, Ink, Square, Circle,
 // Line, FreeText, Stamp, Text), each with an appearance stream so every viewer
 // draws it the same way and other editors can still select and change it.
-import { faceKey } from '../font-catalog';
+import { faceKey, fontMetrics } from '../font-catalog';
 import { FALLBACK_STRIKE_OFFSET, FALLBACK_UNDERLINE, parseFontMetrics, textWidth, type FontMetrics } from '../font-metrics';
-import { layoutTextBox, type LineBox } from '../text-box-layout';
+import { layoutTextAnnotation, runsOf } from '../text-rich';
+import type { RichEnv, Segment } from '../text-rich-layout';
 import { bubblePath, NOTE_LINE_WIDTH, NOTE_LINES, NOTE_STROKE, toPdfPath } from '../note-shape';
 import {
   beginText,
@@ -42,6 +43,7 @@ import {
   type BoxedAnnotation,
   type ImageAnnotation,
   type TextAnnotation,
+  type TextRun,
   type Rect,
   type Rgb,
 } from '../annotations';
@@ -125,9 +127,10 @@ async function drawImageIntoPage(doc: PDFDocument, page: PDFPage, a: ImageAnnota
  * work everywhere, and the annotation stays editable in apps that support it.
  */
 async function addSearchableText(doc: PDFDocument, page: PDFPage, a: TextAnnotation, fonts: FontProvider) {
-  if (!a.lines.some((l) => l.trim())) return;
-  const font = await fonts(doc, faceKey(a.font, a.bold, a.italic));
-  const key = page.node.newFontDictionary('BlitzText', font.ref);
+  const { layout, faces } = await richTextLayout(doc, a, fonts);
+  if (!layout.lines.some((l) => l.text.trim())) return;
+  const keys = new Map<FontKey, PDFName>();
+  for (const [key, face] of faces) keys.set(key, page.node.newFontDictionary('BlitzText', face.font.ref));
   const [w, h] = uprightSize(a);
   // Same placement a viewer uses for the appearance: its rotated box moved onto Rect.
   const rad = (a.rotate * Math.PI) / 180;
@@ -135,21 +138,18 @@ async function addSearchableText(doc: PDFDocument, page: PDFPage, a: TextAnnotat
   const corners = [[0, 0], [w, 0], [0, h], [w, h]].map(([x, y]) => [ma * x + mc * y, mb * x + md * y]);
   const e = a.rect[0] - Math.min(...corners.map((c) => c[0]));
   const f = a.rect[1] - Math.min(...corners.map((c) => c[1]));
-  const { lines } = await textBoxLayout(a, fonts, font);
-  const ops: PDFOperator[] = [
-    pushGraphicsState(),
-    concatTransformationMatrix(ma, mb, mc, md, e, f),
-    beginText(),
-    setTextRenderingMode(TextRenderingMode.Invisible),
-    setFontAndSize(key, a.size),
-  ];
-  for (const line of lines) {
-    if (!line.text) continue;
-    // Placed exactly like the visible text (justified lines spaced the same), so selections line up.
-    // A trailing space keeps lines apart when the text is copied or searched.
-    ops.push(setTextMatrix(1, 0, 0, 1, line.x, h - line.y));
-    if (line.wordSpacing) ops.push(PDFOperator.of(PDFOperatorNames.ShowTextAdjusted, [doc.context.obj(justifiedRuns(font, line, a.size, ' '))]));
-    else ops.push(showText(font.encodeText(`${line.text} `)));
+  const ops: PDFOperator[] = [pushGraphicsState(), concatTransformationMatrix(ma, mb, mc, md, e, f), beginText(), setTextRenderingMode(TextRenderingMode.Invisible)];
+  for (const line of layout.lines) {
+    line.segments.forEach((s, i) => {
+      // A trailing space keeps lines apart when the text is copied or searched.
+      const text = i === line.segments.length - 1 ? `${s.text} ` : s.text;
+      if (!text.trim() && i < line.segments.length - 1) return;
+      const key = faceKey(s.run.font, s.run.bold, s.run.italic);
+      const face = faces.get(key)!;
+      ops.push(setFontAndSize(keys.get(key)!, s.run.size), setTextMatrix(1, 0, 0, 1, s.x, h - line.baseline));
+      if (s.wordSpacing) ops.push(PDFOperator.of(PDFOperatorNames.ShowTextAdjusted, [doc.context.obj(segmentTJ(face.font, s, text))]));
+      else ops.push(showText(face.font.encodeText(text)));
+    });
   }
   ops.push(endText(), popGraphicsState());
   page.pushOperators(...ops);
@@ -170,29 +170,51 @@ function metricsOf(fonts: FontProvider, key: FontKey): Promise<FontMetrics | nul
   return m;
 }
 
-/** The shared text box layout, measured with the embedded font's own metrics. */
-async function textBoxLayout(a: TextAnnotation, fonts: FontProvider, font: PDFFont) {
-  const m = await metricsOf(fonts, faceKey(a.font, a.bold, a.italic));
-  const measure = m ? (t: string) => textWidth(m, t, a.size) : (t: string) => font.widthOfTextAtSize(t, a.size);
-  const deco = m ?? { underline: FALLBACK_UNDERLINE, strike: { offset: FALLBACK_STRIKE_OFFSET, thickness: FALLBACK_UNDERLINE.thickness } };
-  return layoutTextBox(a, measure, deco);
+interface Face {
+  font: PDFFont;
+  metrics: FontMetrics | null;
+}
+
+const FALLBACK_DECORATION = { underline: FALLBACK_UNDERLINE, strike: { offset: FALLBACK_STRIKE_OFFSET, thickness: FALLBACK_UNDERLINE.thickness } };
+
+/**
+ * The shared rich text layout, measured with each embedded face's own metrics
+ * (the numbers the editor measured with). Every face is embedded as a subset.
+ */
+async function richTextLayout(doc: PDFDocument, a: TextAnnotation, fonts: FontProvider) {
+  const faces = new Map<FontKey, Face>();
+  for (const run of runsOf(a)) {
+    const key = faceKey(run.font, run.bold, run.italic);
+    if (!faces.has(key)) faces.set(key, { font: await fonts(doc, key), metrics: await metricsOf(fonts, key) });
+  }
+  const face = (run: TextRun) => faces.get(faceKey(run.font, run.bold, run.italic))!;
+  const env: RichEnv = {
+    measure: (run, text) => {
+      const f = face(run);
+      return f.metrics ? textWidth(f.metrics, text, run.size) : f.font.widthOfTextAtSize(text, run.size);
+    },
+    vertical: (run) => {
+      const [ascent, descent] = fontMetrics(run.font);
+      return { ascent, descent };
+    },
+    decoration: (run) => face(run).metrics ?? FALLBACK_DECORATION,
+  };
+  return { layout: layoutTextAnnotation(a, env), faces };
 }
 
 /**
- * A justified line as a TJ array: the text split after each space between
- * words, with the extra room (in thousandths of the font size, negative =
- * further right) after each of those spaces. One string of text, so it stays
- * searchable and selectable.
+ * A justified segment as a TJ array: its text split after each stretched
+ * space, with the extra room (thousandths of the font size, negative = further
+ * right) after each. One string of text, so it stays searchable and selectable.
  */
-function justifiedRuns(font: PDFFont, line: LineBox, size: number, trailing = ''): (PDFHexString | number)[] {
-  const lead = line.text.slice(0, line.indent);
-  const parts = line.text.slice(line.indent).split(/(?<= )/);
-  const adjust = -Math.round(((line.wordSpacing * 1000) / size) * 1000) / 1000;
+function segmentTJ(font: PDFFont, s: Segment, text = s.text): (PDFHexString | number)[] {
+  const lead = text.slice(0, s.indent);
+  const parts = text.slice(s.indent).split(/(?<= )/);
+  const adjust = -Math.round(((s.wordSpacing * 1000) / s.run.size) * 1000) / 1000;
   const out: (PDFHexString | number)[] = [];
   parts.forEach((part, i) => {
-    const last = i === parts.length - 1;
-    out.push(font.encodeText((i === 0 ? lead : '') + part + (last ? trailing : '')));
-    if (!last && part.endsWith(' ')) out.push(adjust);
+    out.push(font.encodeText((i === 0 ? lead : '') + part));
+    if (i < parts.length - 1 && part.endsWith(' ')) out.push(adjust);
   });
   return out;
 }
@@ -323,21 +345,31 @@ async function boxedAppearance(doc: PDFDocument, a: BoxedAnnotation, fonts: Font
 
   switch (a.type) {
     case 'text': {
-      const font = await fonts(doc, faceKey(a.font, a.bold, a.italic));
-      const { lines, bars } = await textBoxLayout(a, fonts, font);
-      const runs = lines
-        .filter((l) => l.text)
-        .map((l) => {
-          const at = `1 0 0 1 ${n(l.x)} ${n(h - l.y)} Tm`;
-          if (!l.wordSpacing) return `${at} ${font.encodeText(l.text).toString()} Tj`;
-          return `${at} [${justifiedRuns(font, l, a.size).map((p) => (typeof p === 'number' ? n(p) : p.toString())).join(' ')}] TJ`;
-        })
-        .join('\n');
-      // Background first, then the text, then underline / strikethrough bars (top-down box → PDF y-up).
+      const { layout, faces } = await richTextLayout(doc, a, fonts);
+      const names = new Map<FontKey, string>();
+      const fontRefs: Record<string, PDFRef> = {};
+      [...faces.keys()].forEach((key, i) => {
+        names.set(key, `F${i}`);
+        fontRefs[`F${i}`] = faces.get(key)!.font.ref;
+      });
+      // Each run's piece of each line in its own font, size and color (top-down box → PDF y-up).
+      const runs: string[] = [];
+      for (const line of layout.lines) {
+        for (const s of line.segments) {
+          if (!s.text.trim()) continue;
+          const key = faceKey(s.run.font, s.run.bold, s.run.italic);
+          const font = faces.get(key)!.font;
+          const show = s.wordSpacing
+            ? `[${segmentTJ(font, s).map((p) => (typeof p === 'number' ? n(p) : p.toString())).join(' ')}] TJ`
+            : `${font.encodeText(s.text).toString()} Tj`;
+          runs.push(`${rgb(s.run.color)} rg /${names.get(key)} ${n(s.run.size)} Tf 1 0 0 1 ${n(s.x)} ${n(h - line.baseline)} Tm ${show}`);
+        }
+      }
+      // Background first, then the text, then underline / strikethrough bars.
       const parts = [
         a.background ? `${rgb(a.background)} rg 0 0 ${n(w)} ${n(h)} re f` : '',
-        `${rgb(a.color)} rg\nBT /F0 ${n(a.size)} Tf\n${runs}\nET`,
-        bars.map((b) => `${n(b.x)} ${n(h - b.y - b.h)} ${n(b.w)} ${n(b.h)} re f`).join('\n'),
+        runs.length ? `BT\n${runs.join('\n')}\nET` : '',
+        layout.bars.map((b) => `${rgb(b.run.color)} rg ${n(b.x)} ${n(h - b.y - b.h)} ${n(b.w)} ${n(b.h)} re f`).join('\n'),
       ].filter(Boolean);
       // Drawn as one transparency group, so with opacity below 100% text and
       // background fade together (no darker text where it overlaps the fill).
@@ -347,7 +379,7 @@ async function boxedAppearance(doc: PDFDocument, a: BoxedAnnotation, fonts: Font
           Subtype: 'Form',
           BBox: [0, 0, w, h],
           Group: { S: 'Transparency' },
-          Resources: { Font: { F0: font.ref } },
+          Resources: { Font: fontRefs },
         }),
       );
       return {

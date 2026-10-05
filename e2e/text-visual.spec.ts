@@ -20,6 +20,23 @@ async function openBlank(page: Page) {
   await expect(page.locator('.page[data-index="0"]')).toBeVisible();
 }
 
+/** The element's position once it has stopped moving (two equal readings 250 ms apart). */
+async function settled(page: Page, selector: string) {
+  let last = '';
+  for (let i = 0; i < 20; i++) {
+    const r = await page.evaluate((sel) => {
+      const r = document.querySelector(sel)!.getBoundingClientRect();
+      const p = document.querySelector('.page[data-index="0"]')!.getBoundingClientRect();
+      return { x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height), px: r.left - p.left, py: r.top - p.top };
+    }, selector);
+    const key = JSON.stringify(r);
+    if (key === last) return r;
+    last = key;
+    await page.waitForTimeout(250);
+  }
+  return JSON.parse(last);
+}
+
 /** Ink (text and bars) masks and the background colour of two same-sized images. */
 async function compare(page: Page, editorPng: Buffer, pdfPng: string) {
   return page.evaluate(
@@ -83,20 +100,26 @@ async function compare(page: Page, editorPng: Buffer, pdfPng: string) {
   );
 }
 
-for (const zoom of [1, 2]) {
-  test(`a text box with every option looks the same in the saved PDF (zoom ${zoom * 100}%)`, async ({ page }) => {
+for (const [kind, zoom] of [['every option', 1], ['every option', 2], ['rich text, every format mixed', 1], ['rich text, every format mixed', 2]] as const) {
+  test(`a text box with ${kind} looks the same in the saved PDF (zoom ${zoom * 100}%)`, async ({ page }) => {
     await openBlank(page);
-    const box = await page.evaluate(async (zoom) => {
+    const box = await page.evaluate(async ({ zoom, kind }) => {
       const w = window as unknown as Record<string, any>;
       const { ensureTextFont } = await load('/src/lib/font-metrics-store.svelte.ts');
       const { layoutText } = await load('/src/lib/text-layout.ts');
-      await ensureTextFont('roboto');
+      for (const f of ['roboto', 'lora', 'great-vibes', 'cousine']) await ensureTextFont(f);
       await document.fonts.ready;
       const text = 'Justified text, underlined and struck through: Čačić, Đurđa, šžć ĆŽŠ. It wraps over several lines so justification shows.\nShort last line.';
-      const a = layoutText({
-        id: 'all', type: 'text', color: [0.1, 0.2, 0.6], opacity: 0.6, font: 'roboto', bold: true, size: 14, text, lines: [], rotate: 0,
-        rect: [80, 600, 380, 700], underline: true, strike: true, align: 'justify', lineSpacing: 1.5, background: [1, 0.953, 0.69],
-      } as never);
+      const run = (t: string, o: object = {}) => ({ text: t, font: 'roboto', size: 14, color: [0.1, 0.2, 0.6], ...o });
+      // Mixed fonts, sizes, bold, italic, underline, strikethrough and colors, across wrapped and justified lines.
+      const paragraphs = [
+        { runs: [run('Rich text '), run('bold ', { bold: true }), run('italic ', { italic: true, font: 'lora' }), run('BIG', { size: 24, color: [0.8, 0.1, 0.1] }), run(' underlined Čačić ', { underline: true }), run('struck ', { strike: true, color: [0, 0.5, 0.2] }), run('script Đurđa', { font: 'great-vibes', size: 20 }), run(' and mono šžć', { font: 'cousine', size: 11, underline: true, strike: true })] },
+        { runs: [run('Short last line.', { italic: true, size: 12 })] },
+      ];
+      const base = { id: 'all', type: 'text', color: [0.1, 0.2, 0.6], opacity: 0.6, font: 'roboto', bold: true, size: 14, rotate: 0, rect: [80, 600, 380, 700], align: 'justify', lineSpacing: 1.5, background: [1, 0.953, 0.69] };
+      const a = kind === 'every option'
+        ? layoutText({ ...base, text, lines: [], underline: true, strike: true } as never)
+        : layoutText({ ...base, bold: false, text: '', paragraphs } as never);
       w.__actions.addAnnotation(w.__doc.pages[0].id, a);
       await w.__viewer.setZoom(zoom);
       await new Promise((r) => setTimeout(r, 300));
@@ -105,8 +128,10 @@ for (const zoom of [1, 2]) {
       const r = document.querySelector('.page[data-index="0"] .boxed[data-kind="text"]')!.getBoundingClientRect();
       const p = document.querySelector('.page[data-index="0"]')!.getBoundingClientRect();
       return { x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height), px: r.left - p.left, py: r.top - p.top };
-    }, zoom);
+    }, { zoom, kind });
     expect(box.h).toBeGreaterThan(50);
+    // Wait until nothing moves any more (thumbnails and scrollbars settle), then use that position.
+    Object.assign(box, await settled(page, '.page[data-index="0"] .boxed[data-kind="text"]'));
     const margin = 4;
     const editor = await page.screenshot({ clip: { x: box.x - margin, y: box.y - margin, width: box.w + 2 * margin, height: box.h + 2 * margin } });
 
@@ -129,8 +154,9 @@ for (const zoom of [1, 2]) {
 
     if (process.env.SAVE_VISUAL) {
       const fs = await import('node:fs');
-      fs.writeFileSync(`tests/tmp/visual-editor-${zoom}.png`, editor);
-      fs.writeFileSync(`tests/tmp/visual-pdf-${zoom}.png`, Buffer.from(pdf.split(',')[1], 'base64'));
+      const tag = `${kind.split(',')[0].replace(/ /g, '-')}-${zoom}`;
+      fs.writeFileSync(`tests/tmp/visual-editor-${tag}.png`, editor);
+      fs.writeFileSync(`tests/tmp/visual-pdf-${tag}.png`, Buffer.from(pdf.split(',')[1], 'base64'));
     }
     const r = await compare(page, editor, pdf);
     test.info().annotations.push({ type: 'comparison', description: JSON.stringify(r) });

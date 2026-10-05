@@ -1,11 +1,9 @@
-// The one layout for text boxes: wrapping, line positions, alignment,
-// justification, underline and strikethrough. The editor, printing and the
-// saved PDF all call these with the same measure (font-metrics.ts), so what
-// the user sees is what the PDF gets. No DOM. Coordinates are points in the
+// Single-style text layout: the rules text boxes had before rich text. The
+// app now lays out with text-rich-layout.ts, which must reproduce these
+// exactly for single-style text (tests compare them); shared bits (padding,
+// bars) live here. No DOM. Coordinates are points in the
 // box's own upright frame: origin at its top-left, y down.
-import { uprightSize, type TextAlign, type TextAnnotation } from './annotations';
-import { fontMetrics } from './font-catalog';
-import { alignOf, lineSpacingOf } from './text-format';
+import type { TextAlign } from './annotations';
 
 export type Measure = (text: string) => number;
 
@@ -166,10 +164,3 @@ export function decorationBars(lines: readonly LineBox[], size: number, m: Decor
   return bars;
 }
 
-/** Everything needed to draw a text box: its lines and its underline / strikethrough bars. */
-export function layoutTextBox(a: TextAnnotation, measure: Measure, deco: DecorationMetrics) {
-  const [width] = uprightSize(a);
-  const [ascent, descent] = fontMetrics(a.font);
-  const lines = placeLines(a.lines, a.ends, measure, { width, size: a.size, lineSpacing: lineSpacingOf(a), align: alignOf(a), ascent, descent });
-  return { lines, bars: decorationBars(lines, a.size, deco, a) };
-}

@@ -1,8 +1,9 @@
 // Draws boxed annotations (text, stamp, comment, image) on a canvas, for printing.
 // Mirrors the saved PDF appearance (write-annotations.ts) and the on-screen view.
 import { NOTE_OUTLINE, rgbToCss, STAMP_TEXT_RATIO, type BoxedAnnotation, type Point, type TextAnnotation } from './annotations';
-import { decorationMetrics, loadMetrics, textMeasure } from './font-metrics-store.svelte';
-import { layoutTextBox, wordRuns } from './text-box-layout';
+import { loadMetrics, screenEnv } from './font-metrics-store.svelte';
+import { layoutTextAnnotation, runsOf } from './text-rich';
+import { segmentRuns } from './text-rich-layout';
 import { boxedGeometry } from './annotation-view';
 import { cssFont, cssFontFor, ensureFontsFor, loadFonts } from './fonts';
 import { bubblePath, NOTE_LINE_WIDTH, NOTE_LINES, NOTE_STROKE, traceCanvas } from './note-shape';
@@ -10,22 +11,27 @@ import { bubblePath, NOTE_LINE_WIDTH, NOTE_LINES, NOTE_STROKE, traceCanvas } fro
 const ASCENT = 1.069;
 const DESCENT = 0.293;
 
-/** A text box in its upright frame (origin top-left, px): background, text, underline / strikethrough, from the shared layout. */
+/** A text box in its upright frame (origin top-left, px): background, each run's text, underline / strikethrough, from the shared layout. */
 function drawTextBox(ctx: CanvasRenderingContext2D, a: TextAnnotation, scale: number, w: number, h: number) {
-  const measure = textMeasure(a, a.size);
-  const { lines, bars } = layoutTextBox(a, measure, decorationMetrics(a));
+  const { lines, bars } = layoutTextAnnotation(a, screenEnv);
   if (a.background) {
     ctx.fillStyle = rgbToCss(a.background);
     ctx.fillRect(0, 0, w, h);
   }
-  ctx.font = cssFontFor(a, a.size * scale);
   ctx.fontKerning = 'none';
-  ctx.fillStyle = rgbToCss(a.color);
   ctx.textBaseline = 'alphabetic';
   for (const l of lines) {
-    for (const run of wordRuns(l, measure)) ctx.fillText(run.text, run.x * scale, l.y * scale);
+    for (const s of l.segments) {
+      if (!s.text.trim()) continue;
+      ctx.font = cssFontFor(s.run, s.run.size * scale);
+      ctx.fillStyle = rgbToCss(s.run.color);
+      for (const piece of segmentRuns(s, (t) => screenEnv.measure(s.run, t))) ctx.fillText(piece.text, piece.x * scale, l.baseline * scale);
+    }
   }
-  for (const b of bars) ctx.fillRect(b.x * scale, b.y * scale, b.w * scale, b.h * scale);
+  for (const b of bars) {
+    ctx.fillStyle = rgbToCss(b.run.color);
+    ctx.fillRect(b.x * scale, b.y * scale, b.w * scale, b.h * scale);
+  }
 }
 
 export async function drawBoxed(
@@ -37,8 +43,9 @@ export async function drawBoxed(
 ) {
   if (annots.some((a) => a.type === 'stamp')) await loadFonts();
   const texts = annots.flatMap((a) => (a.type === 'text' ? [a] : []));
-  await ensureFontsFor(texts);
-  await Promise.all(texts.map((t) => loadMetrics(t)));
+  const runs = texts.flatMap(runsOf);
+  await ensureFontsFor(runs);
+  await Promise.all(runs.map((r) => loadMetrics(r)));
   for (const a of annots) {
     const g = boxedGeometry(a, toScreen, scale, pageRotation);
     ctx.save();

@@ -6,6 +6,8 @@
 export interface FontMetrics {
   /** Advance width of a character, in em. */
   advance(codePoint: number): number;
+  /** Does the font have this character? */
+  has(codePoint: number): boolean;
   /** Underline: top edge below the baseline (positive = below) and thickness, in em. */
   underline: { offset: number; thickness: number };
   /** Strikethrough: top edge above the baseline and thickness, in em. */
@@ -64,7 +66,7 @@ export function parseFontMetrics(bytes: Uint8Array): FontMetrics {
     const position = v.getInt16(os2 + 28) / upm;
     if (size > 0 && position > 0) strike = { offset: position, thickness: size };
   }
-  return { advance, underline, strike };
+  return { advance, has: (cp) => glyphOf(cp) !== 0, underline, strike };
 }
 
 /** Glyph id for a code point from the best Unicode cmap subtable (format 12, else 4); 0 (.notdef) if missing. */

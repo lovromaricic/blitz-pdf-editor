@@ -27,7 +27,9 @@ const undoLabel = (page: Page) => page.evaluate(() => (window as unknown as { __
 test('every Text panel control changes the text box on screen', async ({ page }) => {
   await setup(page);
   const panel = page.getByRole('complementary', { name: 'Properties' });
-  const text = box(page).locator('.text');
+  // Font styles are on each run's span; line spacing on the text block.
+  const text = box(page).locator('.line span').first();
+  const block = box(page).locator('.text');
 
   // B, I, U, S
   await panel.getByRole('button', { name: 'Bold' }).click();
@@ -78,8 +80,8 @@ test('every Text panel control changes the text box on screen', async ({ page })
 
   // Line spacing
   await panel.getByLabel('Line spacing').selectOption('2');
-  await expect(text).toHaveCSS('line-height', /px$/);
-  const lh = await text.evaluate((el) => parseFloat(getComputedStyle(el).lineHeight) / parseFloat(getComputedStyle(el).fontSize));
+  await expect(block).toHaveCSS('line-height', /px$/);
+  const lh = await block.evaluate((el) => parseFloat(getComputedStyle(el).lineHeight) / parseFloat(getComputedStyle(el).fontSize));
   expect(lh).toBeCloseTo(2, 1);
   expect(await undoLabel(page)).toBe('Line spacing');
 
@@ -101,8 +103,10 @@ test('every Text panel control changes the text box on screen', async ({ page })
   // Bold on a font without bold: disabled, setting kept.
   await page.evaluate(async () => {
     const w = window as unknown as { __actions: { selectedAnnot: { page: { id: string }; annot: object } | null; updateAnnotation: (p: string, a: object, l: string) => void } };
+    const path = '/src/lib/text-layout.ts';
+    const { formatTextBox } = await import(/* @vite-ignore */ path);
     const sel = w.__actions.selectedAnnot!;
-    w.__actions.updateAnnotation(sel.page.id, { ...sel.annot, font: 'great-vibes' }, 'Font');
+    w.__actions.updateAnnotation(sel.page.id, formatTextBox(sel.annot, { font: 'great-vibes' }), 'Font');
   });
   await expect(panel.getByRole('button', { name: 'Bold' })).toBeDisabled();
   await expect(panel.getByRole('button', { name: 'Bold' })).toHaveAttribute('title', 'This font has no bold');
@@ -135,6 +139,6 @@ test('Ctrl/Cmd+B, I and U style the selected text box, and the box being typed i
   await page.keyboard.press('ControlOrMeta+b');
   await expect(editor).toHaveCSS('font-weight', '400');
   await page.keyboard.press('Escape');
-  await expect(box(page).locator('.text')).toHaveCSS('font-weight', '400');
+  await expect(box(page).locator('.line span').first()).toHaveCSS('font-weight', '400');
   await expect(box(page).locator('.bar')).toHaveCount(0);
 });

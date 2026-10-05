@@ -37,7 +37,7 @@
   import { clampFrame, frameCorners, frameToImage, imageFrame, resizeFrame, turnFrame, turnHandle, MIN_IMAGE_SIZE, type Frame } from '../lib/image-geometry';
   import { cssFamily, loadFonts, resolveStyle, TEXT_PADDING } from '../lib/fonts';
   import { boxHeight } from '../lib/text-box-layout';
-  import { DEFAULT_TEXT_WIDTH, layoutText, makeStamp, topLeftForCenter } from '../lib/text-layout';
+  import { DEFAULT_TEXT_WIDTH, layoutText, makeStamp, topLeftForCenter, formatTextBox, withPlainText } from '../lib/text-layout';
   import BoxedView from './BoxedView.svelte';
   import { useActions } from '../lib/actions.svelte';
   import type { PageRef } from '../lib/document.svelte';
@@ -275,13 +275,12 @@
       return;
     }
     const value = !e.annot[style];
-    editing = { ...e, annot: { ...e.annot, [style]: value } };
+    editing = { ...e, annot: formatTextBox(e.annot, { [style]: value }) };
     (viewer.toolProps.text as Record<string, unknown>)[style] = value;
     if (!e.isNew) {
       const current = page.annots?.find((x) => x.id === e.annot.id);
       if (current?.type === 'text') {
-        const next = { ...current, [style]: value };
-        actions.updateAnnotation(page.id, style === 'bold' || style === 'italic' ? layoutText(next) : next, { bold: 'Bold', italic: 'Italic', underline: 'Underline', strike: 'Strikethrough' }[style]);
+        actions.updateAnnotation(page.id, formatTextBox(current, { [style]: value }), { bold: 'Bold', italic: 'Italic', underline: 'Underline', strike: 'Strikethrough' }[style]);
       }
     }
     void tick().then(() => editor?.focus());
@@ -300,7 +299,7 @@
     // Compare with the saved box: the draft already holds the typed text (it's drawn live).
     const saved = page.annots?.find((x) => x.id === e.annot.id);
     if (!e.isNew && saved?.type === 'text' && text === saved.text) return;
-    const laid = layoutText({ ...e.annot, text });
+    const laid = withPlainText(e.annot, text);
     if (e.isNew) actions.addAnnotation(page.id, laid);
     else actions.updateAnnotation(page.id, laid, 'Edit text');
   }
@@ -315,7 +314,7 @@
     if (!e) return;
     const text = (ev.currentTarget as HTMLTextAreaElement).value;
     editText = text;
-    editing = { ...e, annot: layoutText({ ...e.annot, text }) };
+    editing = { ...e, annot: withPlainText(e.annot, text) };
   }
 
   /** The edit field covers the box exactly: same center, size and turn as BoxedView draws it. */

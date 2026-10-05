@@ -121,7 +121,12 @@ for (const c of CASES) {
       m.remove();
       return lines.map((l) => l.trimEnd());
     });
-    const expected = await page.evaluate(() => (window as unknown as Record<string, any>).__doc.pages[0].annots[0].lines);
+    const expected = await page.evaluate(async () => {
+      const w = window as unknown as Record<string, any>;
+      const { layoutTextAnnotation } = await w.load('/src/lib/text-rich.ts');
+      const { screenEnv } = await w.load('/src/lib/font-metrics-store.svelte.ts');
+      return layoutTextAnnotation(w.__doc.pages[0].annots[0], screenEnv).lines.map((l: { text: string }) => l.text);
+    });
     expect(wrap, 'edit field line breaks = layout line breaks').toEqual(expected);
 
     await page.keyboard.press('Escape');

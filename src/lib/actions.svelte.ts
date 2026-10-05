@@ -23,7 +23,7 @@ import { viewportFor } from './pdf/render';
 import { focusObject, settleFocusAfterRemoval } from './focus';
 import { styleAvailable } from './text-format';
 import { ensureTextFont } from './font-metrics-store.svelte';
-import { layoutText } from './text-layout';
+import { formatTextBox } from './text-layout';
 
 const STYLE_LABELS = { bold: 'Bold', italic: 'Italic', underline: 'Underline', strike: 'Strikethrough' } as const;
 import { groupMarks, padTextRect } from './redact-marks';
@@ -768,11 +768,8 @@ export class Actions {
       this.viewer.notify(`This font has no ${style}.`);
       return;
     }
-    let next = { ...a, [style]: !a[style] };
-    if (style === 'bold' || style === 'italic') {
-      await ensureTextFont(a.font);
-      next = layoutText(next);
-    }
+    await ensureTextFont(a.font);
+    const next = formatTextBox(a, { [style]: !a[style] });
     (this.viewer.toolProps.text as Record<string, unknown>)[style] = next[style];
     this.updateAnnotation(sel.page.id, next, STYLE_LABELS[style]);
   }
