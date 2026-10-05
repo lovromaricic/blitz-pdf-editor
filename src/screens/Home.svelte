@@ -71,6 +71,21 @@
   /** The top page fills the window (shown with "Opening…" if the file isn't ready yet). */
   let filled = $state(false);
   let fillTimer: ReturnType<typeof setTimeout> | undefined;
+  /** A document opened from here: this screen is on its way out (fading). */
+  let handedOver = $state(false);
+
+  // The document was closed while this screen was still fading out: Svelte brings
+  // the same screen back, so return it to idle. (It kept "absorbing" and ignored
+  // every file chosen or dropped afterwards.)
+  $effect(() => {
+    if (app.doc || !handedOver) return;
+    handedOver = false;
+    clearTimeout(fillTimer);
+    app.landingHold = false;
+    scene?.reset();
+    absorbing = false;
+    filled = false;
+  });
 
   async function intake(list: File[]) {
     if (list.length === 0 || busy || absorbing) return;
@@ -105,6 +120,7 @@
     if (app.doc) {
       // Opened: anything skipped is listed in the editor's notice.
       if (skipped.length) app.openWarnings = [...app.openWarnings, ...skipped];
+      handedOver = true;
       return;
     }
     // Not opened (damaged, cancelled…): back to the landing screen as it was.

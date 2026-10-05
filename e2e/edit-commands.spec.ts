@@ -218,15 +218,7 @@ test('opening and closing documents (and going Home) never multiplies the shortc
     await page.getByRole('menubar', { name: 'Main menu' }).getByRole('menuitem', { name: 'File' }).click();
     await page.getByRole('menuitem', { name: 'Close' }).click();
     await expect(page.getByRole('button', { name: 'Choose files' })).toBeVisible();
-    // Reopen through the same function Home's file picker calls.
-    await page.evaluate(async (n) => {
-      const [{ openFiles }, { blankPdf }] = await Promise.all([
-        import(/* @vite-ignore */ '/src/lib/open-files.svelte.ts' as string),
-        import(/* @vite-ignore */ '/src/lib/pdf/blank.ts' as string),
-      ]);
-      await openFiles([new File([blankPdf(595, 842)], `again-${n}.pdf`, { type: 'application/pdf' })]);
-    }, i);
-    await expect(page.locator('.page[data-index="0"]')).toBeVisible({ timeout: 15000 });
+    await open(page);
   }
   expect(await listeners()).toEqual(once);
   // And it still pastes once.

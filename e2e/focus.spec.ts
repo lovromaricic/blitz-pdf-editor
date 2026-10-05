@@ -9,7 +9,7 @@ test('Backspace on a selected object moves focus to the sink, with no ring on th
   await page.goto('/');
   await page.locator('input[type=file]').first().setInputFiles({ name: 'test.pdf', mimeType: 'application/pdf', buffer: Buffer.from(await doc.save()) });
   const canvas = page.locator('#document-view');
-  await expect(canvas).toBeVisible();
+  await expect(canvas).toBeVisible({ timeout: 15000 }); // the first open can be slow while the dev server is busy
 
   // Place a stamp, then select it with the mouse, the usual way.
   await page.getByRole('toolbar', { name: 'Editing tools' }).getByRole('button', { name: 'Stamp', exact: true }).click();
@@ -47,7 +47,7 @@ test('the canvas shows its ring only when reached with Tab', async ({ page }) =>
   await page.goto('/');
   await page.locator('input[type=file]').first().setInputFiles({ name: 'test.pdf', mimeType: 'application/pdf', buffer: Buffer.from(await doc.save()) });
   const canvas = page.locator('#document-view');
-  await expect(canvas).toBeVisible();
+  await expect(canvas).toBeVisible({ timeout: 15000 }); // the first open can be slow while the dev server is busy
   const outline = () => canvas.evaluate((el) => getComputedStyle(el).outlineStyle);
 
   // Clicked, then keys pressed (scrolling, undo): no ring.
