@@ -13,6 +13,11 @@ import type { TextAlign, TextParagraph, TextRun } from './annotations';
 import { TEXT_PADDING, type Bar, type DecorationMetrics } from './text-box-layout';
 
 export interface RichEnv {
+  /**
+   * Changes when the measurements change (fonts' metrics arriving): line
+   * layouts cached per paragraph are only reused within one epoch.
+   */
+  readonly epoch?: number;
   /** Width of `text` set in `run`'s font and size, in points (no kerning: widths add up). */
   measure(run: TextRun, text: string): number;
   /** The font's ascent and descent per em (as browsers use for line boxes). */
@@ -68,6 +73,12 @@ export interface RichLine {
 
 export interface RichLayout {
   lines: RichLine[];
+  /**
+   * The same lines grouped by paragraph, without vertical positions. A
+   * paragraph that didn't change keeps the very same array (cached), so the
+   * editor can redraw only the paragraph being typed in.
+   */
+  blocks: readonly PlacedLine[][];
   /** Underline and strikethrough, per run segment, in that run's color. */
   bars: (Bar & { run: TextRun })[];
   /** Height of the box that fits the text (padding included). */
@@ -185,14 +196,49 @@ function gapsIn(text: string) {
   return n;
 }
 
+/** A line without its vertical position (that depends on the paragraphs above it). */
+export type PlacedLine = Omit<RichLine, 'top' | 'baseline'> & { above: number };
+
+/** Per environment, per paragraph: its lines for one set of options and one measuring epoch. */
+const cache = new WeakMap<RichEnv, WeakMap<TextParagraph, { key: string; lines: PlacedLine[] }>>();
+
 export function layoutRich(paragraphs: readonly TextParagraph[], o: RichOptions, env: RichEnv): RichLayout {
   const pad = o.padding ?? TEXT_PADDING;
-  const inner = Math.max(0, o.width - 2 * pad);
   const lines: RichLine[] = [];
+  const blocks: PlacedLine[][] = [];
   const bars: RichLayout['bars'] = [];
   let top = pad;
+  let perEnv = cache.get(env);
+  if (!perEnv) cache.set(env, (perEnv = new WeakMap()));
 
   paragraphs.forEach((paragraph, pi) => {
+    const key = `${env.epoch ?? 0}|${o.width}|${o.align}|${o.lineSpacing}|${pad}|${o.given ? `g${o.ends?.[pi] !== false}` : 'w'}`;
+    let hit = perEnv.get(paragraph);
+    if (!hit || hit.key !== key) {
+      hit = { key, lines: placeParagraph(paragraph, pi, o, env, pad) };
+      perEnv.set(paragraph, hit);
+    }
+    blocks.push(hit.lines);
+    for (const l of hit.lines) {
+      const baseline = top + l.above;
+      lines.push({ ...l, top, baseline });
+      for (const s of l.segments) {
+        if (!s.run.underline && !s.run.strike) continue;
+        const m = env.decoration(s.run);
+        if (s.run.underline) bars.push({ run: s.run, x: s.x, y: baseline + m.underline.offset * s.run.size, w: s.width, h: m.underline.thickness * s.run.size });
+        if (s.run.strike) bars.push({ run: s.run, x: s.x, y: baseline - m.strike.offset * s.run.size, w: s.width, h: m.strike.thickness * s.run.size });
+      }
+      top += l.height;
+    }
+  });
+  return { lines, blocks, bars, height: top + pad };
+}
+
+/** One paragraph's lines: wrapped, aligned and justified, with heights (no vertical positions). */
+function placeParagraph(paragraph: TextParagraph, pi: number, o: RichOptions, env: RichEnv, pad: number): PlacedLine[] {
+  const inner = Math.max(0, o.width - 2 * pad);
+  const out: PlacedLine[] = [];
+  {
     const fallbackRun = paragraph.runs[paragraph.runs.length - 1];
     const wrapped = o.given ? [merge(paragraph.runs.map((run) => ({ run, text: run.text })))] : wrap(paragraph, env, Math.max(inner, 0.01));
     wrapped.forEach((pieces, li) => {
@@ -209,7 +255,6 @@ export function layoutRich(paragraphs: readonly TextParagraph[], o: RichOptions,
         above = Math.max(above, ascent * run.size + half);
         below = Math.max(below, descent * run.size + half);
       }
-      const baseline = top + above;
 
       // Horizontal: alignment, or justification spread over the spaces between words.
       const widths = pieces.map((p) => env.measure(p.run, p.text));
@@ -239,18 +284,10 @@ export function layoutRich(paragraphs: readonly TextParagraph[], o: RichOptions,
         segments.push({ run: p.run, text: p.text, x, width: w, wordSpacing, indent });
         x += w;
       });
-      const line: RichLine = { segments, text, x: x0, width: x - x0, top, height: above + below, baseline, end, styleRun };
-      lines.push(line);
-      for (const s of segments) {
-        if (!s.text.trim() && !s.run.underline && !s.run.strike) continue;
-        const m = env.decoration(s.run);
-        if (s.run.underline) bars.push({ run: s.run, x: s.x, y: baseline + m.underline.offset * s.run.size, w: s.width, h: m.underline.thickness * s.run.size });
-        if (s.run.strike) bars.push({ run: s.run, x: s.x, y: baseline - m.strike.offset * s.run.size, w: s.width, h: m.strike.thickness * s.run.size });
-      }
-      top += above + below;
+      out.push({ segments, text, x: x0, width: x - x0, height: above + below, above, end, styleRun });
     });
-  });
-  return { lines, bars, height: top + pad };
+  }
+  return out;
 }
 
 /**

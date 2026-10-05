@@ -66,6 +66,9 @@ export async function ensureTextFont(font: string) {
 
 /** Measuring for the rich text layout on screen: the font files' own metrics (the browser's measure until they arrive). */
 export const screenEnv: RichEnv = {
+  get epoch() {
+    return metricsState.version;
+  },
   measure: (run, text) => {
     const m = metricsFor(run);
     if (m) return textWidth(m, text, run.size);

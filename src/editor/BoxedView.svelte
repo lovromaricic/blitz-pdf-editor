@@ -16,6 +16,7 @@
     scale,
     pageRotation,
     hidden = false,
+    hideText = false,
     z,
   }: {
     a: BoxedAnnotation;
@@ -23,6 +24,8 @@
     scale: number;
     pageRotation: number;
     hidden?: boolean;
+    /** Draw the box but not its text (while an input method shows the text being composed). */
+    hideText?: boolean;
     /** Stacking level, shared with the other objects on the page so their order decides. */
     z?: number;
   } = $props();
@@ -60,30 +63,33 @@
          height CSS computes from its runs (each run's size × line spacing, on one
          baseline), the same model the layout engine and the PDF use. The line
          starts where the layout puts it (alignment); runs follow inline. -->
-    <div class="text" style:padding-top="{TEXT_PADDING * scale}px" style:line-height={lineSpacingOf(a)}>
-      {#each layout.lines as l, i (i)}
-        {@const lead = resolveStyle(l.styleRun)}
-        <div
-          class="line"
-          style:padding-left="{l.x * scale}px"
-          style:font-family={cssFamily(l.styleRun.font)}
-          style:font-weight={lead.bold ? 700 : 400}
-          style:font-style={lead.italic ? 'italic' : 'normal'}
-          style:font-size="{l.styleRun.size * scale}px"
-          style:color={rgbToCss(l.styleRun.color)}
-        >
-          {#each l.segments as s, k (k)}
-            {@const style = resolveStyle(s.run)}
-            <span
-              style:font-family={cssFamily(s.run.font)}
-              style:font-weight={style.bold ? 700 : 400}
-              style:font-style={style.italic ? 'italic' : 'normal'}
-              style:font-size="{s.run.size * scale}px"
-              style:color={rgbToCss(s.run.color)}
-              >{#if s.wordSpacing}{s.text.slice(0, s.indent)}<span style:word-spacing="{s.wordSpacing * scale}px">{s.text.slice(s.indent)}</span>{:else}{s.text}{/if}</span
-            >
-          {:else}{'\u00a0'}{/each}
-        </div>
+    <div class="text" style:padding-top="{TEXT_PADDING * scale}px" style:line-height={lineSpacingOf(a)} style:visibility={hideText ? 'hidden' : undefined}>
+      <!-- One block per paragraph, keyed by its (cached) lines: typing redraws only that paragraph. -->
+      {#each layout.blocks as block (block)}
+        {#each block as l, i (i)}
+          {@const lead = resolveStyle(l.styleRun)}
+          <div
+            class="line"
+            style:padding-left="{l.x * scale}px"
+            style:font-family={cssFamily(l.styleRun.font)}
+            style:font-weight={lead.bold ? 700 : 400}
+            style:font-style={lead.italic ? 'italic' : 'normal'}
+            style:font-size="{l.styleRun.size * scale}px"
+            style:color={rgbToCss(l.styleRun.color)}
+          >
+            {#each l.segments as s, k (k)}
+              {@const style = resolveStyle(s.run)}
+              <span
+                style:font-family={cssFamily(s.run.font)}
+                style:font-weight={style.bold ? 700 : 400}
+                style:font-style={style.italic ? 'italic' : 'normal'}
+                style:font-size="{s.run.size * scale}px"
+                style:color={rgbToCss(s.run.color)}
+                >{#if s.wordSpacing}{s.text.slice(0, s.indent)}<span style:word-spacing="{s.wordSpacing * scale}px">{s.text.slice(s.indent)}</span>{:else}{s.text}{/if}</span
+              >
+            {:else}{'\u00a0'}{/each}
+          </div>
+        {/each}
       {/each}
     </div>
     {#each layout.bars as b, i (i)}

@@ -19,7 +19,8 @@
   import { FALLBACK_FONT } from '../../lib/font-catalog';
   import { ensureFont, lastTextStyle, loadFonts } from '../../lib/fonts';
   import { formatTextBox } from '../../lib/text-layout';
-  import { runsOf } from '../../lib/text-rich';
+  import { runsOf, RUN_KEYS } from '../../lib/text-rich';
+  import { editorFormatState } from '../../lib/rich-text/panel-state';
   import { ensureTextFont } from '../../lib/font-metrics-store.svelte';
   import { useViewer } from '../../lib/viewer.svelte';
   import {
@@ -52,7 +53,9 @@
   });
   /** With nothing selected, the panel sets the style for new text boxes. */
   const items = $derived<TextAnnotation[]>(targets.length ? targets.map((t) => t.annot) : [viewer.toolProps.text as unknown as TextAnnotation]);
-  const fmt = $derived(textFormatState(items));
+  /** While typing in a box: the selection's formats (or the typing style); otherwise the whole box. */
+  const editor = $derived(viewer.textEditor);
+  const fmt = $derived(editor ? editorFormatState(editor) : textFormatState(items));
 
   /** These change the line wrapping (and so the box height). */
   const RELAYOUT = new Set<keyof TextAnnotation>(['font', 'size', 'bold', 'italic', 'lineSpacing']);
@@ -62,6 +65,18 @@
     changes = $state.snapshot(changes) as Partial<TextAnnotation>;
     Object.assign(viewer.toolProps.text, changes);
     for (const k of ['font', 'bold', 'italic'] as const) if (k in changes) (lastTextStyle as Record<string, unknown>)[k] = changes[k];
+    const ed = viewer.textEditor;
+    if (ed) {
+      // Run formats go to the selected text (or the typing style); box settings to the box.
+      const run = Object.fromEntries(Object.entries(changes).filter(([k]) => (RUN_KEYS as readonly string[]).includes(k)));
+      const box = Object.fromEntries(Object.entries(changes).filter(([k]) => !(RUN_KEYS as readonly string[]).includes(k)));
+      if (Object.keys(run).length) {
+        if (run.font) await ensureTextFont(run.font as string);
+        ed.format(run);
+      }
+      if (Object.keys(box).length) ed.setBox(box, label, coalesceKey);
+      return;
+    }
     const list = targets;
     if (list.length === 0) return;
     const relayout = Object.keys(changes).some((k) => RELAYOUT.has(k as keyof TextAnnotation));
@@ -195,12 +210,25 @@
     return apply({ align }, ALIGN_UI[align].label);
   }
 
+  /**
+   * While typing in a box, pressing a panel button doesn't take focus from the
+   * text: you see what's selected, format it, and keep typing. (Fields and
+   * selects still take focus, so they can be typed in.)
+   */
+  function keepTextFocus(node: HTMLElement) {
+    const onDown = (e: MouseEvent) => {
+      if (viewer.textEditor && (e.target as Element).closest('button')) e.preventDefault();
+    };
+    node.addEventListener('mousedown', onDown);
+    return () => node.removeEventListener('mousedown', onDown);
+  }
+
   const formatSpacing = (v: number) => (Number.isInteger(v) ? v.toFixed(1) : String(v));
 </script>
 
 <PanelHeader title="Text" onClose={targets.length ? () => viewer.selectAnnot(null) : () => viewer.setTool('select')} />
 
-<div class="panel-form text-panel" class:selected={targets.length > 0}>
+<div class="panel-form text-panel" class:selected={targets.length > 0} {@attach keepTextFocus}>
   {#if !targets.length}
     <p class="hint">Click on the page to type. Click an existing text box to change it.</p>
   {/if}

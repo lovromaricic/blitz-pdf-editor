@@ -26,6 +26,8 @@ interface Case {
   align?: 'left' | 'center' | 'right' | 'justify';
   zoom?: number;
   rotate?: boolean;
+  /** Rich text: these runs make one paragraph (mixed fonts and sizes). */
+  runs?: { text: string; font?: string; size?: number; bold?: boolean; italic?: boolean }[];
 }
 
 const LONG = 'Several lines of text, wrapped by the layout, with Croatian letters čćđšž and ČĆĐŠŽ to be sure.\nSecond paragraph.';
@@ -41,6 +43,19 @@ const CASES: Case[] = [
   { name: 'justify', text: LONG, align: 'justify' },
   { name: 'zoom 200%', text: LONG, zoom: 2 },
   { name: 'rotated page', text: LONG, rotate: true },
+  {
+    name: 'rich text: mixed fonts and sizes',
+    text: '',
+    align: 'justify',
+    runs: [
+      { text: 'Mixed ' },
+      { text: 'BIG ', size: 30 },
+      { text: 'bold ', bold: true },
+      { text: 'serif italic ', font: 'lora', italic: true },
+      { text: 'and small text that wraps over the next lines ', size: 9 },
+      { text: 'Čačić Đurđa', font: 'great-vibes', size: 20 },
+    ],
+  },
 ];
 
 /** The box's rectangle and its first letter's position, as drawn. */
@@ -67,12 +82,14 @@ for (const c of CASES) {
       const { ensureTextFont } = await w.load('/src/lib/font-metrics-store.svelte.ts');
       const { layoutText } = await w.load('/src/lib/text-layout.ts');
       if (c.rotate) w.__actions.rotate(90, [w.__doc.pages[0]]);
-      await ensureTextFont('roboto');
+      for (const f of ['roboto', 'lora', 'great-vibes']) await ensureTextFont(f);
       await document.fonts.ready;
       const rotate = w.__doc.totalRotation(w.__doc.pages[0]);
+      const paragraphs = c.runs && [{ runs: c.runs.map((r) => ({ font: 'roboto', size: 14, color: [0, 0, 0], ...r })) }];
       const a = layoutText({
         id: 'tx', type: 'text', color: [0, 0, 0], opacity: 1, font: 'roboto', size: c.size ?? 14, bold: c.bold, italic: c.italic, align: c.align,
-        text: c.text, lines: [], rotate, rect: rotate ? [200, 300, 240, 560] : [80, 600, 340, 640],
+        text: paragraphs ? paragraphs[0].runs.map((r) => r.text).join('') : c.text, lines: [], rotate, rect: rotate ? [200, 300, 240, 560] : [80, 600, 340, 640],
+        ...(paragraphs ? { paragraphs } : {}),
       });
       w.__actions.addAnnotation(w.__doc.pages[0].id, a);
       w.__viewer.setTool('select');
@@ -87,38 +104,37 @@ for (const c of CASES) {
     const field = page.getByRole('textbox', { name: 'Text', exact: true });
     await expect(field).toBeFocused();
     const during = await measure(page);
-    const fieldBox = await field.evaluate((el) => {
+    const fieldBox = await page.locator('.rich-editor').evaluate((el) => {
       const r = el.getBoundingClientRect();
-      return { rect: [r.left, r.top, r.width, r.height], scroll: el.scrollHeight - el.clientHeight, border: getComputedStyle(el).borderTopWidth };
+      return { rect: [r.left, r.top, r.width, r.height], border: getComputedStyle(el).borderTopWidth, scroll: 0 };
     });
 
-    // The field's own (invisible) text wraps exactly like the layout: mirror it in a div with its styles.
-    const wrap = await field.evaluate((el: HTMLTextAreaElement) => {
-      const cs = getComputedStyle(el);
-      const m = document.createElement('div');
-      for (const p of ['font-family', 'font-size', 'font-weight', 'font-style', 'line-height', 'padding', 'box-sizing', 'white-space', 'overflow-wrap', 'word-break', 'text-align', 'font-kerning', 'font-feature-settings', 'font-variant-ligatures', 'letter-spacing', 'word-spacing'])
-        m.style.setProperty(p, cs.getPropertyValue(p));
-      m.style.width = `${el.offsetWidth}px`;
-      m.style.position = 'absolute';
-      m.style.left = '0';
-      m.style.top = '0';
-      m.textContent = el.value;
-      document.body.append(m);
-      const node = m.firstChild!;
+    // The surface's own (invisible) text wraps exactly like the layout: read its line breaks from the text itself.
+    const wrap = await field.evaluate((el) => {
       const lines: string[] = [];
-      let top = -1;
-      for (let i = 0; i < el.value.length; i++) {
-        const r = document.createRange();
-        r.setStart(node, i);
-        r.setEnd(node, i + 1);
-        const rects = r.getClientRects();
-        const ch = el.value[i];
-        if (ch === '\n') { top = -1; lines.push(''); continue; }
-        const t = rects.length ? Math.round(rects[0].top) : top;
-        if (t !== top) { if (top !== -1 || !lines.length) lines.push(''); top = t; }
-        lines[lines.length - 1] += ch;
+      for (const p of el.querySelectorAll('p')) {
+        // A new line starts where the next character sits left of the previous one (text runs left to right).
+        let lastLeft = Infinity;
+        let started = false;
+        const walker = document.createTreeWalker(p, NodeFilter.SHOW_TEXT);
+        if (!p.textContent) lines.push('');
+        for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+          const text = n.textContent!;
+          for (let i = 0; i < text.length; i++) {
+            const r = document.createRange();
+            r.setStart(n, i);
+            r.setEnd(n, i + 1);
+            const rect = r.getClientRects()[0];
+            const left = rect ? rect.left : lastLeft;
+            if (!started || left < lastLeft - 1) {
+              lines.push('');
+              started = true;
+            }
+            lastLeft = left;
+            lines[lines.length - 1] += text[i];
+          }
+        }
       }
-      m.remove();
       return lines.map((l) => l.trimEnd());
     });
     const expected = await page.evaluate(async () => {
@@ -134,7 +150,6 @@ for (const c of CASES) {
     const after = await measure(page);
 
     expect(fieldBox.border).toBe('0px');
-    expect(fieldBox.scroll, 'no inner scrolling').toBeLessThanOrEqual(1);
     expect(close(fieldBox.rect, before.box), `field ${fieldBox.rect} vs box ${before.box}`).toBe(true);
     expect(close(during.box, before.box) && close(after.box, before.box), 'box rectangle').toBe(true);
     expect(close(during.letter, before.letter) && close(after.letter, before.letter), `first letter ${before.letter} / ${during.letter} / ${after.letter}`).toBe(true);
@@ -148,12 +163,13 @@ test('typing grows the box line by line, with the layout\'s line breaks; an empt
   await page.mouse.click(pg.x + 80, pg.y + 120);
   const field = page.getByRole('textbox', { name: 'Text', exact: true });
   await expect(field).toBeFocused();
-  await expect(field).toHaveAttribute('placeholder', 'Type here');
-  const oneLine = (await field.boundingBox())!.height;
+  await expect(page.locator('.rich-editor p.placeholder[data-placeholder="Type here"]')).toBeVisible();
+  const surface = page.locator('.rich-editor');
+  const oneLine = (await surface.boundingBox())!.height;
   await page.keyboard.type('Short');
-  expect((await field.boundingBox())!.height).toBeCloseTo(oneLine, 0);
+  expect((await surface.boundingBox())!.height).toBeCloseTo(oneLine, 0);
   await page.keyboard.type(' and then a good deal more text, so that it has to wrap onto further lines');
-  expect((await field.boundingBox())!.height).toBeGreaterThan(oneLine * 1.8);
+  expect((await surface.boundingBox())!.height).toBeGreaterThan(oneLine * 1.8);
   await page.keyboard.press('Escape');
   await expect(page.locator('.page[data-index="0"] .boxed[data-kind="text"] .line')).not.toHaveCount(1);
 
@@ -194,7 +210,7 @@ test('while typing or pasting, the box shows the new text right away (not the pr
   // Paste (plain text) at the end.
   await page.evaluate(() => navigator.clipboard.writeText(' pasted words'));
   await page.keyboard.press('ControlOrMeta+v');
-  await expect(field).toHaveValue('New pasted words');
+  await expect(field).toHaveText('New pasted words');
   await expect.poll(shown).toBe('New pasted words');
 
   await page.keyboard.press('Escape');

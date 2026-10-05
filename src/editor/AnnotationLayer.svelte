@@ -1,7 +1,7 @@
 <script lang="ts">
   import { capturePointer } from '../lib/dom';
   import { focusSink } from '../lib/focus';
-  import { ensureTextFont } from '../lib/font-metrics-store.svelte';
+  import { ensureTextFont, metricsState } from '../lib/font-metrics-store.svelte';
   import { alignOf, lineSpacingOf, styleAvailable } from '../lib/text-format';
   import { comboFromEvent } from '../lib/commands';
   import { textStyleForCombo } from '../lib/text-shortcuts';
@@ -21,6 +21,7 @@
     type BoxedAnnotation,
     type ImageAnnotation,
     type TextAnnotation,
+    type TextParagraph,
     mergeLineRects,
     newAnnotationId,
     normRect,
@@ -37,7 +38,8 @@
   import { clampFrame, frameCorners, frameToImage, imageFrame, resizeFrame, turnFrame, turnHandle, MIN_IMAGE_SIZE, type Frame } from '../lib/image-geometry';
   import { cssFamily, loadFonts, resolveStyle, TEXT_PADDING } from '../lib/fonts';
   import { boxHeight } from '../lib/text-box-layout';
-  import { DEFAULT_TEXT_WIDTH, layoutText, makeStamp, topLeftForCenter, formatTextBox, withPlainText } from '../lib/text-layout';
+  import { DEFAULT_TEXT_WIDTH, formatTextBox, layoutText, makeStamp, topLeftForCenter } from '../lib/text-layout';
+  import { normalize, paragraphsOf, plainText, runsOf } from '../lib/text-rich';
   import BoxedView from './BoxedView.svelte';
   import { useActions } from '../lib/actions.svelte';
   import type { PageRef } from '../lib/document.svelte';
@@ -74,8 +76,8 @@
    */
   const all = $derived.by(() => {
     let list: Annotation[] = annots;
-    const e = editing;
-    if (e) list = list.some((a) => a.id === e.annot.id) ? list.map((a) => (a.id === e.annot.id ? e.annot : a)) : [...list, e.annot];
+    const d = editDraft;
+    if (d) list = list.some((a) => a.id === d.id) ? list.map((a) => (a.id === d.id ? d : a)) : [...list, d];
     return draft ? [...list, draft] : list;
   });
   const pageRotation = $derived(viewer.doc.totalRotation(page));
@@ -252,73 +254,85 @@
   }
 
   // Editing a text box in place.
-  let editing = $state<{ annot: TextAnnotation; isNew: boolean } | null>(null);
-  let editText = $state('');
-  let editor = $state<HTMLTextAreaElement | null>(null);
+  /**
+   * The text box being typed in. `paragraphs` is what the editing surface
+   * holds (null until the first change: the box is drawn exactly as saved).
+   */
+  // Raw: the paragraphs keep their identity (a deep proxy would make them new
+  // on every change, and the layout's per-paragraph cache would never hit).
+  let editing = $state.raw<{ id: string; base: TextAnnotation; isNew: boolean; paragraphs: TextParagraph[] | null; text: string; composing: boolean } | null>(null);
+  /** The editing surface, loaded with the editor the first time a box is edited. */
+  const loadRichEditor = () => import('./RichTextEditor.svelte').then((m) => m.default);
+
+  /** The saved box being edited (its box settings can change from the panel while typing). */
+  const savedEditing = $derived.by(() => {
+    const id = editing?.id;
+    const a = id ? page.annots?.find((x) => x.id === id) : undefined;
+    return a?.type === 'text' ? a : undefined;
+  });
+
+  /** What's drawn while typing: the box settings, with the surface's content laid out by the shared layout. */
+  const editDraft = $derived.by((): TextAnnotation | null => {
+    if (!editing) return null;
+    const box = savedEditing ?? editing.base;
+    if (!editing.paragraphs) return box;
+    void metricsState.version;
+    return layoutText({ ...box, paragraphs: editing.paragraphs, text: editing.text });
+  });
 
   async function startEdit(a: TextAnnotation, isNew: boolean) {
     await commitEdit();
-    await Promise.all([loadFonts(), ensureTextFont(a.font)]);
-    editing = { annot: a, isNew };
-    viewer.textEditor = { toggle: toggleWhileEditing };
-    editText = a.text;
-    await tick();
-    editor?.focus();
+    await Promise.all([loadFonts(), ...[...new Set(runsOf(a).map((r) => r.font))].map(ensureTextFont), loadRichEditor()]);
+    editing = { id: a.id, base: a, isNew, paragraphs: null, text: a.text, composing: false };
   }
 
-  /** A style shortcut while typing: the box being edited changes now (an existing box: one undo step). */
-  function toggleWhileEditing(style: 'bold' | 'italic' | 'underline' | 'strike') {
-    const e = editing;
-    if (!e) return;
-    if ((style === 'bold' || style === 'italic') && !styleAvailable(e.annot.font, style)) {
-      viewer.notify(`This font has no ${style}.`);
-      return;
-    }
-    const value = !e.annot[style];
-    editing = { ...e, annot: formatTextBox(e.annot, { [style]: value }) };
-    (viewer.toolProps.text as Record<string, unknown>)[style] = value;
-    if (!e.isNew) {
-      const current = page.annots?.find((x) => x.id === e.annot.id);
-      if (current?.type === 'text') {
-        actions.updateAnnotation(page.id, formatTextBox(current, { [style]: value }), { bold: 'Bold', italic: 'Italic', underline: 'Underline', strike: 'Strikethrough' }[style]);
-      }
-    }
-    void tick().then(() => editor?.focus());
+  /** Remove white space and empty paragraphs at the very end (like the plain text field did). */
+  function trimEnd(paragraphs: TextParagraph[]): TextParagraph[] {
+    const out = normalize(paragraphs);
+    while (out.length > 1 && !out[out.length - 1].runs.some((r) => r.text)) out.pop();
+    const last = out[out.length - 1];
+    const runs = [...last.runs];
+    while (runs.length > 1 && !runs[runs.length - 1].text.trim()) runs.pop();
+    runs[runs.length - 1] = { ...runs[runs.length - 1], text: runs[runs.length - 1].text.replace(/\s+$/, '') };
+    out[out.length - 1] = { runs };
+    return out;
   }
 
+  /** Finish editing: one undo step for the whole session (or nothing, if nothing changed). */
   async function commitEdit() {
     const e = editing;
     if (!e) return;
+    const saved = savedEditing;
     editing = null;
     viewer.textEditor = null;
-    const text = editText.replace(/\s+$/, '');
+    if (!e.paragraphs) return; // nothing typed (a new box stays unmade)
+    const paragraphs = trimEnd(e.paragraphs);
+    const text = plainText(paragraphs);
     if (!text.trim()) {
-      if (!e.isNew) actions.deleteAnnotation(page.id, e.annot.id);
+      if (!e.isNew) actions.deleteAnnotation(page.id, e.id);
       return;
     }
-    // Compare with the saved box: the draft already holds the typed text (it's drawn live).
-    const saved = page.annots?.find((x) => x.id === e.annot.id);
-    if (!e.isNew && saved?.type === 'text' && text === saved.text) return;
-    const laid = withPlainText(e.annot, text);
+    if (!e.isNew && saved && JSON.stringify(normalize(paragraphsOf(saved))) === JSON.stringify(paragraphs)) return;
+    await Promise.all(paragraphs.flatMap((p) => p.runs).map((r) => ensureTextFont(r.font)));
+    const laid = layoutText({ ...(saved ?? e.base), paragraphs, text });
     if (e.isNew) actions.addAnnotation(page.id, laid);
     else actions.updateAnnotation(page.id, laid, 'Edit text');
   }
 
-  /**
-   * Typing lays the draft out again with the shared layout: same line breaks,
-   * same height as when saved. Read the field itself: this handler runs before
-   * bind:value has updated editText, which would lay out the previous text.
-   */
-  function onEditInput(ev: Event) {
-    const e = editing;
-    if (!e) return;
-    const text = (ev.currentTarget as HTMLTextAreaElement).value;
-    editText = text;
-    editing = { ...e, annot: withPlainText(e.annot, text) };
-  }
+  /** The edit surface covers the box exactly: same center, size and turn as BoxedView draws it. */
+  const editGeom = $derived(editDraft ? boxedGeometry(editDraft, toScreen, viewer.scale, pageRotation) : null);
 
-  /** The edit field covers the box exactly: same center, size and turn as BoxedView draws it. */
-  const editGeom = $derived(editing ? boxedGeometry(editing.annot, toScreen, viewer.scale, pageRotation) : null);
+  // A click outside the box (and outside the panel and its popups) finishes the edit.
+  $effect(() => {
+    if (!editing) return;
+    const onDown = (ev: PointerEvent) => {
+      const t = ev.target as Element | null;
+      if (t?.closest('.rich-editor, .panel, dialog, [role="dialog"], [role="listbox"]')) return;
+      void commitEdit();
+    };
+    window.addEventListener('pointerdown', onDown, true);
+    return () => window.removeEventListener('pointerdown', onDown, true);
+  });
 
   // Leaving the Text tool (or the page) finishes the edit.
   $effect(() => {
@@ -661,7 +675,7 @@
   }
 
   const handles = $derived.by((): Handle[] => {
-    const a = editing?.annot ?? preview ?? selected;
+    const a = editDraft ?? preview ?? selected;
     if (!a || (!selecting && !editing)) return [];
     if (a.type === 'image') return imageHandles(a);
     if (a.type === 'shape' && (a.shape === 'line' || a.shape === 'arrow')) {
@@ -706,7 +720,7 @@
 
   const selectionBox = $derived.by(() => {
     // While typing, the outline follows the box as it grows.
-    const a = editing?.annot ?? preview ?? selected;
+    const a = editDraft ?? preview ?? selected;
     if (!a || a.type === 'image') return null;
     if (isBoxed(a)) {
       const b = screenBox([toScreen([a.rect[0], a.rect[1]]), toScreen([a.rect[2], a.rect[3]])]);
@@ -775,7 +789,7 @@
      what's drawn on top is also what's clicked and tabbed to last. -->
 {#each all as a (a.id)}
   {#if isBoxed(a)}
-    <BoxedView {a} {toScreen} scale={viewer.scale} {pageRotation} z={4} />
+    <BoxedView {a} {toScreen} scale={viewer.scale} {pageRotation} z={4} hideText={editing?.composing && a.id === editing.id} />
     {#if selecting}
       {@const g = boxedGeometry(a, toScreen, viewer.scale, pageRotation)}
       <div
@@ -806,48 +820,30 @@
   {/if}
 {/each}
 
-{#if editing && editGeom}
-  {@const a = editing.annot}
-  <textarea
-    bind:this={editor}
-    bind:value={editText}
-    class="text-editor"
-    aria-label="Text"
-    spellcheck="true"
-    placeholder="Type here"
-    style:left="{editGeom.cx}px"
-    style:top="{editGeom.cy}px"
-    style:width="{editGeom.w}px"
-    style:height="{editGeom.h}px"
-    style:transform="translate(-50%, -50%) rotate({editGeom.turn}deg)"
-    style:font-family={cssFamily(a.font)}
-    style:font-weight={resolveStyle(a).bold ? 700 : 400}
-    style:font-style={resolveStyle(a).italic ? 'italic' : 'normal'}
-    style:font-size="{a.size * viewer.scale}px"
-    style:line-height={lineSpacingOf(a)}
-    style:padding="{TEXT_PADDING * viewer.scale}px"
-    style:caret-color={rgbToCss(a.color)}
-    style:text-align={alignOf(a)}
-    oninput={onEditInput}
-    onblur={() => void commitEdit()}
-    onpointerdown={(e) => e.stopPropagation()}
-    onkeydown={(e) => {
-      e.stopPropagation();
-      // Ctrl/Cmd+B, I, U style the box being typed in.
-      const style = textStyleForCombo(comboFromEvent(e));
-      if (style) {
-        e.preventDefault();
-        void actions.toggleTextStyle(style);
-        return;
-      }
-      if (e.key === 'Escape' || (e.key === 'Enter' && (e.metaKey || e.ctrlKey))) {
-        e.preventDefault();
-        editor?.blur();
-        // The text box goes away with the edit: keep focus in the editor, not on <body>.
-        focusSink();
-      }
-    }}
-  ></textarea>
+{#if editing && editGeom && editDraft}
+  {#await loadRichEditor() then RichTextEditor}
+    {#key editing.id}
+      <RichTextEditor
+        annot={editDraft}
+        geom={editGeom}
+        scale={viewer.scale}
+        onChange={(paragraphs, text) => editing && (editing = { ...editing, paragraphs, text })}
+        onComposing={(on) => editing && (editing = { ...editing, composing: on })}
+        onReady={(api) => (viewer.textEditor = api)}
+        onBox={(changes, label, coalesceKey) => {
+          // A saved box changes now (one undo step); a new one keeps it for when it's made.
+          const saved = savedEditing;
+          if (saved) actions.updateAnnotation(page.id, formatTextBox(saved, changes), label, coalesceKey);
+          else if (editing) editing = { ...editing, base: { ...editing.base, ...changes } };
+        }}
+        onFinish={() => {
+          void commitEdit();
+          // The surface goes away with the edit: keep focus in the editor, not on <body>.
+          focusSink();
+        }}
+      />
+    {/key}
+  {/await}
 {/if}
 
 <svg bind:this={ui} class="layer ui" width={viewport.width} height={viewport.height} aria-hidden="true">
@@ -976,51 +972,6 @@
   .box-hit:focus-visible {
     outline: 2px solid var(--accent);
     outline-offset: 2px;
-  }
-  /*
-   * The edit field lies exactly on the rendered text box, which keeps drawing
-   * the text (laid out live as you type). The field's own text is invisible:
-   * it provides the caret, selection, IME and native undo. So: no border, no
-   * fill, no rounding, no minimum height; it wraps like the layout (same
-   * width, font, no kerning or ligatures, pre-wrap, break-word).
-   */
-  .text-editor {
-    position: absolute;
-    z-index: 7;
-    box-sizing: border-box;
-    min-height: 0;
-    margin: 0;
-    padding: 0;
-    border: 0;
-    border-radius: 0;
-    background: transparent;
-    color: transparent;
-    resize: none;
-    overflow: hidden;
-    font-kerning: none;
-    font-variant-ligatures: none;
-    font-feature-settings:
-      'kern' 0,
-      'liga' 0,
-      'clig' 0,
-      'calt' 0,
-      'dlig' 0;
-    white-space: pre-wrap;
-    overflow-wrap: break-word;
-    word-break: normal;
-    transform-origin: 50% 50%;
-    outline: none;
-  }
-  .text-editor:focus {
-    background: transparent;
-  }
-  .text-editor::selection {
-    color: transparent;
-    background: var(--editing-fill);
-  }
-  .text-editor::placeholder {
-    color: var(--muted);
-    opacity: 1;
   }
   /* Editing: the selection outline is solid accent instead of dashed. */
   .sel-box.editing {

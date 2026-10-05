@@ -4,6 +4,7 @@ import type { EditorDocument, PageRef } from './document.svelte';
 import type { Margins } from './page-ops';
 import { HIGHLIGHT_COLORS, INK_COLORS, NOTE_COLORS, STAMPS, type Annotation, type FontFamily, type Rgb, type ShapeKind, type TextAlign } from './annotations';
 import { DEFAULT_LINE_SPACING } from './text-format';
+import type { RichEditorApi } from './rich-text/api';
 import { lastTextStyle, loadFonts } from './fonts';
 import { decorationResolver } from './pdf/pdf-writer';
 import { computeLayout, indexAtY, pagesPerRow, rowAtY, rowStartOf, type ViewMode } from './layout';
@@ -124,8 +125,8 @@ export class Viewer {
   selectedAnnot = $state<AnnotRef | null>(null);
   /** The selected annotation while it's being dragged (not yet in the document), for live panel values. */
   livePreview = $state.raw<Annotation | null>(null);
-  /** While a text box is being typed in: toggles its styles (set by the page's text editor). */
-  textEditor = $state.raw<{ toggle: (style: 'bold' | 'italic' | 'underline' | 'strike') => void } | null>(null);
+  /** While a text box is being typed in: its editor (formats the selection or the typing style). */
+  textEditor = $state.raw<RichEditorApi | null>(null);
   /** Image panel: corner handles and size fields keep the image's proportions. */
   imageAspectLock = $state(true);
 

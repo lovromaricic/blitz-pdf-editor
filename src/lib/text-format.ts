@@ -66,23 +66,27 @@ export interface TextFormatState {
 
 /** What the Text panel shows for a selection of text boxes (one today; several later). */
 export function textFormatState(items: readonly TextAnnotation[]): TextFormatState {
+  // Run formats over all the text (a rich box's runs; an older box's one style).
+  const runs: RunLike[] = items.flatMap((a) => (a.paragraphs ? a.paragraphs.flatMap((p) => p.runs) : [a]));
   return {
-    font: shared(items, (a) => a.font),
-    size: shared(items, (a) => a.size),
-    bold: shared(items, (a) => !!a.bold),
-    italic: shared(items, (a) => !!a.italic),
-    underline: shared(items, (a) => !!a.underline),
-    strike: shared(items, (a) => !!a.strike),
+    font: shared(runs, (a) => a.font),
+    size: shared(runs, (a) => a.size),
+    bold: shared(runs, (a) => !!a.bold),
+    italic: shared(runs, (a) => !!a.italic),
+    underline: shared(runs, (a) => !!a.underline),
+    strike: shared(runs, (a) => !!a.strike),
     align: shared(items, alignOf),
     lineSpacing: shared(items, lineSpacingOf),
-    color: shared<TextAnnotation, Rgb>(items, (a) => a.color, sameRgb),
+    color: shared<RunLike, Rgb>(runs, (a) => a.color, sameRgb),
     background: shared<TextAnnotation, Rgb | null>(items, (a) => a.background ?? null, sameRgb),
     opacity: shared(items, (a) => a.opacity),
-    /** A style button is enabled when every selected box's font has that style. */
-    canBold: items.length > 0 && items.every((a) => hasBold(a.font)),
-    canItalic: items.length > 0 && items.every((a) => hasItalic(a.font)),
+    /** A style button is enabled when every font in the text has that style. */
+    canBold: runs.length > 0 && runs.every((a) => hasBold(a.font)),
+    canItalic: runs.length > 0 && runs.every((a) => hasItalic(a.font)),
   };
 }
+
+type RunLike = Pick<TextAnnotation, 'font' | 'size' | 'bold' | 'italic' | 'underline' | 'strike' | 'color'>;
 
 /**
  * Pressed state of a toggle: true, false, or 'mixed'. A style the font lacks

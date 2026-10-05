@@ -16,7 +16,24 @@ export default defineConfig({
   server: { port: Number(process.env.PORT) || 5173 },
   // Pre-bundle the worker's dependencies up front: otherwise the dev server
   // discovers them on first save and reloads the page, losing unsaved work.
-  optimizeDeps: { include: ['@cantoo/pdf-lib', '@cantoo/fontkit', 'fflate', 'tesseract.js', 'diff', 'three'] },
+  // The same for the text editor (ProseMirror), loaded when a text box is first edited.
+  optimizeDeps: {
+    include: [
+      '@cantoo/pdf-lib',
+      '@cantoo/fontkit',
+      'fflate',
+      'tesseract.js',
+      'diff',
+      'three',
+      'prosemirror-model',
+      'prosemirror-state',
+      'prosemirror-view',
+      'prosemirror-transform',
+      'prosemirror-history',
+      'prosemirror-keymap',
+      'prosemirror-commands',
+    ],
+  },
   build: {
     target: 'es2022',
   },

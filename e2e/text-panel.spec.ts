@@ -129,16 +129,19 @@ test('Ctrl/Cmd+B, I and U style the selected text box, and the box being typed i
   await expect(panel.getByRole('button', { name: 'Bold' })).toHaveAttribute('title', /^Bold \((Ctrl\+B|⌘B)\)$/);
   await expect(panel.getByRole('button', { name: 'Strikethrough' })).toHaveAttribute('title', 'Strikethrough');
 
-  // While typing: the editor takes the shortcut and the box changes.
+  // While typing: the shortcut formats the selected text, and the box shows it at once.
   await hit.dblclick();
   const editor = page.getByRole('textbox', { name: 'Text', exact: true });
   await expect(editor).toBeFocused();
+  await page.keyboard.press('ControlOrMeta+a');
   await page.keyboard.press('ControlOrMeta+u');
-  await expect(editor).not.toHaveCSS('text-decoration-line', /underline/);
-  expect(await undoLabel(page)).toBe('Underline');
+  await expect(box(page).locator('.bar')).toHaveCount(0);
   await page.keyboard.press('ControlOrMeta+b');
-  await expect(editor).toHaveCSS('font-weight', '400');
+  await expect(box(page).locator('.line span').first()).toHaveCSS('font-weight', '400');
   await page.keyboard.press('Escape');
+  await expect(editor).toBeHidden();
   await expect(box(page).locator('.line span').first()).toHaveCSS('font-weight', '400');
   await expect(box(page).locator('.bar')).toHaveCount(0);
+  // The whole editing session is one undo step.
+  expect(await undoLabel(page)).toBe('Edit text');
 });
