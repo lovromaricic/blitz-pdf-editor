@@ -224,6 +224,12 @@ function hex(h: string): Rgb {
   return [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255].map((v) => Math.round(v * 1000) / 1000) as Rgb;
 }
 
+/**
+ * New links are this blue and underlined (content colour, saved in the PDF; the
+ * same value as the --link token the app's own links use). They can be recoloured.
+ */
+export const LINK_COLOR: Rgb = hex('#1155CC');
+
 /** Text box backgrounds: white and light tints (content colours, saved in the PDF). */
 export const BACKGROUND_COLORS: { name: string; rgb: Rgb }[] = [
   { name: 'White', rgb: [1, 1, 1] },

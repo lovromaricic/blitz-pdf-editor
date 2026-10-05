@@ -12,6 +12,7 @@
   --text: #1f2733; /* primary text and icons */
   --muted: #5f687c; /* secondary text and labels. Brief: #667085, darkened one step to stay 4.5:1 on --surface-2 too (4.9:1; 5.6:1 on white) */
   --accent: #3f6fe0; /* active tool icon, selection, slider, links, primary button */
+  --link: #1155cc; /* link addresses in the text editor's link popovers; the same blue new links get in documents (LINK_COLOR in annotations.ts), 6.4:1 on white */
   --accent-strong: #2f5bc4; /* hover/pressed solid accent; small accent text on --accent-soft (5.2:1) */
   --accent-soft: #e6edfd; /* active tool background */
   --on-accent: #ffffff; /* text/icons on solid accent (and on --text) */
@@ -29,6 +30,7 @@
   --search-hit: rgb(63 111 224 / 0.22); /* search results on the page */
   --search-hit-active: rgb(63 111 224 / 0.45);
   --editing-fill: rgb(255 255 255 / 0.85); /* behind a text box being typed in */
+  --text-selection: rgb(63 111 224 / 0.28); /* selected text in a text box being typed in (lies over the text, so it must stay see-through) */
   --redact-mark: #1f2733; /* outline of an area marked for redaction (not yet applied) */
   --redact-mark-fill: rgb(31 39 51 / 0.45);
   --diff-removed: rgb(217 45 32 / 0.28); /* Compare: text only in the first document */

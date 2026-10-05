@@ -6,15 +6,20 @@ import type { RunFormat } from '../src/lib/text-rich';
 import { normalize } from '../src/lib/text-rich';
 import {
   applyFormat,
+  autoLinkBefore,
   docFromParagraphs,
   insertPlainText,
   MIXED,
   paragraphsFromDoc,
   plainTextOf,
+  removeLink,
   schema,
+  selectedLink,
+  setLink,
   selectionFormat,
   toggleFormat,
 } from '../src/lib/rich-text/schema';
+import { LINK_COLOR } from '../src/lib/annotations';
 import { copiedSlice, markerFromHtml, markerHtml, rememberCopy } from '../src/lib/rich-text/clipboard';
 
 const BASE: RunFormat = { font: 'roboto', size: 12, color: [0, 0, 0] };
@@ -141,5 +146,59 @@ describe('undo within an editing session', () => {
     expect(content(s)).toEqual(paras([run('One')]));
     s = run_(s, redo);
     expect(content(s)).toEqual(paras([run('One two')]));
+  });
+});
+
+describe('links', () => {
+  const WEB = { kind: 'url', href: 'https://example.com/' } as const;
+  const link = (text: string, over: Partial<TextRun> = {}) => run(text, { link: WEB, color: LINK_COLOR, underline: true, ...over });
+
+  it('links the selection with the link look; the caret goes after it', () => {
+    let s = select(stateOf(paras([run('Read the docs')])), 9, 13);
+    s = run_(s, setLink({ from: 10, to: 14 }, WEB, null, BASE, false));
+    expect(content(s)).toEqual(paras([run('Read the '), link('docs')]));
+    expect(s.selection.from).toBe(14);
+    // Typing after it isn't part of the link, and looks like the text around it.
+    s = s.apply(s.tr.insertText('!'));
+    expect(content(s)).toEqual(paras([run('Read the '), link('docs'), run('!')]));
+  });
+
+  it('with new text, inserts it as the link (at a caret) or replaces the selection', () => {
+    let s = select(stateOf(paras([run('Mail ')])), 5);
+    s = run_(s, setLink({ from: 6, to: 6 }, { kind: 'url', href: 'mailto:a@b.co' }, 'us', BASE, false));
+    expect(content(s)).toEqual(paras([run('Mail '), run('us', { link: { kind: 'url', href: 'mailto:a@b.co' }, color: LINK_COLOR, underline: true })]));
+  });
+
+  it('changing where an existing link goes keeps how it looks', () => {
+    let s = stateOf(paras([run('A '), link('site', { color: [1, 0, 0], bold: true })]));
+    const range = selectedLink(select(s, 3))!;
+    expect(range).toEqual({ from: 3, to: 7, link: WEB });
+    s = run_(s, setLink(range, { kind: 'page', pageId: 'p2' }, null, BASE, true));
+    expect(content(s)).toEqual(paras([run('A '), link('site', { color: [1, 0, 0], bold: true, link: { kind: 'page', pageId: 'p2' } })]));
+  });
+
+  it('finds the link the caret is in (not at its ends), or the one a selection is within', () => {
+    const s = stateOf(paras([run('Go '), link('there'), run(' now')]));
+    expect(selectedLink(select(s, 3))).toBeNull(); // at its start
+    expect(selectedLink(select(s, 8))).toBeNull(); // at its end
+    expect(selectedLink(select(s, 5))).toMatchObject({ from: 4, to: 9 });
+    expect(selectedLink(select(s, 4, 6))).toMatchObject({ from: 4, to: 9 });
+    expect(selectedLink(select(s, 2, 6))).toBeNull(); // reaches outside it
+  });
+
+  it('removing a link restores the text (unless recoloured)', () => {
+    let s = stateOf(paras([run('Go '), link('there'), run(' now')]));
+    s = run_(s, removeLink({ from: 4, to: 9 }, BASE));
+    expect(content(s)).toEqual(paras([run('Go there now')]));
+    s = stateOf(paras([link('red', { color: [1, 0, 0] })]));
+    s = run_(s, removeLink({ from: 1, to: 4 }, BASE));
+    expect(content(s)).toEqual(paras([run('red', { color: [1, 0, 0], underline: true })]));
+  });
+
+  it('finds an address typed just before the caret, unless it is already a link', () => {
+    const s = stateOf(paras([run('See example.com/docs.')]));
+    expect(autoLinkBefore(s, 22)).toEqual({ from: 5, to: 21, link: { kind: 'url', href: 'https://example.com/docs' } });
+    expect(autoLinkBefore(stateOf(paras([run('See '), link('example.com')])), 16)).toBeNull();
+    expect(autoLinkBefore(stateOf(paras([run('the file.txt')])), 13)).toBeNull();
   });
 });

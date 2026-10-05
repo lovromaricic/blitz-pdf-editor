@@ -6,17 +6,26 @@
   // text never moves when editing starts or ends. The surface provides the
   // caret, selection, IME, clipboard and undo within the editing session.
   import { onMount } from 'svelte';
+  import { MediaQuery } from 'svelte/reactivity';
   import { EditorState, Plugin, TextSelection, type Transaction } from 'prosemirror-state';
   import { EditorView, Decoration, DecorationSet } from 'prosemirror-view';
-  import { history, undo, redo } from 'prosemirror-history';
+  import { history, undo, redo, closeHistory } from 'prosemirror-history';
   import { keymap } from 'prosemirror-keymap';
   import { baseKeymap, splitBlock } from 'prosemirror-commands';
-  import type { TextAnnotation, TextParagraph } from '../lib/annotations';
+  import type { TextAnnotation, TextLink, TextParagraph } from '../lib/annotations';
   import { baseRun, paragraphsOf, type RunFormat } from '../lib/text-rich';
   import { cssFamily } from '../lib/fonts';
   import {
     applyFormat,
+    autoLinkBefore,
     cssFamilyHook,
+    linkRangeAt,
+    markLink,
+    rangeText,
+    removeLink,
+    selectedLink,
+    setLink,
+    type LinkRange,
     docFromParagraphs,
     formatOf,
     formatsInSelection,
@@ -34,6 +43,11 @@
   import { TEXT_PADDING } from '../lib/fonts';
   import { alignOf, lineSpacingOf } from '../lib/text-format';
   import { rgbToCss } from '../lib/annotations';
+  import { isMac } from '../lib/commands';
+  import { linkTarget, openExternal } from '../lib/links';
+  import { useViewer } from '../lib/viewer.svelte';
+  import LinkPopover from './LinkPopover.svelte';
+  import LinkCard from './LinkCard.svelte';
 
   cssFamilyHook.family = cssFamily;
 
@@ -70,6 +84,9 @@
   let composing = $state(false);
   let focused = $state(true);
 
+  const viewer = useViewer();
+  const phone = new MediaQuery('(max-width: 720px)');
+
   /** Every text keeps a full format: text typed where there was none takes the paragraph's (or the box's). */
   const keepFormats = new Plugin({
     appendTransaction(trs, _old, state) {
@@ -103,16 +120,122 @@
   /** Enter (and Shift+Enter) starts a paragraph that keeps the typing style. */
   const newParagraph = (state: EditorState, dispatch?: (tr: Transaction) => void) => {
     const marks = state.storedMarks ?? state.selection.$from.marks();
-    return splitBlock(state, (tr) => {
+    // An address typed just before Enter becomes a link (after the new line, as its own undo step).
+    const typed = state.selection.empty ? autoLinkBefore(state, state.selection.from) : null;
+    const done = splitBlock(state, (tr) => {
       const at = tr.selection.$from;
       if (at.parent.childCount === 0) tr.setNodeMarkup(at.before(), undefined, { empty: formatOf(marks, fallback) });
-      dispatch?.(tr.setStoredMarks(marks));
+      // A link doesn't carry on into the new paragraph.
+      dispatch?.(tr.setStoredMarks(marks.filter((m) => m.type.name !== 'link')));
     });
+    if (done && typed && dispatch) autoLink(typed);
+    return done;
   };
+
+  // --- Links -------------------------------------------------------------------------------
+
+  /** The link form (Cmd/Ctrl+K, Edit > Add link…, the Text panel, Edit on the card). */
+  let linkForm = $state.raw<{ from: number; to: number; text: string; link: TextLink | null; existing: boolean } | null>(null);
+  /** The link under the pointer, and the one the caret is in: the card shows for either. */
+  let hovered = $state.raw<LinkRange | null>(null);
+  let caretLink = $state.raw<LinkRange | null>(null);
+  let overCard = false;
+  let leaveTimer: ReturnType<typeof setTimeout> | undefined;
+  const card = $derived(linkForm || composing ? null : (hovered ?? (focused ? caretLink : null)));
+  /** Bumped on scroll and resize: the popovers follow the text. */
+  let moved = $state(0);
+  /** The next change after an automatic link starts a new undo step (so undo takes back only the link). */
+  let isolateNext = false;
+
+  /** Where text [from, to) is on screen: its first line. */
+  function anchorOf(from: number, to: number) {
+    void moved;
+    if (!view) return { left: 0, top: 0, bottom: 0 };
+    const a = view.coordsAtPos(from, 1);
+    const b = view.coordsAtPos(to, -1);
+    const sameLine = Math.abs(a.top - b.top) < 2;
+    return { left: Math.min(a.left, sameLine ? b.left : a.left), top: a.top, bottom: sameLine ? Math.max(a.bottom, b.bottom) : a.bottom };
+  }
+
+  const pages = $derived(viewer.doc.pages.map((p, i) => ({ id: p.id, label: `Page ${i + 1}` })));
+  const pageNumber = (pageId: string) => {
+    const i = viewer.doc.pages.findIndex((p) => p.id === pageId);
+    return i < 0 ? null : i + 1;
+  };
+
+  function openLink(range?: LinkRange) {
+    syncSelection(view);
+    const state = view.state;
+    const existing = range ?? selectedLink(state);
+    const { from, to } = existing ?? state.selection;
+    hovered = null;
+    linkForm = { from, to, text: rangeText(state.doc, from, to), link: existing?.link ?? null, existing: !!existing };
+  }
+
+  function closeForm() {
+    linkForm = null;
+    view.focus();
+  }
+
+  function applyLink(link: TextLink, text: string | null) {
+    const f = linkForm;
+    if (!f) return;
+    linkForm = null;
+    setLink(f, link, text, fallback, f.existing)(view.state, view.dispatch);
+    view.focus();
+    viewer.announce(f.existing ? 'Link changed' : 'Link added');
+  }
+
+  function unlink(range: { from: number; to: number }) {
+    linkForm = null;
+    hovered = null;
+    removeLink(range, fallback)(view.state, view.dispatch);
+    view.focus();
+    viewer.announce('Link removed');
+  }
+
+  /** Open a link: web and email in a new tab (no access back to this one), a page by going there. */
+  function follow(link: TextLink) {
+    if (link.kind === 'url') {
+      if (!openExternal(link.href)) viewer.notify("This link can't be opened: only web, email and phone links are allowed.");
+      return;
+    }
+    const i = viewer.doc.pages.findIndex((p) => p.id === link.pageId);
+    if (i >= 0) viewer.goToPage(i);
+    else viewer.notify('The page this link went to was deleted.');
+  }
+
+  /** Make an address just typed a link, as its own undo step. */
+  function autoLink(range: LinkRange) {
+    const tr = markLink(view.state.tr, range, range.link, false, fallback);
+    view.dispatch(closeHistory(tr).setMeta('autolink', true));
+    isolateNext = true;
+  }
+
+  function onPointerMove(e: PointerEvent) {
+    if (e.pointerType === 'touch') return;
+    const el = (e.target as Element).closest?.('[data-link]');
+    if (el && view.dom.contains(el)) {
+      clearTimeout(leaveTimer);
+      const range = linkRangeAt(view.state.doc, view.posAtDOM(el, 0), 'both');
+      if (range && (hovered?.from !== range.from || hovered?.to !== range.to)) hovered = range;
+    } else if (hovered) leaveSoon();
+  }
+
+  /** The card stays a moment after the pointer leaves the link, so it can be reached. */
+  function leaveSoon() {
+    clearTimeout(leaveTimer);
+    leaveTimer = setTimeout(() => {
+      if (!overCard) hovered = null;
+    }, 300);
+  }
 
   function update() {
     sel = selectionFormat(view.state, fallback);
     formats = formatsInSelection(view.state, fallback);
+    const { empty, from } = view.state.selection;
+    const inLink = empty ? linkRangeAt(view.state.doc, from, 'inside') : null;
+    if (inLink?.from !== caretLink?.from || inLink?.to !== caretLink?.to) caretLink = inLink;
   }
 
   const api: RichEditorApi = {
@@ -131,6 +254,8 @@
       return formats;
     },
     focus: () => view.focus(),
+    finish: () => onFinish(),
+    openLink: () => openLink(),
     get box() {
       return annot;
     },
@@ -153,6 +278,7 @@
           'Mod-b': () => (api.toggle('bold'), true),
           'Mod-i': () => (api.toggle('italic'), true),
           'Mod-u': () => (api.toggle('underline'), true),
+          'Mod-k': () => (openLink(), true),
           Enter: newParagraph,
           'Shift-Enter': newParagraph,
           Escape: finish,
@@ -168,6 +294,10 @@
       state,
       attributes: { role: 'textbox', 'aria-multiline': 'true', 'aria-label': 'Text', spellcheck: 'true', class: 'rich-surface' },
       dispatchTransaction(tr) {
+        if (isolateNext && tr.docChanged && !tr.getMeta('autolink')) {
+          closeHistory(tr);
+          isolateNext = false;
+        }
         const next = view.state.apply(tr);
         view.updateState(next);
         if (tr.docChanged) onChange(paragraphsFromDoc(next.doc, fallback), plainTextOf(next.doc));
@@ -178,6 +308,15 @@
       handleKeyDown(v) {
         syncSelection(v);
         return false;
+      },
+      // A space after an address makes it a link (one undo takes back just the link).
+      handleTextInput(v, from, to, text) {
+        if (from !== to || !/^[ \u00a0]$/.test(text)) return false;
+        const typed = autoLinkBefore(v.state, from);
+        if (!typed) return false;
+        v.dispatch(v.state.tr.insertText(text, from, to));
+        autoLink(typed);
+        return true;
       },
       handlePaste(v, event) {
         syncSelection(v);
@@ -199,6 +338,17 @@
         return true;
       },
       handleDOMEvents: {
+        // Cmd/Ctrl+click opens a link (a plain click puts the caret in it, as in any editor).
+        mousedown: (v, e) => {
+          linkForm = null;
+          const el = (e.target as Element).closest?.('[data-link]');
+          if (!el || !(isMac ? e.metaKey : e.ctrlKey)) return false;
+          const range = linkRangeAt(v.state.doc, v.posAtDOM(el, 0), 'both');
+          if (!range) return false;
+          e.preventDefault();
+          follow(range.link);
+          return true;
+        },
         copy: (v, e) => copyOut(v, e, false),
         cut: (v, e) => copyOut(v, e, true),
         compositionstart: () => ((composing = true), onComposing(true), false),
@@ -210,7 +360,15 @@
     update();
     onReady(api);
     view.focus();
-    return () => view.destroy();
+    const onMove = () => moved++;
+    window.addEventListener('scroll', onMove, true);
+    window.addEventListener('resize', onMove);
+    return () => {
+      clearTimeout(leaveTimer);
+      window.removeEventListener('scroll', onMove, true);
+      window.removeEventListener('resize', onMove);
+      view.destroy();
+    };
   });
 
   /** Copy: the system clipboard gets plain text and our marker (never HTML); the formatted copy stays in memory. */
@@ -220,6 +378,8 @@
    * otherwise act on the old selection.
    */
   function syncSelection(v: EditorView) {
+    // Without focus the browser's selection may be anywhere (a menu, the panel): the editor's own is right.
+    if (!v.hasFocus()) return;
     const s = v.dom.ownerDocument.getSelection();
     if (!s?.anchorNode || !s.focusNode || !v.dom.contains(s.anchorNode) || !v.dom.contains(s.focusNode)) return;
     try {
@@ -266,9 +426,40 @@
   style:text-align={alignOf(annot)}
   style:caret-color={rgbToCss(annot.color)}
   onpointerdown={(e) => e.stopPropagation()}
+  onpointermove={onPointerMove}
+  onpointerleave={() => hovered && leaveSoon()}
   onkeydown={(e) => e.stopPropagation()}
   role="presentation"
 ></div>
+
+{#if linkForm}
+  <LinkPopover
+    anchor={anchorOf(linkForm.from, linkForm.to)}
+    phone={phone.current}
+    text={linkForm.text}
+    link={linkForm.link}
+    existing={linkForm.existing}
+    {pages}
+    onApply={applyLink}
+    onRemove={() => linkForm && unlink(linkForm)}
+    onCancel={closeForm}
+  />
+{:else if card}
+  {@const c = card}
+  <LinkCard
+    anchor={anchorOf(c.from, c.to)}
+    target={linkTarget(c.link, pageNumber)}
+    kind={c.link.kind}
+    onEdit={() => openLink(c)}
+    onRemove={() => unlink(c)}
+    onOpen={() => follow(c.link)}
+    onHover={(inside) => {
+      overCard = inside;
+      if (inside) clearTimeout(leaveTimer);
+      else if (hovered) leaveSoon();
+    }}
+  />
+{/if}
 
 <style>
   .rich-editor {
@@ -309,7 +500,7 @@
   }
   .rich-editor :global(.rich-surface ::selection),
   .rich-editor :global(.kept-selection) {
-    background: var(--editing-fill);
+    background: var(--text-selection);
   }
   .rich-editor :global(p.placeholder)::before {
     content: attr(data-placeholder);

@@ -89,7 +89,7 @@ describe('Edit menu', () => {
       });
     };
     for (const m of MENUS) check(m.items);
-    expect(MENUS.find((m) => m.label === 'Edit')!.items.at(-1)).toBe('edit.find');
+    expect(MENUS.find((m) => m.label === 'Edit')!.items.at(-1)).toBe('text.link');
   });
 });
 

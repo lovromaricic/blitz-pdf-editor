@@ -307,3 +307,45 @@ export function segmentRuns(s: Segment, measure: (text: string) => number): { te
   });
   return out;
 }
+
+/** A link's area on one line, in the box's upright frame (y down). */
+export interface LinkArea {
+  link: NonNullable<TextRun['link']>;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+const sameTarget = (a: TextRun['link'], b: TextRun['link']) =>
+  !!a && !!b && a.kind === b.kind && (a.kind === 'url' ? a.href === (b as typeof a).href : a.pageId === (b as Extract<typeof b, { kind: 'page' }>).pageId);
+
+/**
+ * Where the links are: one rectangle per line per link, covering its
+ * neighbouring segments and the line's height. A link broken over two lines
+ * has two rectangles. Leading spaces of a line (never part of what you click)
+ * are left out; `measure` is the layout's own.
+ */
+export function linkAreas(layout: Pick<RichLayout, 'lines'>, measure: RichEnv['measure']): LinkArea[] {
+  const out: LinkArea[] = [];
+  for (const line of layout.lines) {
+    let open: LinkArea | null = null;
+    for (const s of line.segments) {
+      const link = s.run.link;
+      if (!link) {
+        open = null;
+        continue;
+      }
+      const end = s.x + s.width;
+      if (open && sameTarget(open.link, link)) {
+        open.w = end - open.x;
+        continue;
+      }
+      if (!s.text.slice(s.indent).trim()) continue; // only spaces: nothing to click yet
+      const x = s.indent ? s.x + measure(s.run, s.text.slice(0, s.indent)) : s.x;
+      open = { link, x, y: line.top, w: end - x, h: line.height };
+      out.push(open);
+    }
+  }
+  return out;
+}

@@ -7,6 +7,7 @@
   import Italic from '@lucide/svelte/icons/italic';
   import Underline from '@lucide/svelte/icons/underline';
   import Strikethrough from '@lucide/svelte/icons/strikethrough';
+  import LinkIcon from '@lucide/svelte/icons/link';
   import AlignLeft from '@lucide/svelte/icons/text-align-start';
   import AlignCenter from '@lucide/svelte/icons/text-align-center';
   import AlignRight from '@lucide/svelte/icons/text-align-end';
@@ -36,6 +37,8 @@
     textFormatState,
   } from '../../lib/text-format';
   import { TEXT_SHORTCUTS } from '../../lib/text-shortcuts';
+  import { COMMANDS, formatKeys } from '../../lib/commands';
+  import { MIXED } from '../../lib/rich-text/mixed';
   import FontPicker from '../../components/FontPicker.svelte';
   import LocalFontsDialog from '../../components/LocalFontsDialog.svelte';
   import { localFontsSupported } from '../../lib/local-fonts.svelte';
@@ -115,6 +118,12 @@
     const keys = TEXT_SHORTCUTS[t.key];
     return keys ? `${t.label} (${keys})` : t.label;
   }
+
+  // --- Link: while typing in a box -------------------------------------------------------
+
+  const inLink = $derived(!!editor && editor.selection.link !== null && editor.selection.link !== MIXED);
+  const linkLabel = $derived(inLink ? 'Edit link' : 'Add link');
+  const linkTitle = $derived(editor ? `${linkLabel} (${formatKeys(COMMANDS['text.link'].keys[0])})` : 'Double-click a text box and select text to add a link');
 
   // --- Size: − [field] + --------------------------------------------------------------
 
@@ -266,6 +275,9 @@
         <t.icon size={18} strokeWidth={2} aria-hidden="true" />
       </button>
     {/each}
+    <button type="button" class="toggle" aria-label={linkLabel} title={linkTitle} aria-haspopup="dialog" disabled={!editor} onclick={() => editor?.openLink()}>
+      <LinkIcon size={18} strokeWidth={2} aria-hidden="true" />
+    </button>
   </div>
 
   <div class="field size">

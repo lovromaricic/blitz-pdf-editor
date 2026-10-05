@@ -10,6 +10,8 @@ export interface CommandMeta {
   later?: boolean;
   /** Let the browser handle this shortcut while typing in a text field. */
   nativeInFields?: boolean;
+  /** Acts on the text box being typed in, so running it doesn't finish the editing first. */
+  whileEditing?: boolean;
 }
 
 export interface CommandImpl {
@@ -44,6 +46,8 @@ export const COMMANDS = {
   'edit.delete': { label: 'Delete', keys: ['delete', 'backspace'], nativeInFields: true },
   'edit.selectAll': { label: 'Select all', keys: ['mod+a'], nativeInFields: true },
   'edit.find': { label: 'Find…', keys: ['mod+f'] },
+  // While typing in a text box (the editor handles the key itself; the menu item runs the same).
+  'text.link': { label: 'Add link…', keys: ['mod+k'], whileEditing: true },
 
   // View
   'view.zoomIn': { label: 'Zoom in', keys: ['mod+=', 'mod++'] },
@@ -90,9 +94,9 @@ export const COMMANDS = {
   'help.about': { label: 'About' },
 
   // Text formatting (a text box selected or being edited). Not in menus; tooltips in the Text panel.
-  'text.bold': { label: 'Bold', keys: ['mod+b'] },
-  'text.italic': { label: 'Italic', keys: ['mod+i'] },
-  'text.underline': { label: 'Underline', keys: ['mod+u'] },
+  'text.bold': { label: 'Bold', keys: ['mod+b'], whileEditing: true },
+  'text.italic': { label: 'Italic', keys: ['mod+i'], whileEditing: true },
+  'text.underline': { label: 'Underline', keys: ['mod+u'], whileEditing: true },
 
   // Markup tools (toolbar, not menus). Single keys, ignored while typing.
   'tool.select': { label: 'Select', keys: ['v'], nativeInFields: true },
@@ -111,7 +115,11 @@ export type CommandId = keyof typeof COMMANDS;
 export type CommandImpls = Partial<Record<CommandId, CommandImpl>>;
 
 export class CommandRegistry {
-  constructor(private impls: CommandImpls) {}
+  constructor(
+    private impls: CommandImpls,
+    /** Runs before every command (e.g. to finish typing in a text box first). */
+    private before?: (id: CommandId) => void,
+  ) {}
 
   meta(id: CommandId): CommandMeta {
     return COMMANDS[id];
@@ -139,6 +147,7 @@ export class CommandRegistry {
 
   run(id: CommandId): boolean {
     if (!this.isEnabled(id)) return false;
+    this.before?.(id);
     this.impls[id]!.run();
     return true;
   }

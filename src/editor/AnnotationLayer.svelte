@@ -327,7 +327,8 @@
     if (!editing) return;
     const onDown = (ev: PointerEvent) => {
       const t = ev.target as Element | null;
-      if (t?.closest('.rich-editor, .panel, dialog, [role="dialog"], [role="listbox"]')) return;
+      // Menus too: a menu command that isn't about the text finishes the edit itself (Editor.svelte).
+      if (t?.closest('.rich-editor, .rich-editor-popover, .panel, dialog, [role="dialog"], [role="listbox"], [role="menubar"], [role="menu"]')) return;
       void commitEdit();
     };
     window.addEventListener('pointerdown', onDown, true);

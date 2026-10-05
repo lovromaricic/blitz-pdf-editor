@@ -3,7 +3,7 @@
 import { hasBold, hasItalic } from '../font-catalog';
 import { alignOf, lineSpacingOf, MIXED as PANEL_MIXED, type TextFormatState } from '../text-format';
 import type { RichEditorApi } from './api';
-import { MIXED } from './schema';
+import { MIXED } from './mixed';
 
 const v = <T,>(x: T | typeof MIXED) => (x === MIXED ? PANEL_MIXED : x);
 

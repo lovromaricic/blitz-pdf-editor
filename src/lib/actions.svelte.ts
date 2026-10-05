@@ -24,6 +24,7 @@ import { focusObject, settleFocusAfterRemoval } from './focus';
 import { styleAvailable } from './text-format';
 import { ensureTextFont } from './font-metrics-store.svelte';
 import { formatTextBox } from './text-layout';
+import { dropPageLinks } from './text-rich';
 
 const STYLE_LABELS = { bold: 'Bold', italic: 'Italic', underline: 'Underline', strike: 'Strikethrough' } as const;
 import { groupMarks, padTextRect } from './redact-marks';
@@ -79,8 +80,24 @@ export class Actions {
       return;
     }
     const firstIndex = this.doc.pages.indexOf(pages[0]);
-    this.doc.edit(`Delete ${this.plural(pages.length, 'page')}`, deletePages(this.doc.pages, this.ids(pages)));
+    const gone = this.ids(pages);
+    // Links to the deleted pages go too (in the same undo step: undo brings both back).
+    let removedLinks = 0;
+    const next = deletePages(this.doc.pages, gone).map((p) => {
+      if (!p.annots?.some((a) => a.type === 'text' && a.paragraphs)) return p;
+      const annots = p.annots.map((a) => {
+        if (a.type !== 'text') return a;
+        const { annot, removed } = dropPageLinks(a, (id) => gone.has(id));
+        removedLinks += removed;
+        return annot;
+      });
+      return annots.some((a, i) => a !== p.annots![i]) ? { ...p, annots } : p;
+    });
+    this.doc.edit(`Delete ${this.plural(pages.length, 'page')}`, next);
     this.viewer.announce(pages.length === 1 ? 'Page deleted' : `${pages.length} pages deleted`);
+    if (removedLinks) {
+      this.viewer.notify(`Removed ${removedLinks === 1 ? 'a link' : `${removedLinks} links`} to the deleted ${pages.length === 1 ? 'page' : 'pages'}. Undo brings ${removedLinks === 1 ? 'it' : 'them'} back.`);
+    }
     void tick().then(() => settleFocusAfterRemoval());
     this.viewer.clearSelection();
     this.viewer.syncAfterEdit();

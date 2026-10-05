@@ -40,6 +40,7 @@ export function decorationResolver(doc: EditorDocument) {
 export function planFor(pages: readonly PageRef[], decoFor: (p: PageRef) => PageDecoration | undefined = () => undefined): PagePlan[] {
   return pages.map((p) => ({
     deco: decoFor(p),
+    pageId: p.id,
     sourceId: p.sourceId,
     index: p.sourceIndex,
     rotation: p.rotation,

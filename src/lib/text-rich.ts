@@ -1,7 +1,7 @@
 // The rich text model of text boxes: paragraphs of runs. Converting boxes
 // from before rich text, plain text, formatting all runs, and the one entry
 // point that lays out any text box. No DOM.
-import { sameRgb, uprightSize, type TextAnnotation, type TextLink, type TextParagraph, type TextRun } from './annotations';
+import { LINK_COLOR, sameRgb, uprightSize, type Rgb, type TextAnnotation, type TextLink, type TextParagraph, type TextRun } from './annotations';
 import { alignOf, lineSpacingOf } from './text-format';
 import { layoutRich, type RichEnv, type RichLayout } from './text-rich-layout';
 
@@ -69,6 +69,42 @@ export function normalize(paragraphs: readonly TextParagraph[]): TextParagraph[]
 /** Set formatting on every run (the whole box selected, not being edited). */
 export function formatAllRuns(paragraphs: readonly TextParagraph[], changes: Partial<RunFormat>): TextParagraph[] {
   return normalize(paragraphs.map((p) => ({ runs: p.runs.map((r) => ({ ...r, ...changes })) })));
+}
+
+/** How a new link looks: link blue, underlined (both can be changed afterwards). */
+export function linkStyle(f: RunFormat, link: TextLink): RunFormat {
+  return { ...f, link, color: LINK_COLOR, underline: true };
+}
+
+/**
+ * The format without its link. Text still in the link look (link blue) goes
+ * back to `color` without the underline; text recoloured since keeps its look.
+ */
+export function unlinkStyle(f: RunFormat, color: Rgb): RunFormat {
+  const { link: _l, ...rest } = f;
+  if (!sameRgb(f.color, LINK_COLOR)) return rest;
+  const { underline: _u, ...plain } = rest;
+  return { ...plain, color };
+}
+
+/**
+ * Take out links to pages that are gone (deleted). Returns the box unchanged
+ * when it has none, and how many links were removed.
+ */
+export function dropPageLinks(a: TextAnnotation, gone: (pageId: string) => boolean): { annot: TextAnnotation; removed: number } {
+  if (!a.paragraphs) return { annot: a, removed: 0 };
+  let removed = 0;
+  const paragraphs = a.paragraphs.map((p) => {
+    let previous: TextLink | undefined;
+    const runs = p.runs.map((r) => {
+      const dead = r.link?.kind === 'page' && gone(r.link.pageId);
+      if (dead && !sameLink(previous, r.link)) removed++;
+      previous = r.link;
+      return dead ? { ...unlinkStyle(r, a.color), text: r.text } : r;
+    });
+    return runs.some((r, i) => r !== p.runs[i]) ? { runs } : p;
+  });
+  return removed ? { annot: { ...a, paragraphs: normalize(paragraphs) }, removed } : { annot: a, removed: 0 };
 }
 
 /** Keys that are run formatting (not box settings). */

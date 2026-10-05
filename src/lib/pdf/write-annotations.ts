@@ -4,7 +4,7 @@
 import { faceKey, fontMetrics } from '../font-catalog';
 import { FALLBACK_STRIKE_OFFSET, FALLBACK_UNDERLINE, parseFontMetrics, textWidth, type FontMetrics } from '../font-metrics';
 import { layoutTextAnnotation, runsOf } from '../text-rich';
-import type { RichEnv, Segment } from '../text-rich-layout';
+import { linkAreas, type RichEnv, type RichLayout, type Segment } from '../text-rich-layout';
 import { bubblePath, NOTE_LINE_WIDTH, NOTE_LINES, NOTE_STROKE, toPdfPath } from '../note-shape';
 import {
   beginText,
@@ -68,12 +68,16 @@ const n = (v: number) => {
 };
 const rgb = (c: Rgb) => c.map(n).join(' ');
 
+/** Where links to pages of this document go: the page's object in the output, if it's there. */
+export type PageRefs = (pageId: string) => PDFRef | undefined;
+
 export async function addAnnotations(
   doc: PDFDocument,
   page: PDFPage,
   annots: readonly Annotation[],
   fonts: FontProvider,
   images: Record<string, ImageAsset> = {},
+  pageRefs: PageRefs = () => undefined,
 ) {
   // Annotations always draw above the page content. So an inserted image becomes
   // part of the page itself, unless it overlaps something below it that is
@@ -88,7 +92,65 @@ export async function addAnnotations(
     const ref = doc.context.register(await buildAnnotation(doc, a, fonts, asset));
     page.node.addAnnot(ref);
     written.push(bounds(a));
-    if (a.type === 'text') await addSearchableText(doc, page, a, fonts);
+    if (a.type === 'text') {
+      const text = await richTextLayout(doc, a, fonts);
+      addSearchableText(doc, page, a, text);
+      addLinks(doc, page, a, text, pageRefs);
+    }
+  }
+}
+
+/** Maps the box's upright frame (y up, origin bottom-left) onto the page, as viewers place the appearance on Rect. */
+function boxToPage(a: TextAnnotation): Matrix {
+  const [w, h] = uprightSize(a);
+  const rad = (a.rotate * Math.PI) / 180;
+  const [ma, mb, mc, md] = [Math.cos(rad), Math.sin(rad), -Math.sin(rad), Math.cos(rad)];
+  const corners = [[0, 0], [w, 0], [0, h], [w, h]].map(([x, y]) => [ma * x + mc * y, mb * x + md * y]);
+  const e = a.rect[0] - Math.min(...corners.map((c) => c[0]));
+  const f = a.rect[1] - Math.min(...corners.map((c) => c[1]));
+  return [ma, mb, mc, md, e, f];
+}
+
+/**
+ * Links in a text box as Link annotations: one per line a link covers, its
+ * QuadPoints the exact (possibly turned) area and Rect the box around them.
+ * Web and email links use a URI action; page links a destination that points
+ * at the page object, so they follow the page wherever it ends up. A link to
+ * a page that isn't in this output (extracted pages) is left out.
+ */
+function addLinks(doc: PDFDocument, page: PDFPage, a: TextAnnotation, { layout, env }: TextLayout, pageRefs: PageRefs) {
+  const areas = linkAreas(layout, env.measure);
+  if (!areas.length) return;
+  const [, h] = uprightSize(a);
+  const [ma, mb, mc, md, e, f] = boxToPage(a);
+  const at = (x: number, yDown: number) => {
+    const y = h - yDown;
+    return [ma * x + mc * y + e, mb * x + md * y + f].map((v) => Math.round(v * 1000) / 1000);
+  };
+  for (const area of areas) {
+    let target: Record<string, unknown>;
+    if (area.link.kind === 'url') {
+      target = { A: { Type: 'Action', S: 'URI', URI: PDFString.of(area.link.href) } };
+    } else {
+      const ref = pageRefs(area.link.pageId);
+      if (!ref) continue;
+      target = { Dest: [ref, PDFName.of('Fit')] };
+    }
+    // Upper-left, upper-right, lower-left, lower-right (as on screen, before the box turns).
+    const quad = [at(area.x, area.y), at(area.x + area.w, area.y), at(area.x, area.y + area.h), at(area.x + area.w, area.y + area.h)];
+    const xs = quad.map((q) => q[0]);
+    const ys = quad.map((q) => q[1]);
+    const dict = doc.context.obj({
+      Type: 'Annot',
+      Subtype: 'Link',
+      Rect: [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)],
+      QuadPoints: quad.flat(),
+      // No border: the text itself shows it's a link.
+      Border: [0, 0, 0],
+      F: 4,
+      ...target,
+    } as never);
+    page.node.addAnnot(doc.context.register(dict));
   }
 }
 
@@ -126,19 +188,13 @@ async function drawImageIntoPage(doc: PDFDocument, page: PDFPage, a: ImageAnnota
  * exactly under the annotation, like OCR text: search, selection and copying
  * work everywhere, and the annotation stays editable in apps that support it.
  */
-async function addSearchableText(doc: PDFDocument, page: PDFPage, a: TextAnnotation, fonts: FontProvider) {
-  const { layout, faces } = await richTextLayout(doc, a, fonts);
+function addSearchableText(doc: PDFDocument, page: PDFPage, a: TextAnnotation, { layout, faces }: TextLayout) {
   if (!layout.lines.some((l) => l.text.trim())) return;
   const keys = new Map<FontKey, PDFName>();
   for (const [key, face] of faces) keys.set(key, page.node.newFontDictionary('BlitzText', face.font.ref));
-  const [w, h] = uprightSize(a);
+  const [, h] = uprightSize(a);
   // Same placement a viewer uses for the appearance: its rotated box moved onto Rect.
-  const rad = (a.rotate * Math.PI) / 180;
-  const [ma, mb, mc, md] = [Math.cos(rad), Math.sin(rad), -Math.sin(rad), Math.cos(rad)];
-  const corners = [[0, 0], [w, 0], [0, h], [w, h]].map(([x, y]) => [ma * x + mc * y, mb * x + md * y]);
-  const e = a.rect[0] - Math.min(...corners.map((c) => c[0]));
-  const f = a.rect[1] - Math.min(...corners.map((c) => c[1]));
-  const ops: PDFOperator[] = [pushGraphicsState(), concatTransformationMatrix(ma, mb, mc, md, e, f), beginText(), setTextRenderingMode(TextRenderingMode.Invisible)];
+  const ops: PDFOperator[] = [pushGraphicsState(), concatTransformationMatrix(...boxToPage(a)), beginText(), setTextRenderingMode(TextRenderingMode.Invisible)];
   for (const line of layout.lines) {
     line.segments.forEach((s, i) => {
       // A trailing space keeps lines apart when the text is copied or searched.
@@ -181,7 +237,13 @@ const FALLBACK_DECORATION = { underline: FALLBACK_UNDERLINE, strike: { offset: F
  * The shared rich text layout, measured with each embedded face's own metrics
  * (the numbers the editor measured with). Every face is embedded as a subset.
  */
-async function richTextLayout(doc: PDFDocument, a: TextAnnotation, fonts: FontProvider) {
+interface TextLayout {
+  layout: RichLayout;
+  faces: Map<FontKey, Face>;
+  env: RichEnv;
+}
+
+async function richTextLayout(doc: PDFDocument, a: TextAnnotation, fonts: FontProvider): Promise<TextLayout> {
   const faces = new Map<FontKey, Face>();
   for (const run of runsOf(a)) {
     const key = faceKey(run.font, run.bold, run.italic);
@@ -199,7 +261,7 @@ async function richTextLayout(doc: PDFDocument, a: TextAnnotation, fonts: FontPr
     },
     decoration: (run) => face(run).metrics ?? FALLBACK_DECORATION,
   };
-  return { layout: layoutTextAnnotation(a, env), faces };
+  return { layout: layoutTextAnnotation(a, env), faces, env };
 }
 
 /**

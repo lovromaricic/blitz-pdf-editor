@@ -34,6 +34,8 @@ export interface SourceInput {
 }
 
 export interface PagePlan {
+  /** The editor's page id (links to pages of this document point at it). */
+  pageId?: string;
   sourceId: string;
   /** 0-based page index in the source. */
   index: number;
@@ -140,6 +142,10 @@ export async function assemble(
     return p;
   });
 
+  // Links to pages go to the page object, wherever the page ended up.
+  const byPageId = new Map(plan.flatMap((item, pos) => (item.pageId ? [[item.pageId, finalPages[pos].ref] as const] : [])));
+  const pageRefs = (pageId: string) => byPageId.get(pageId);
+
   for (let pos = 0; pos < plan.length; pos++) {
     const { rotation: extra, crop } = plan[pos];
     const page = finalPages[pos];
@@ -150,7 +156,7 @@ export async function assemble(
       if (!options.fonts && plan[pos].annots!.some((a) => a.type === 'text' || a.type === 'stamp')) {
         throw new UserError('Fonts are required to save text and stamps.');
       }
-      await addAnnotations(out, page, plan[pos].annots!, options.fonts ?? noFonts, options.images ?? {});
+      await addAnnotations(out, page, plan[pos].annots!, options.fonts ?? noFonts, options.images ?? {}, pageRefs);
     }
     if (crop) {
       const box = page.getCropBox();

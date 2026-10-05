@@ -39,6 +39,8 @@ export const MENUS: Menu[] = [
       '-',
       'edit.selectAll',
       'edit.find',
+      '-',
+      'text.link',
     ],
   },
   {

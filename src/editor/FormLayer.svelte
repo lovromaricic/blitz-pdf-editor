@@ -5,6 +5,8 @@
   import type { PageRef, Source } from '../lib/document.svelte';
   import { fieldObjects } from '../lib/forms';
   import { useViewer } from '../lib/viewer.svelte';
+  import { isMac } from '../lib/commands';
+  import { isSafeHref, openExternal } from '../lib/links';
 
   let { pdfPage, viewport, page, source }: { pdfPage: PDFPageProxy; viewport: PageViewport; page: PageRef; source: Source } = $props();
 
@@ -22,8 +24,9 @@
       eventBus: null,
       externalLinkEnabled: true,
       addLinkAttributes(link: HTMLAnchorElement, url: string) {
-        link.href = url;
-        link.title = url;
+        // Only addresses we would open get an href at all (javascript:, data:, file: … don't).
+        if (isSafeHref(url)) link.href = url;
+        link.title = `${url}\n${isMac ? '⌘' : 'Ctrl'}+click to open`;
         link.target = '_blank';
         link.rel = 'noopener noreferrer nofollow';
       },
@@ -80,6 +83,33 @@
     fieldsPromise ??= fieldObjects(source.pdf).then((list) => new Map(list as [string, object[]][]));
     return fieldsPromise;
   }
+
+  /**
+   * Links in the PDF open only with Cmd/Ctrl+click (or Cmd/Ctrl+Enter) while
+   * the Select tool is active: a plain click is for selecting and marking up.
+   * Web links open through the same checks as links in text boxes.
+   */
+  function onLinkClick(e: MouseEvent) {
+    const a = (e.target as Element).closest?.('.linkAnnotation a');
+    if (!a) return;
+    const mod = isMac ? e.metaKey : e.ctrlKey;
+    if (!mod || viewer.tool !== 'select') {
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
+    const href = (a as HTMLAnchorElement).getAttribute('href');
+    // Page links ("#") are PDF.js's own; it moves to the page.
+    if (!href || href === '#') return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (!openExternal(href)) viewer.notify("This link can't be opened: only web, email and phone links are allowed.");
+  }
+
+  $effect(() => {
+    host.addEventListener('click', onLinkClick, true);
+    return () => host.removeEventListener('click', onLinkClick, true);
+  });
 
   $effect(() => {
     const vp = viewport.clone({ dontFlip: true });

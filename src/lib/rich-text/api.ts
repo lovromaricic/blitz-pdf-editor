@@ -10,6 +10,10 @@ export interface RichEditorApi {
   /** Every format in the selection (to know whether all its fonts have bold, say). */
   readonly formats: RunFormat[];
   focus(): void;
+  /** Finish editing (as Escape does). */
+  finish(): void;
+  /** Open the link popover for the selection (Cmd/Ctrl+K, Edit > Add link…, the Text panel). */
+  openLink(): void;
   /** The box being edited, as drawn now (its box settings: alignment, spacing, background, opacity). */
   readonly box: import('../annotations').TextAnnotation;
   /** Change box settings while editing (one undo step each for a saved box). */

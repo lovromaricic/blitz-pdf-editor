@@ -6,7 +6,8 @@
 import { Fragment, Mark, Node, Schema, Slice, type MarkSpec } from 'prosemirror-model';
 import { EditorState, TextSelection, type Command, type Transaction } from 'prosemirror-state';
 import { sameRgb, type Rgb, type TextLink, type TextParagraph, type TextRun } from '../annotations';
-import type { RunFormat } from '../text-rich';
+import { linkStyle, unlinkStyle, type RunFormat } from '../text-rich';
+import { trailingUrl } from '../links';
 
 /** A mark carrying one attribute, written to (and only read back from) our own spans' data attributes. */
 function valueMark(name: string, toStyle: (v: never) => string): MarkSpec {
@@ -125,8 +126,8 @@ export function plainTextOf(doc: Node) {
 
 // --- What the selection looks like ------------------------------------------------------------
 
-export const MIXED = 'mixed' as const;
-export type Value<T> = T | typeof MIXED;
+export { MIXED, type Value } from './mixed';
+import { MIXED, type Value } from './mixed';
 
 export interface SelectionFormat {
   font: Value<string>;
@@ -252,4 +253,142 @@ export function insertPlainText(state: EditorState, text: string, fallback: RunF
 /** A caret at the end of the document. */
 export function selectEnd(state: EditorState) {
   return state.tr.setSelection(TextSelection.atEnd(state.doc));
+}
+
+// --- Links ------------------------------------------------------------------------------------
+
+export interface LinkRange {
+  from: number;
+  to: number;
+  link: TextLink;
+}
+
+const linkOf = (node: Node | null | undefined) => (node?.marks.find((m) => m.type === schema.marks.link)?.attrs.value as TextLink | undefined) ?? null;
+const sameTarget = (a: TextLink | null, b: TextLink | null) => !!a && !!b && JSON.stringify(a) === JSON.stringify(b);
+
+/** The whole link around position `pos` (on either side of it), within its paragraph. */
+export function linkRangeAt(doc: Node, pos: number, side: 'both' | 'inside' = 'both'): LinkRange | null {
+  const $pos = doc.resolve(pos);
+  const para = $pos.parent;
+  if (!para.isTextblock) return null;
+  const before = $pos.nodeBefore ? linkOf($pos.nodeBefore) : null;
+  const after = $pos.nodeAfter ? linkOf($pos.nodeAfter) : null;
+  // A caret is inside a link only with the link on both sides of it (its ends belong to the text around).
+  const link = side === 'inside' ? (sameTarget(before, after) ? before : null) : (after ?? before);
+  if (!link) return null;
+  // Walk the paragraph's text nodes, collecting the stretch with this link that touches pos.
+  const start = $pos.start();
+  let from = -1;
+  let to = -1;
+  let offset = 0;
+  let found: LinkRange | null = null;
+  para.forEach((child) => {
+    if (found) return;
+    const a = start + offset;
+    const b = a + child.nodeSize;
+    offset += child.nodeSize;
+    if (sameTarget(linkOf(child), link)) {
+      if (from < 0) from = a;
+      to = b;
+    } else {
+      if (from >= 0 && pos >= from && pos <= to) found = { from, to, link };
+      from = -1;
+    }
+  });
+  if (!found && from >= 0 && pos >= from && pos <= to) found = { from, to, link };
+  return found;
+}
+
+/**
+ * The link the selection is in: a caret inside a link, or a selection within
+ * one link. Then the link popover edits that whole link.
+ */
+export function selectedLink(state: EditorState): LinkRange | null {
+  const { from, to, empty } = state.selection;
+  if (empty) return linkRangeAt(state.doc, from, 'inside');
+  // At `from` the first selected character decides (the text after it).
+  const range = linkRangeAt(state.doc, from, 'both');
+  return range && range.from <= from && range.to >= to ? range : null;
+}
+
+/** Text of a range, paragraphs joined with a space (as one line in the popover's Text field). */
+export function rangeText(doc: Node, from: number, to: number) {
+  return doc.textBetween(from, to, ' ', ' ');
+}
+
+/** Set marks on every text node in [from, to): `f` maps each node's format to its new one. */
+function remark(tr: Transaction, from: number, to: number, f: (format: RunFormat) => RunFormat, fallback: RunFormat) {
+  tr.doc.nodesBetween(from, to, (node, pos) => {
+    if (!node.isText) return;
+    const a = Math.max(from, pos);
+    const b = Math.min(to, pos + node.nodeSize);
+    if (a >= b) return;
+    const next = marksFor(f(formatOf(node.marks, fallback)));
+    for (const m of node.marks) tr.removeMark(a, b, m.type);
+    for (const m of next) tr.addMark(a, b, m);
+  });
+}
+
+/**
+ * Make a link (or change one). `range` is the text it covers: an existing
+ * link, the selection, or the caret. With `text`, that text replaces the
+ * range (in the format at its start). A new link gets the link look (blue,
+ * underlined); changing an existing link's target keeps how it looks.
+ */
+export function setLink(range: { from: number; to: number }, link: TextLink, text: string | null, fallback: RunFormat, existing: boolean): Command {
+  return (state, dispatch) => {
+    const tr = state.tr;
+    let { from, to } = range;
+    const current = rangeText(state.doc, from, to);
+    if (text !== null && text !== current) {
+      const at = state.doc.resolve(from);
+      const marks = from === to ? (state.storedMarks ?? at.marks()) : (at.nodeAfter?.marks ?? at.marks());
+      const format = formatOf(marks.length ? marks : marksFor(formatsInSelection(state, fallback)[0]), fallback);
+      tr.replaceRangeWith(from, to, schema.text(text, marksFor(format)));
+      to = from + text.length;
+    }
+    markLink(tr, { from, to }, link, existing, fallback);
+    // The caret goes after the link, where typing continues without it (and without its look).
+    tr.setSelection(TextSelection.create(tr.doc, to));
+    const last = tr.doc.resolve(to).nodeBefore;
+    tr.setStoredMarks(last ? marksFor(unlinkStyle(formatOf(last.marks, fallback), fallback.color)) : null);
+    dispatch?.(tr.scrollIntoView());
+    return true;
+  };
+}
+
+/** Put a link on [from, to): a new one with the link look; an existing one keeps how it looks. */
+export function markLink(tr: Transaction, range: { from: number; to: number }, link: TextLink, existing: boolean, fallback: RunFormat) {
+  remark(tr, range.from, range.to, (f) => (existing ? { ...f, link } : linkStyle(f, link)), fallback);
+  return tr;
+}
+
+/** Remove a link: its text goes back to the box's color (unless recoloured) without the underline. */
+export function removeLink(range: { from: number; to: number }, fallback: RunFormat): Command {
+  return (state, dispatch) => {
+    const tr = state.tr;
+    remark(tr, range.from, range.to, (f) => (f.link ? unlinkStyle(f, fallback.color) : f), fallback);
+    dispatch?.(tr.scrollIntoView());
+    return true;
+  };
+}
+
+/**
+ * An address typed just before `pos` (followed by a space or Enter): its
+ * range and where it links, if it isn't a link already.
+ */
+export function autoLinkBefore(state: EditorState, pos: number): LinkRange | null {
+  const $pos = state.doc.resolve(pos);
+  if (!$pos.parent.isTextblock) return null;
+  // Non-text nodes can't occur (the schema has none); textBetween keeps offsets aligned.
+  const before = $pos.parent.textBetween(0, $pos.parentOffset);
+  const hit = trailingUrl(before);
+  if (!hit) return null;
+  const from = $pos.start() + hit.from;
+  const to = $pos.start() + hit.to;
+  let linked = false;
+  state.doc.nodesBetween(from, to, (node) => {
+    if (node.isText && linkOf(node)) linked = true;
+  });
+  return linked ? null : { from, to, link: { kind: 'url', href: hit.href } };
 }

@@ -5,7 +5,7 @@
   import { Actions, provideActions } from '../lib/actions.svelte';
   import { describe } from '../lib/annotations';
   import { IMAGE_ACCEPT } from '../lib/image-input';
-  import { CommandRegistry, comboFromEvent, isTextField, type CommandId } from '../lib/commands';
+  import { COMMANDS, CommandRegistry, comboFromEvent, isTextField, type CommandId, type CommandMeta } from '../lib/commands';
   import { imageAcceptAttr, kindOf } from '../lib/landing/accepted-files';
   import { heicDecodes } from '../lib/landing/heic-probe';
   import { IMAGE_STRINGS } from '../lib/strings';
@@ -160,6 +160,7 @@
     'text.bold': { run: () => void actions.toggleTextStyle('bold'), enabled: () => actions.canStyleText() },
     'text.italic': { run: () => void actions.toggleTextStyle('italic'), enabled: () => actions.canStyleText() },
     'text.underline': { run: () => void actions.toggleTextStyle('underline'), enabled: () => actions.canStyleText() },
+    'text.link': { run: () => viewer.textEditor?.openLink(), enabled: () => !!viewer.textEditor },
 
     // View
     'view.zoomIn': { run: () => viewer.zoomIn() },
@@ -209,6 +210,9 @@
     ...Object.fromEntries(
       MARKUP_TOOLS.map((t) => [`tool.${t.id}`, { run: () => viewer.setTool(t.id), checked: () => viewer.tool === t.id }]),
     ),
+  }, (id) => {
+    // Opening a menu keeps the text box being typed in; any command but a text one finishes it first.
+    if (!(COMMANDS[id] as CommandMeta).whileEditing) viewer.textEditor?.finish();
   });
 
   function lowerFirst(s: string) {
