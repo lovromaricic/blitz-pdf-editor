@@ -15,6 +15,22 @@ async function openBlank(page: Page) {
   await page.goto('/');
   await page.locator('input[type=file]').first().setInputFiles({ name: 'blank.pdf', mimeType: 'application/pdf', buffer: Buffer.from(await doc.save()) });
   await expect(page.locator('.page[data-index="0"]')).toBeVisible();
+  // Opening isn't over when the page shows: the landing screen hands over, focus
+  // moves to the editor, and the first fit-width zoom scrolls to page 1. A test that
+  // zooms and scrolls before that ends sees the page move under it.
+  await expect(page.locator('#editor-main')).toBeFocused();
+  await scrollQuiet(page);
+}
+
+/** Wait until the document view hasn't scrolled for a while (zooms and scrolls have settled). */
+async function scrollQuiet(page: Page, quietMs = 400) {
+  await page.evaluate(async (quietMs) => {
+    let last = performance.now();
+    const onScroll = () => (last = performance.now());
+    document.addEventListener('scroll', onScroll, true);
+    while (performance.now() - last < quietMs) await new Promise((r) => setTimeout(r, 50));
+    document.removeEventListener('scroll', onScroll, true);
+  }, quietMs);
 }
 
 interface Case {
@@ -99,6 +115,7 @@ for (const c of CASES) {
       await new Promise((r) => setTimeout(r, 300));
     }, c);
 
+    await scrollQuiet(page);
     const before = await measure(page);
     await page.locator('.page[data-index="0"] .box-hit[data-kind="text"]').dblclick();
     const field = page.getByRole('textbox', { name: 'Text', exact: true });
