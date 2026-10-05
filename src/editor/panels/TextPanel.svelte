@@ -9,6 +9,11 @@
   import Underline from '@lucide/svelte/icons/underline';
   import Strikethrough from '@lucide/svelte/icons/strikethrough';
   import LinkIcon from '@lucide/svelte/icons/link';
+  import ListIcon from '@lucide/svelte/icons/list';
+  import ListOrdered from '@lucide/svelte/icons/list-ordered';
+  import IndentDecrease from '@lucide/svelte/icons/list-indent-decrease';
+  import IndentIncrease from '@lucide/svelte/icons/list-indent-increase';
+  import { LIST_LABELS, type ListAction } from '../../lib/list-commands';
   import AlignLeft from '@lucide/svelte/icons/text-align-start';
   import AlignCenter from '@lucide/svelte/icons/text-align-center';
   import AlignRight from '@lucide/svelte/icons/text-align-end';
@@ -128,6 +133,21 @@
   const inLink = $derived(!!editor && editor.selection.link !== null && editor.selection.link !== MIXED);
   const linkLabel = $derived(inLink ? 'Edit link' : 'Add link');
   const linkTitle = $derived(editor ? `${linkLabel} (${formatKeys(COMMANDS['text.link'].keys[0])})` : 'Double-click a text box and select text to add a link');
+
+  // --- Lists: while typing, on the paragraphs the selection touches; else on all paragraphs of the boxes ---
+
+  const LIST_TOGGLES = [
+    { kind: 'bullet' as const, label: LIST_LABELS.bullet, icon: ListIcon, keys: 'mod+shift+8' },
+    { kind: 'number' as const, label: LIST_LABELS.number, icon: ListOrdered, keys: 'mod+shift+7' },
+  ];
+  const listState = $derived(editor ? editor.listState : actions.textBoxListState());
+  /** Lists act on text boxes (being typed in, or selected), not on the defaults for new boxes. */
+  const canList = $derived(!!editor || targets.length > 0);
+
+  function runList(action: ListAction) {
+    if (viewer.textEditor) viewer.textEditor.list(action);
+    else actions.listOnTextBoxes(action);
+  }
 
   // --- Size: − [field] + --------------------------------------------------------------
 
@@ -379,6 +399,32 @@
         >
       {/each}
     </div>
+  </div>
+
+  <div class="field list">
+    <span class="label" id="tx-list-label">List</span>
+    <div class="styles" role="group" aria-labelledby="tx-list-label">
+      {#each LIST_TOGGLES as t (t.kind)}
+        <button
+          type="button"
+          class="toggle"
+          aria-label={t.label}
+          title={`${t.label} (${formatKeys(t.keys)})`}
+          aria-pressed={listState.list === 'mixed' ? 'mixed' : listState.list === t.kind}
+          disabled={!canList}
+          onclick={() => runList({ type: 'toggle', kind: t.kind })}><t.icon size={18} strokeWidth={2} aria-hidden="true" /></button
+        >
+      {/each}
+      <button type="button" class="toggle" aria-label={LIST_LABELS.decrease} title={LIST_LABELS.decrease} disabled={!canList || !listState.canDecrease} onclick={() => runList({ type: 'indent', delta: -1 })}
+        ><IndentDecrease size={18} strokeWidth={2} aria-hidden="true" /></button
+      >
+      <button type="button" class="toggle" aria-label={LIST_LABELS.increase} title={LIST_LABELS.increase} disabled={!canList || !listState.canIncrease} onclick={() => runList({ type: 'indent', delta: 1 })}
+        ><IndentIncrease size={18} strokeWidth={2} aria-hidden="true" /></button
+      >
+    </div>
+    {#if listState.anyList && (fmt.align === 'center' || fmt.align === 'right')}
+      <span class="hint">Lists stay left-aligned.</span>
+    {/if}
   </div>
 
   <div class="field">

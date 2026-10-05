@@ -38,7 +38,15 @@ async function addObjects(page: Page) {
     await w.__viewer.setZoom(1);
     w.__viewer.goToPage(0);
   });
-  await page.waitForTimeout(400);
+  // Until the view has stopped moving (the zoom re-renders and scrolls).
+  await page.evaluate(async () => {
+    let last = performance.now();
+    const onScroll = () => (last = performance.now());
+    document.addEventListener('scroll', onScroll, true);
+    while (performance.now() - last < 400) await new Promise((r) => setTimeout(r, 50));
+    document.removeEventListener('scroll', onScroll, true);
+  });
+  await page.waitForTimeout(300);
 }
 
 /** PDF points where objects overlap (and a few where they don't). */

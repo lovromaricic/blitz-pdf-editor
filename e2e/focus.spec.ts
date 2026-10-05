@@ -6,6 +6,11 @@ import { PDFDocument } from '@cantoo/pdf-lib';
 /** Opening is over: focus moved to the editor and the first fit-width zoom has stopped scrolling. */
 async function settled(page: Page) {
   await expect(page.locator('#editor-main')).toBeFocused();
+  await quiet(page);
+}
+
+/** The view has stopped scrolling (a zoom or layout change has settled). */
+async function quiet(page: Page) {
   await page.evaluate(async () => {
     let last = performance.now();
     const onScroll = () => (last = performance.now());
@@ -31,9 +36,11 @@ test('Backspace on a selected object moves focus to the sink, with no ring on th
   await page.mouse.click(at.x, at.y);
   await page.getByRole('toolbar', { name: 'Editing tools' }).getByRole('button', { name: 'Select', exact: true }).click();
   await page.mouse.click(pageBox.x + 40, pageBox.y + pageBox.height - 60); // empty spot: focuses the canvas
-  await page.mouse.click(at.x, at.y); // the stamp
   const stamps = page.locator('.box-hit[data-kind="stamp"]');
   await expect(stamps).toHaveCount(1);
+  await quiet(page);
+  await stamps.first().click(); // the stamp
+  await expect.poll(() => page.evaluate(() => !!(window as unknown as { __viewer: { selectedAnnot: unknown } }).__viewer.selectedAnnot)).toBe(true);
 
   await page.keyboard.press('Backspace');
   await expect(stamps).toHaveCount(0);

@@ -38,6 +38,12 @@
     selectionFormat,
     toggleFormat,
     type SelectionFormat,
+    autoListBefore,
+    caretListItem,
+    listBackspace,
+    listCommand,
+    paragraphFields,
+    touchedParagraphs,
   } from '../lib/rich-text/schema';
   import { copiedSlice, markerFromHtml, markerHtml, rememberCopy, RICH_MARK } from '../lib/rich-text/clipboard';
   import type { RichEditorApi } from '../lib/rich-text/api';
@@ -47,6 +53,8 @@
   import { isMac } from '../lib/commands';
   import { LINK_REFUSED, linkTarget, openExternal } from '../lib/links';
   import { useViewer } from '../lib/viewer.svelte';
+  import { MAX_LIST_LEVEL, type ListKind } from '../lib/annotations';
+  import { applyListAction, canIndent, listPositions, sharedList } from '../lib/list-commands';
   import LinkPopover from './LinkPopover.svelte';
   import LinkCard from './LinkCard.svelte';
 
@@ -80,6 +88,9 @@
   let view: EditorView;
   // svelte-ignore state_referenced_locally (the base format is fixed for the session)
   const fallback: RunFormat = (({ text: _t, ...f }) => f)(baseRun(annot));
+  // Paragraphs with no size of their own are the box's size (list indents are measured in it).
+  // svelte-ignore state_referenced_locally
+  cssFamilyHook.defaultSize = fallback.size;
   let sel = $state.raw<SelectionFormat>(null as unknown as SelectionFormat);
   let formats = $state.raw<RunFormat[]>([]);
   let composing = $state(false);
@@ -112,6 +123,25 @@
     },
   });
 
+  /**
+   * Screen readers: list items are list items, with their level and place
+   * ("item 2 of 4, level 2"). (The editor's paragraphs stay paragraphs: a list
+   * is a property of the paragraph.)
+   */
+  const listSemantics = new Plugin({
+    props: {
+      decorations(state) {
+        const positions = listPositions(paragraphFields(state.doc));
+        const decos: Decoration[] = [];
+        state.doc.forEach((node, offset, i) => {
+          const p = positions[i];
+          if (p) decos.push(Decoration.node(offset, offset + node.nodeSize, { role: 'listitem', 'aria-level': String(p.level + 1), 'aria-posinset': String(p.index), 'aria-setsize': String(p.count) }));
+        });
+        return DecorationSet.create(state.doc, decos);
+      },
+    },
+  });
+
   /** While the panel has focus, the selection still shows (as a highlight) so you see what you format. */
   const keepSelectionVisible = new Plugin({
     props: {
@@ -128,12 +158,23 @@
 
   /** Enter (and Shift+Enter) starts a paragraph that keeps the typing style. */
   const newParagraph = (state: EditorState, dispatch?: (tr: Transaction) => void) => {
-    const marks = state.storedMarks ?? state.selection.$from.marks();
+    const { $from: at0, empty } = state.selection;
+    const para = at0.parent;
+    // Enter in an empty list item leaves the list one step: outdent, or at level 0 a plain paragraph.
+    if (empty && para.attrs.list && para.content.size === 0) {
+      const done = listCommand({ type: 'step-out' }, [{ node: para, pos: at0.before() }])(state, dispatch);
+      if (done && dispatch) announceLevel();
+      return done;
+    }
+    const marks = state.storedMarks ?? at0.marks();
     // An address typed just before Enter becomes a link (after the new line, as its own undo step).
-    const typed = state.selection.empty ? autoLinkBefore(state, state.selection.from) : null;
+    const typed = empty ? autoLinkBefore(state, state.selection.from) : null;
     const done = splitBlock(state, (tr) => {
       const at = tr.selection.$from;
-      if (at.parent.childCount === 0) tr.setNodeMarkup(at.before(), undefined, { empty: formatOf(marks, fallback) });
+      // A new item of the same list, at the same level.
+      const attrs: Record<string, unknown> = { ...at.parent.attrs, list: para.attrs.list, level: para.attrs.level };
+      if (at.parent.childCount === 0) attrs.empty = formatOf(marks, fallback);
+      tr.setNodeMarkup(at.before(), undefined, attrs);
       // A link doesn't carry on into the new paragraph.
       dispatch?.(tr.setStoredMarks(marks.filter((m) => m.type.name !== 'link')));
     });
@@ -243,9 +284,49 @@
     }, 300);
   }
 
+  // --- Lists -------------------------------------------------------------------------------
+
+  /** The list state of the paragraphs the selection touches (for the panel). */
+  let listState = $state.raw<RichEditorApi['listState']>({ list: null, canIncrease: false, canDecrease: false, anyList: false });
+  /** The list item the caret was in, to announce entering a list. */
+  let lastItem: string | null = null;
+
+  /** Tab / Shift+Tab in a list item: one level in or out (false at the limits: Tab then moves on). */
+  function listKey(delta: 1 | -1) {
+    const item = caretListItem(view.state);
+    if (!item || (delta > 0 ? item.level >= MAX_LIST_LEVEL : item.level <= 0)) return false;
+    listCommand({ type: 'indent', delta })(view.state, view.dispatch);
+    announceLevel();
+    return true;
+  }
+
+  function announceLevel() {
+    const item = caretListItem(view.state);
+    viewer.announce(item ? `Level ${item.level + 1}` : 'Not a list item');
+  }
+
+  function updateLists() {
+    const touched = touchedParagraphs(view.state).map((p) => (p.node.attrs.list ? { list: p.node.attrs.list as ListKind, level: p.node.attrs.level as number } : {}));
+    listState = { list: sharedList(touched), canIncrease: canIndent(touched, 1), canDecrease: canIndent(touched, -1), anyList: touched.some((t) => t.list) };
+    // Moving into a list (or to another one) says which and where: "Bulleted list, item 2 of 4".
+    const { empty, $from: caret } = view.state.selection;
+    if (!empty || !caret.parent.attrs.list) {
+      lastItem = null;
+      return;
+    }
+    const index = caret.index(0);
+    const pos = listPositions(paragraphFields(view.state.doc))[index];
+    const key = pos ? `${caret.parent.attrs.list}:${pos.level}:${index - pos.index}` : null;
+    if (pos && key !== lastItem && lastItem === null && view.hasFocus()) {
+      viewer.announce(`${caret.parent.attrs.list === 'bullet' ? 'Bulleted' : 'Numbered'} list, item ${pos.index} of ${pos.count}${pos.level ? `, level ${pos.level + 1}` : ''}`);
+    }
+    lastItem = key;
+  }
+
   function update() {
     sel = selectionFormat(view.state, fallback);
     formats = formatsInSelection(view.state, fallback);
+    updateLists();
     const { empty, from } = view.state.selection;
     const inLink = empty ? linkRangeAt(view.state.doc, from, 'inside') : null;
     if (inLink?.from !== caretLink?.from || inLink?.to !== caretLink?.to) {
@@ -273,6 +354,14 @@
       return formats;
     },
     focus: () => view.focus(),
+    list: (action) => {
+      syncSelection(view);
+      listCommand(action)(view.state, view.dispatch);
+      if (action.type === 'indent') announceLevel();
+    },
+    get listState() {
+      return listState;
+    },
     finish: () => onFinish(),
     openLink: () => openLink(),
     get box() {
@@ -298,7 +387,13 @@
           'Mod-i': () => (api.toggle('italic'), true),
           'Mod-u': () => (api.toggle('underline'), true),
           'Mod-k': () => (openLink(), true),
-          Tab: toPanel,
+          // Lists: Cmd/Ctrl+Shift+8 bullets, +7 numbers (as in most editors).
+          'Mod-Shift-8': () => (api.list({ type: 'toggle', kind: 'bullet' }), true),
+          'Mod-Shift-7': () => (api.list({ type: 'toggle', kind: 'number' }), true),
+          // Tab and Shift+Tab change a list item's level (within 0..2); anywhere else Tab moves on to the panel.
+          Tab: (state) => (caretListItem(state) && listKey(1)) || toPanel(),
+          'Shift-Tab': (state) => !!caretListItem(state) && listKey(-1),
+          Backspace: listBackspace,
           // Open the link the caret is in (the card's Open, from the keyboard).
           'Alt-Enter': (state) => {
             const range = linkRangeAt(state.doc, state.selection.from, 'inside');
@@ -315,6 +410,7 @@
         keepFormats,
         linkEdges,
         keepSelectionVisible,
+        listSemantics,
       ],
     });
     state = state.apply(selectEnd(state));
@@ -339,9 +435,23 @@
         syncSelection(v);
         return false;
       },
-      // A space after an address makes it a link (one undo takes back just the link).
+      // A space after an address makes it a link (one undo takes back just the link);
+      // after "- ", "* " or "1. " at the start of an empty paragraph, a list item.
       handleTextInput(v, from, to, text) {
         if (from !== to || !/^[ \u00a0]$/.test(text)) return false;
+        const item = autoListBefore(v.state, from);
+        if (item) {
+          v.dispatch(v.state.tr.insertText(text, from, to));
+          // Its own undo step: undo brings back the typed characters.
+          const tr = v.state.tr.delete(item.from, item.to + 1);
+          const at = tr.doc.resolve(item.from);
+          const [f] = applyListAction([{}], { type: 'set', kind: item.kind });
+          tr.setNodeMarkup(at.before(), undefined, { ...at.parent.attrs, list: f.list, level: f.level ?? 0 });
+          v.dispatch(closeHistory(tr).setMeta('autolink', true));
+          isolateNext = true;
+          viewer.announce(item.kind === 'bullet' ? 'Bulleted list' : 'Numbered list');
+          return true;
+        }
         const typed = autoLinkBefore(v.state, from);
         if (!typed) return false;
         v.dispatch(v.state.tr.insertText(text, from, to));
@@ -478,6 +588,7 @@
   style:--s={scale}
   style:--lh={lineSpacingOf(annot)}
   style:text-align={alignOf(annot)}
+  data-align={alignOf(annot)}
   style:caret-color={rgbToCss(annot.color)}
   onpointermove={onPointerMove}
   onpointerleave={() => hovered && leaveSoon()}
@@ -540,6 +651,13 @@
   }
   .rich-editor :global(p) {
     margin: 0;
+  }
+  /* List items: left-aligned (justified in a justified box), like the layout engine. */
+  .rich-editor :global(p[data-list]) {
+    text-align: left;
+  }
+  .rich-editor[data-align='justify'] :global(p[data-list]) {
+    text-align: justify;
   }
   /* A tiny base font: each paragraph's own line box then sits inside every run's. */
   .rich-editor :global(.rich-surface) {

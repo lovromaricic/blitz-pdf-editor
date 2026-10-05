@@ -26,7 +26,8 @@ import { copyWithNewIds, describeUnits, GROUP_PREFIX, groupUnits, isGroupId, mem
 import { styleAvailable } from './text-format';
 import { ensureTextFont } from './font-metrics-store.svelte';
 import { DEFAULT_TEXT_WIDTH, formatTextBox, layoutText, topLeftForCenter } from './text-layout';
-import { dropPageLinks } from './text-rich';
+import { dropPageLinks, paragraphsOf, toRich } from './text-rich';
+import { applyListAction, canIndent, listActionLabel, sharedList, type ListAction } from './list-commands';
 
 const STYLE_LABELS = { bold: 'Bold', italic: 'Italic', underline: 'Underline', strike: 'Strikethrough' } as const;
 import { groupMarks, padTextRect } from './redact-marks';
@@ -940,6 +941,38 @@ export class Actions {
       `Move ${describeUnits(sel.list, sel.ids)}`,
       `nudge:${sel.ids.join(',')}`,
     );
+  }
+
+  /** The selected text boxes (not being typed in), when only text boxes are selected. */
+  private selectedTextBoxes() {
+    const sel = this.selectedObjects;
+    if (!sel || sel.ids.some(isGroupId) || !sel.members.every((a) => a.type === 'text')) return null;
+    return { page: sel.page, boxes: sel.members as TextAnnotation[] };
+  }
+
+  /** The list state of all paragraphs of the selected text boxes (the panel, when no box is being typed in). */
+  textBoxListState() {
+    const t = this.selectedTextBoxes();
+    const ps = t ? t.boxes.flatMap((a) => paragraphsOf(a)) : [];
+    return { list: sharedList(ps), canIncrease: canIndent(ps, 1), canDecrease: canIndent(ps, -1), anyList: ps.some((p) => p.list) };
+  }
+
+  /** A list command on every paragraph of the selected text boxes: one undo step ("Bulleted list"). */
+  listOnTextBoxes(action: ListAction) {
+    const t = this.selectedTextBoxes();
+    if (!t) return;
+    // Every paragraph of every box is one list together (as if all were selected while typing).
+    const all = t.boxes.map((a) => toRich(a).paragraphs!);
+    const next = applyListAction(all.flat(), action);
+    let k = 0;
+    const changed = t.boxes.map((a, i) => {
+      const paragraphs = all[i].map((p) => {
+        const { list: _l, level: _v, ...rest } = p;
+        return { ...rest, ...next[k++] };
+      });
+      return { pageId: t.page.id, annot: layoutText({ ...toRich(a), paragraphs }) };
+    });
+    this.updateAnnotations(changed, listActionLabel(action));
   }
 
   /** Group needs two or more units (objects or groups) selected. */
