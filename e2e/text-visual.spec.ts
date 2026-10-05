@@ -100,7 +100,7 @@ async function compare(page: Page, editorPng: Buffer, pdfPng: string) {
   );
 }
 
-for (const [kind, zoom] of [['every option', 1], ['every option', 2], ['rich text, every format mixed', 1], ['rich text, every format mixed', 2]] as const) {
+for (const [kind, zoom] of [['every option', 1], ['every option', 2], ['rich text, every format mixed', 1], ['rich text, every format mixed', 2], ['lists, three levels', 1], ['lists, three levels', 2]] as const) {
   test(`a text box with ${kind} looks the same in the saved PDF (zoom ${zoom * 100}%)`, async ({ page }) => {
     await openBlank(page);
     const box = await page.evaluate(async ({ zoom, kind }) => {
@@ -117,9 +117,21 @@ for (const [kind, zoom] of [['every option', 1], ['every option', 2], ['rich tex
         { runs: [run('Short last line.', { italic: true, size: 12 })] },
       ];
       const base = { id: 'all', type: 'text', color: [0.1, 0.2, 0.6], opacity: 0.6, font: 'roboto', bold: true, size: 14, rotate: 0, rect: [80, 600, 380, 700], align: 'justify', lineSpacing: 1.5, background: [1, 0.953, 0.69] };
+      // Bullets and numbers, three levels, long wrapped items, mixed sizes in an item.
+      const lists = [
+        { runs: [run('Groceries for the week, a long first item that wraps onto a second line', { size: 13 })], list: 'number' },
+        { runs: [run('Fruit: apples, pears and plums from the market', { size: 12 })], list: 'number', level: 1 },
+        { runs: [run('Ripe ', { size: 11 }), run('BIG', { size: 18, color: [0.8, 0.1, 0.1] }), run(' Čačić šžć', { size: 11, underline: true })], list: 'bullet', level: 2 },
+        { runs: [run('Vegetables', { size: 12, italic: true, font: 'lora' })], list: 'number', level: 1 },
+        { runs: [run('Bread, rye or wheat, whichever is fresher in the morning', { size: 13 })], list: 'bullet' },
+        { runs: [run('Sub point', { size: 13 })], list: 'bullet', level: 1 },
+        { runs: [run('A plain closing paragraph.', { size: 12 })] },
+      ];
       const a = kind === 'every option'
         ? layoutText({ ...base, text, lines: [], underline: true, strike: true } as never)
-        : layoutText({ ...base, bold: false, text: '', paragraphs } as never);
+        : kind === 'lists, three levels'
+          ? layoutText({ ...base, bold: false, align: 'left', lineSpacing: 1.25, text: '', paragraphs: lists } as never)
+          : layoutText({ ...base, bold: false, text: '', paragraphs } as never);
       w.__actions.addAnnotation(w.__doc.pages[0].id, a);
       await w.__viewer.setZoom(zoom);
       await new Promise((r) => setTimeout(r, 300));
