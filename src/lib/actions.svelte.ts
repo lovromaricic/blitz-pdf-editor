@@ -225,11 +225,12 @@ export class Actions {
       return this.saveFlattenedCopy();
     }
     if (!(await this.checkPendingRedactions())) return false;
-    const bytes = await this.viewer.runTask('Saving…', () => writePdf(this.doc, this.doc.pages, 'preserve'));
+    const notes: string[] = [];
+    const bytes = await this.viewer.runTask('Saving…', () => writePdf(this.doc, this.doc.pages, 'preserve', (t) => notes.push(t)));
     if (!bytes) return false;
     downloadBytes(bytes, fileName);
     if (markSaved) this.doc.markSaved();
-    this.viewer.notify(`Saved ${fileName} to your downloads.${this.passwordNote()}`);
+    this.viewer.notify([`Saved ${fileName} to your downloads.${this.passwordNote()}`, ...notes].join(' '));
     return true;
   }
 
@@ -305,7 +306,7 @@ export class Actions {
     }
     const indexes = pages.map((p) => this.doc.pages.indexOf(p));
     const fileName = `${baseName(this.doc.fileName)} (${pagesLabel(indexes)}).pdf`;
-    const bytes = await this.viewer.runTask('Extracting…', () => writePdf(this.doc, pages, 'fresh'));
+    const bytes = await this.viewer.runTask('Extracting…', () => writePdf(this.doc, pages, 'fresh', (t) => this.viewer.notify(t)));
     if (!bytes) return;
     downloadBytes(bytes, fileName);
     if (removeAfter) this.delete([...pages]);
@@ -318,7 +319,7 @@ export class Actions {
     if (groups.length === 0) return;
     const base = baseName(this.doc.fileName);
     const files = await this.viewer.runTask('Splitting…', (progress) =>
-      writePdfs(this.doc, groups, 'fresh', (done, total) => progress(done / total)),
+      writePdfs(this.doc, groups, 'fresh', (done, total) => progress(done / total), (t) => this.viewer.notify(t)),
     );
     if (!files) return;
     const named = files.map((bytes, k) => ({

@@ -9,7 +9,9 @@ import { FONT_URLS } from '../fonts';
 import { localFontList } from '../font-catalog';
 import { changedFieldValues, type FieldValue } from '../forms';
 import type { Rgb } from '../annotations';
-import { imageAssets } from '../image-store';
+import { cutImages, imageAssets, storedImage } from '../image-store';
+import { planCuts } from '../image-cut';
+import { CROP_STRINGS } from '../strings';
 import type { PageDecoration } from '../decorations';
 import { pageNumberLabels, watermarkApplies } from '../settings';
 
@@ -56,6 +58,8 @@ export async function writePdfs(
   outputs: (readonly PageRef[])[],
   mode: AssembleMode,
   onProgress?: (done: number, total: number) => void,
+  /** Something the user should know about the result (a cropped image saved smaller). */
+  notice?: (text: string) => void,
 ): Promise<Uint8Array[]> {
   const used = new Set(outputs.flatMap((pages) => pages.map((p) => p.sourceId)));
   // Form values typed in the editor, and which files have their forms flattened.
@@ -65,17 +69,32 @@ export async function writePdfs(
   // Structured clone copies the bytes, so the originals stay with us.
   const sources = sourceInputs(doc, used);
 
-  // Inserted images, each sent (and embedded) once however often it's used.
-  const imageKeys = new Set(outputs.flat().flatMap((p) => (p.annots ?? []).flatMap((a) => (a.type === 'image' && a.imageKey ? [a.imageKey] : []))));
-  const images = imageAssets(imageKeys);
-
   const decoFor = decorationResolver(doc);
+  // Cropped images point at their cut (only the kept pixels are written); the
+  // session keeps its originals and crops. Without crops, nothing changes here.
+  const planned = outputs.map((pages) => planFor(pages, decoFor));
+  const { plans, cuts } = planCuts(planned.flat(), (key) => {
+    const img = storedImage(key);
+    return img && [img.width, img.height];
+  });
+  let at = 0;
+  const plansOut = planned.map((list) => plans.slice(at, (at += list.length)));
+
+  // Inserted images, each sent (and embedded) once however often it's used.
+  const imageKeys = new Set(plans.flatMap((p) => (p.annots ?? []).flatMap((a) => (a.type === 'image' && a.imageKey ? [a.imageKey] : []))));
+  const images = imageAssets(imageKeys);
+  if (cuts.length) {
+    const cut = await cutImages(cuts);
+    Object.assign(images, cut.assets);
+    if (cut.reduced.length) notice?.(CROP_STRINGS.reduced(cut.reduced.length));
+  }
+
   const protection = doc.settings.protection;
   const result = await runJob(
     {
       kind: 'assemble',
       sources,
-      outputs: outputs.map((pages) => planFor(pages, decoFor)),
+      outputs: plansOut,
       mode,
       forms,
       flatten,
@@ -195,6 +214,6 @@ export async function estimateCompression(
   return (await runJob({ kind: 'estimate', sources: sourceInputs(doc, ids), settings: plain }, onProgress, signal)).sizes!;
 }
 
-export function writePdf(doc: EditorDocument, pages: readonly PageRef[], mode: AssembleMode): Promise<Uint8Array> {
-  return writePdfs(doc, [pages], mode).then((files) => files[0]);
+export function writePdf(doc: EditorDocument, pages: readonly PageRef[], mode: AssembleMode, notice?: (text: string) => void): Promise<Uint8Array> {
+  return writePdfs(doc, [pages], mode, undefined, notice).then((files) => files[0]);
 }

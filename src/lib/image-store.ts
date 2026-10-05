@@ -3,6 +3,7 @@
 // and embedded in the saved PDF, once.
 import { prepareInsertImage, UnsupportedImageError, type PreparedImage } from './image-prepare';
 import type { ImageJob, ImageJobResult } from './image-worker';
+import { cutImage, type CutRequest } from './image-cut';
 
 export interface StoredImage extends PreparedImage {
   key: string;
@@ -43,7 +44,8 @@ export function releaseImages() {
 let worker: Worker | null = null;
 let nextId = 0;
 
-function inWorker(bytes: Uint8Array, heic: boolean): Promise<PreparedImage> {
+/** Run a job in the image worker (started on first use). */
+function inWorker<R>(job: Omit<ImageJob, 'id'>, transfer: Transferable[], pick: (r: ImageJobResult) => R | undefined): Promise<R> {
   worker ??= new Worker(new URL('./image-worker.ts', import.meta.url), { type: 'module', name: 'images' });
   const w = worker;
   const id = ++nextId;
@@ -52,8 +54,9 @@ function inWorker(bytes: Uint8Array, heic: boolean): Promise<PreparedImage> {
       if (e.data.id !== id) return;
       w.removeEventListener('message', onMessage);
       w.removeEventListener('error', onError);
-      if ('image' in e.data) resolve(e.data.image);
-      else reject(e.data.error === 'unsupported' ? new UnsupportedImageError() : new Error(e.data.error));
+      const r = pick(e.data);
+      if (r !== undefined) resolve(r);
+      else reject('error' in e.data && e.data.error === 'unsupported' ? new UnsupportedImageError() : new Error('error' in e.data ? e.data.error : 'unexpected'));
     };
     const onError = () => {
       w.removeEventListener('message', onMessage);
@@ -64,8 +67,35 @@ function inWorker(bytes: Uint8Array, heic: boolean): Promise<PreparedImage> {
     };
     w.addEventListener('message', onMessage);
     w.addEventListener('error', onError);
-    w.postMessage({ id, bytes, heic } satisfies ImageJob);
+    w.postMessage({ ...job, id } as ImageJob, transfer);
   });
+}
+
+/**
+ * The cut images a written PDF needs (see image-cut.ts), by their keys. In
+ * the worker; on the main thread where that fails. `reduced` lists cuts the
+ * device could only hold at a lower resolution.
+ */
+export async function cutImages(cuts: readonly CutRequest[], onProgress?: (done: number) => void): Promise<{ assets: Record<string, ImageAsset>; reduced: CutRequest[] }> {
+  const assets: Record<string, ImageAsset> = {};
+  const reduced: CutRequest[] = [];
+  let done = 0;
+  for (const c of cuts) {
+    const img = images.get(c.source);
+    if (!img) continue;
+    // A copy goes to the worker: ours stays.
+    const asset: ImageAsset = { kind: img.kind, bytes: img.bytes.slice(), orientation: img.orientation };
+    let r: { asset: ImageAsset; reduced: boolean };
+    try {
+      r = await inWorker({ cut: { asset, rect: c.rect } }, [asset.bytes.buffer as ArrayBuffer], (m) => ('cut' in m ? m.cut : undefined));
+    } catch {
+      r = await cutImage({ kind: img.kind, bytes: img.bytes, orientation: img.orientation }, c.rect);
+    }
+    assets[c.key] = r.asset;
+    if (r.reduced) reduced.push(c);
+    onProgress?.(++done);
+  }
+  return { assets, reduced };
 }
 
 /**
@@ -77,7 +107,8 @@ export async function addImageFile(file: Blob & { name?: string }, heic: boolean
   let prepared: PreparedImage;
   try {
     // A copy goes to the worker, so a failure there can still be retried here.
-    prepared = await inWorker(bytes.slice(), heic);
+    const copy = bytes.slice();
+    prepared = await inWorker({ bytes: copy, heic }, [], (m) => ('image' in m ? m.image : undefined));
   } catch (e) {
     // Some browsers can't decode everything in a worker (HEIC in Safari): try here.
     if (e instanceof UnsupportedImageError && !heic) throw e;

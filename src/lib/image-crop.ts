@@ -30,15 +30,22 @@ export function isFull(c: Crop) {
   return c[0] <= e && c[1] <= e && c[2] >= 1 - e && c[3] >= 1 - e;
 }
 
-/** The crop clamped into the image, ordered, and at least the minimum size (pixels of the original). */
+/**
+ * The crop clamped into the image, ordered, on whole pixels of the original
+ * (what's shown is exactly what the saved file keeps) and at least the
+ * minimum size.
+ */
 export function normalizeCrop(c: Crop, px: [number, number]): Crop {
-  const minX = Math.min(1, MIN_CROP_PX / px[0]);
-  const minY = Math.min(1, MIN_CROP_PX / px[1]);
-  let [x0, y0, x1, y1] = [Math.min(c[0], c[2]), Math.min(c[1], c[3]), Math.max(c[0], c[2]), Math.max(c[1], c[3])];
-  x0 = Math.max(0, Math.min(x0, 1 - minX));
-  y0 = Math.max(0, Math.min(y0, 1 - minY));
-  x1 = Math.min(1, Math.max(x1, x0 + minX));
-  y1 = Math.min(1, Math.max(y1, y0 + minY));
+  const axis = (a: number, b: number, n: number): [number, number] => {
+    const min = Math.min(n, MIN_CROP_PX);
+    let lo = Math.round(Math.max(0, Math.min(a, b)) * n);
+    let hi = Math.round(Math.min(1, Math.max(a, b)) * n);
+    lo = Math.min(lo, n - min);
+    hi = Math.max(hi, lo + min);
+    return [lo / n, hi / n];
+  };
+  const [x0, x1] = axis(c[0], c[2], px[0]);
+  const [y0, y1] = axis(c[1], c[3], px[1]);
   return [x0, y0, x1, y1];
 }
 
@@ -207,7 +214,12 @@ export function enterCropFor(a: ImageAnnotation): CropView {
  */
 export function applyCropView(a: ImageAnnotation, v: CropView, px: [number, number]): ImageAnnotation {
   const crop = normalizeCrop(viewToCrop(v, a.flipX, a.flipY), px);
-  const [fx, fy, fw, fh] = v.frame;
+  // The frame of that crop (on whole pixels), as seen.
+  const [ix, iy, iw, ih] = v.image;
+  const fx = ix + (a.flipX ? 1 - crop[2] : crop[0]) * iw;
+  const fy = iy + (a.flipY ? 1 - crop[3] : crop[1]) * ih;
+  const fw = (crop[2] - crop[0]) * iw;
+  const fh = (crop[3] - crop[1]) * ih;
   // The frame's center (upright, y down) turned into page space (y up).
   const x = fx + fw / 2;
   const yd = fy + fh / 2;

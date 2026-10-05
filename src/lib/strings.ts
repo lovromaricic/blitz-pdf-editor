@@ -85,6 +85,10 @@ export const CROP_STRINGS = {
   resetDone: 'Crop reset: the whole image shows',
   frame: 'Crop frame',
   handle: (name: string) => `Crop handle, ${name}`,
+  reduced: (n: number) =>
+    n === 1
+      ? 'A cropped image was too large for this device to cut at full resolution, so it was saved at a lower resolution.'
+      : `${n} cropped images were too large for this device to cut at full resolution, so they were saved at a lower resolution.`,
 } as const;
 
 /** File › New blank PDF… */
