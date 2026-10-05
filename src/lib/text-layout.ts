@@ -10,16 +10,22 @@ import {
   type StampAnnotation,
   type TextAnnotation,
 } from './annotations';
-import { LINE_HEIGHT, measure, TEXT_PADDING, wrapText } from './fonts';
+import { measure } from './fonts';
+import { textMeasure } from './font-metrics-store.svelte';
+import { boxHeight, TEXT_PADDING, wrapParagraphs } from './text-box-layout';
+import { lineSpacingOf } from './text-format';
 
 export const DEFAULT_TEXT_WIDTH = 200;
 export const STAMP_HEIGHT = 30;
 
-/** Re-wrap text to the box width (or `width`) and fit the box height to the lines. */
+/**
+ * Re-wrap text to the box width (or `width`) with the font's own metrics, and
+ * fit the box height to the lines. The width stays as the user set it.
+ */
 export function layoutText(a: TextAnnotation, width = uprightSize(a)[0]): TextAnnotation {
-  const lines = wrapText(a.text, a, a.size, Math.max(a.size, width - 2 * TEXT_PADDING));
-  const height = lines.length * a.size * LINE_HEIGHT + 2 * TEXT_PADDING;
-  return { ...a, lines, rect: rectFromUpright(uprightTopLeft(a), width, height, a.rotate) };
+  const { lines, ends } = wrapParagraphs(a.text, textMeasure(a, a.size), Math.max(a.size, width - 2 * TEXT_PADDING));
+  const height = boxHeight(lines.length, a.size, lineSpacingOf(a));
+  return { ...a, lines, ends, rect: rectFromUpright(uprightTopLeft(a), width, height, a.rotate) };
 }
 
 /** A stamp sized to its label, centered on `center` (PDF space). */

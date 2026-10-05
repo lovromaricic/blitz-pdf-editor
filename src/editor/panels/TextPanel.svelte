@@ -19,6 +19,7 @@
   import { FALLBACK_FONT } from '../../lib/font-catalog';
   import { ensureFont, lastTextStyle, loadFonts } from '../../lib/fonts';
   import { layoutText } from '../../lib/text-layout';
+  import { ensureTextFont } from '../../lib/font-metrics-store.svelte';
   import { useViewer } from '../../lib/viewer.svelte';
   import {
     ALIGNS,
@@ -63,7 +64,7 @@
     const list = targets;
     if (list.length === 0) return;
     const relayout = Object.keys(changes).some((k) => RELAYOUT.has(k as keyof TextAnnotation));
-    if (relayout) await Promise.all([loadFonts(), ...list.map((t) => ensureFont(changes.font ?? t.annot.font))]);
+    if (relayout) await Promise.all([loadFonts(), ...list.map((t) => ensureTextFont(changes.font ?? t.annot.font))]);
     actions.updateAnnotations(
       list.map((t) => {
         const next = { ...t.annot, ...changes };
@@ -77,7 +78,7 @@
 
   /** Load the font first; if it can't be loaded, say so calmly and use Sans serif. */
   async function chooseFont(font: string) {
-    if (await ensureFont(font)) return apply({ font }, 'Font');
+    if (await ensureTextFont(font)) return apply({ font }, 'Font');
     viewer.notify("Couldn't load this font. Using Sans serif instead.");
     return apply({ font: FALLBACK_FONT }, 'Font');
   }

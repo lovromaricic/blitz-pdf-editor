@@ -1,7 +1,9 @@
 // Writes markup as standard PDF annotations (Highlight, Ink, Square, Circle,
 // Line, FreeText, Stamp, Text), each with an appearance stream so every viewer
 // draws it the same way and other editors can still select and change it.
-import { faceKey, firstBaseline } from '../font-catalog';
+import { faceKey } from '../font-catalog';
+import { FALLBACK_STRIKE_OFFSET, FALLBACK_UNDERLINE, parseFontMetrics, textWidth, type FontMetrics } from '../font-metrics';
+import { layoutTextBox, type LineBox } from '../text-box-layout';
 import { bubblePath, NOTE_LINE_WIDTH, NOTE_LINES, NOTE_STROKE, toPdfPath } from '../note-shape';
 import {
   beginText,
@@ -22,6 +24,7 @@ import {
   PDFImage,
   PDFName,
   PDFOperator,
+  PDFOperatorNames,
   PDFPage,
   PDFRef,
   PDFString,
@@ -48,11 +51,11 @@ import type { ImageAsset } from '../image-store';
 /** A font face key from font-catalog.ts faceKey(), e.g. "roboto-bold" or "sans". */
 export type FontKey = string;
 /** Supplies an embedded font for the document (fonts are fetched and subset on demand). */
-export type FontProvider = (doc: PDFDocument, key: FontKey) => Promise<PDFFont>;
+export type FontProvider = ((doc: PDFDocument, key: FontKey) => Promise<PDFFont>) & {
+  /** The font file itself, for measuring text exactly like the editor does. */
+  bytes?: (key: FontKey) => Promise<Uint8Array>;
+};
 
-// Must match the editor's layout (fonts.ts).
-const LINE_HEIGHT = 1.25;
-const TEXT_PADDING = 3;
 // Noto's vertical metrics (per 1 em), for stamps (text uses each font's own, font-catalog.ts).
 const ASCENT = 1.069;
 const DESCENT = 0.293;
@@ -132,8 +135,7 @@ async function addSearchableText(doc: PDFDocument, page: PDFPage, a: TextAnnotat
   const corners = [[0, 0], [w, 0], [0, h], [w, h]].map(([x, y]) => [ma * x + mc * y, mb * x + md * y]);
   const e = a.rect[0] - Math.min(...corners.map((c) => c[0]));
   const f = a.rect[1] - Math.min(...corners.map((c) => c[1]));
-  const lineH = a.size * LINE_HEIGHT;
-  const first = firstBaseline(a.font, a.size, LINE_HEIGHT, TEXT_PADDING);
+  const { lines } = await textBoxLayout(a, fonts, font);
   const ops: PDFOperator[] = [
     pushGraphicsState(),
     concatTransformationMatrix(ma, mb, mc, md, e, f),
@@ -141,12 +143,58 @@ async function addSearchableText(doc: PDFDocument, page: PDFPage, a: TextAnnotat
     setTextRenderingMode(TextRenderingMode.Invisible),
     setFontAndSize(key, a.size),
   ];
-  a.lines.forEach((line, i) => {
+  for (const line of lines) {
+    if (!line.text) continue;
+    // Placed exactly like the visible text (justified lines spaced the same), so selections line up.
     // A trailing space keeps lines apart when the text is copied or searched.
-    if (line) ops.push(setTextMatrix(1, 0, 0, 1, TEXT_PADDING, h - first - i * lineH), showText(font.encodeText(`${line} `)));
-  });
+    ops.push(setTextMatrix(1, 0, 0, 1, line.x, h - line.y));
+    if (line.wordSpacing) ops.push(PDFOperator.of(PDFOperatorNames.ShowTextAdjusted, [doc.context.obj(justifiedRuns(font, line, a.size, ' '))]));
+    else ops.push(showText(font.encodeText(`${line.text} `)));
+  }
   ops.push(endText(), popGraphicsState());
   page.pushOperators(...ops);
+}
+
+/** Metrics from the font file, per provider and face (the editor measures with the same numbers). */
+const fileMetrics = new WeakMap<FontProvider, Map<FontKey, Promise<FontMetrics | null>>>();
+
+function metricsOf(fonts: FontProvider, key: FontKey): Promise<FontMetrics | null> {
+  if (!fonts.bytes) return Promise.resolve(null);
+  let perProvider = fileMetrics.get(fonts);
+  if (!perProvider) fileMetrics.set(fonts, (perProvider = new Map()));
+  let m = perProvider.get(key);
+  if (!m) {
+    m = fonts.bytes(key).then(parseFontMetrics, () => null);
+    perProvider.set(key, m);
+  }
+  return m;
+}
+
+/** The shared text box layout, measured with the embedded font's own metrics. */
+async function textBoxLayout(a: TextAnnotation, fonts: FontProvider, font: PDFFont) {
+  const m = await metricsOf(fonts, faceKey(a.font, a.bold, a.italic));
+  const measure = m ? (t: string) => textWidth(m, t, a.size) : (t: string) => font.widthOfTextAtSize(t, a.size);
+  const deco = m ?? { underline: FALLBACK_UNDERLINE, strike: { offset: FALLBACK_STRIKE_OFFSET, thickness: FALLBACK_UNDERLINE.thickness } };
+  return layoutTextBox(a, measure, deco);
+}
+
+/**
+ * A justified line as a TJ array: the text split after each space between
+ * words, with the extra room (in thousandths of the font size, negative =
+ * further right) after each of those spaces. One string of text, so it stays
+ * searchable and selectable.
+ */
+function justifiedRuns(font: PDFFont, line: LineBox, size: number, trailing = ''): (PDFHexString | number)[] {
+  const lead = line.text.slice(0, line.indent);
+  const parts = line.text.slice(line.indent).split(/(?<= )/);
+  const adjust = -Math.round(((line.wordSpacing * 1000) / size) * 1000) / 1000;
+  const out: (PDFHexString | number)[] = [];
+  parts.forEach((part, i) => {
+    const last = i === parts.length - 1;
+    out.push(font.encodeText((i === 0 ? lead : '') + part + (last ? trailing : '')));
+    if (!last && part.endsWith(' ')) out.push(adjust);
+  });
+  return out;
 }
 
 interface Appearance {
@@ -276,16 +324,36 @@ async function boxedAppearance(doc: PDFDocument, a: BoxedAnnotation, fonts: Font
   switch (a.type) {
     case 'text': {
       const font = await fonts(doc, faceKey(a.font, a.bold, a.italic));
-      const lineH = a.size * LINE_HEIGHT;
-      const first = firstBaseline(a.font, a.size, LINE_HEIGHT, TEXT_PADDING);
-      const runs = a.lines
-        .map((line, i) => (line ? `1 0 0 1 ${n(TEXT_PADDING)} ${n(h - first - i * lineH)} Tm ${font.encodeText(line).toString()} Tj` : ''))
-        .filter(Boolean)
+      const { lines, bars } = await textBoxLayout(a, fonts, font);
+      const runs = lines
+        .filter((l) => l.text)
+        .map((l) => {
+          const at = `1 0 0 1 ${n(l.x)} ${n(h - l.y)} Tm`;
+          if (!l.wordSpacing) return `${at} ${font.encodeText(l.text).toString()} Tj`;
+          return `${at} [${justifiedRuns(font, l, a.size).map((p) => (typeof p === 'number' ? n(p) : p.toString())).join(' ')}] TJ`;
+        })
         .join('\n');
+      // Background first, then the text, then underline / strikethrough bars (top-down box → PDF y-up).
+      const parts = [
+        a.background ? `${rgb(a.background)} rg 0 0 ${n(w)} ${n(h)} re f` : '',
+        `${rgb(a.color)} rg\nBT /F0 ${n(a.size)} Tf\n${runs}\nET`,
+        bars.map((b) => `${n(b.x)} ${n(h - b.y - b.h)} ${n(b.w)} ${n(b.h)} re f`).join('\n'),
+      ].filter(Boolean);
+      // Drawn as one transparency group, so with opacity below 100% text and
+      // background fade together (no darker text where it overlaps the fill).
+      const group = doc.context.register(
+        doc.context.stream(parts.join('\n'), {
+          Type: 'XObject',
+          Subtype: 'Form',
+          BBox: [0, 0, w, h],
+          Group: { S: 'Transparency' },
+          Resources: { Font: { F0: font.ref } },
+        }),
+      );
       return {
         ...base,
-        content: `/GS0 gs ${rgb(a.color)} rg\nBT /F0 ${n(a.size)} Tf\n${runs}\nET`,
-        fonts: { F0: font.ref },
+        content: `/GS0 gs /Tx0 Do`,
+        images: { Tx0: group },
         entries: {
           Subtype: 'FreeText',
           // Viewers that rebuild the appearance use DA; ours is already complete.

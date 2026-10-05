@@ -1,6 +1,8 @@
 <script lang="ts">
   import { capturePointer } from '../lib/dom';
   import { focusSink } from '../lib/focus';
+  import { ensureTextFont } from '../lib/font-metrics-store.svelte';
+  import { alignOf, lineSpacingOf } from '../lib/text-format';
   // Markup on one page: draws annotations (in stacking order) and handles the markup tools
   // (Highlight, Draw, Shapes, Text, Stamp, Comment, Sign) and Select, including
   // moving, resizing and turning inserted images. Coordinates are converted between screen and PDF
@@ -31,7 +33,8 @@
   } from '../lib/annotations';
   import { boxedGeometry, pointsAttr, screenBox, toPrimitives } from '../lib/annotation-view';
   import { clampFrame, frameCorners, frameToImage, imageFrame, resizeFrame, turnFrame, turnHandle, MIN_IMAGE_SIZE, type Frame } from '../lib/image-geometry';
-  import { cssFamily, ensureFont, LINE_HEIGHT, loadFonts, resolveStyle, TEXT_PADDING } from '../lib/fonts';
+  import { cssFamily, loadFonts, resolveStyle, TEXT_PADDING } from '../lib/fonts';
+  import { boxHeight } from '../lib/text-box-layout';
   import { DEFAULT_TEXT_WIDTH, layoutText, makeStamp, topLeftForCenter } from '../lib/text-layout';
   import BoxedView from './BoxedView.svelte';
   import { useActions } from '../lib/actions.svelte';
@@ -162,7 +165,7 @@
         );
         if (existing) return startEdit(existing, false);
         const t = $state.snapshot(viewer.toolProps.text);
-        const h = t.size * LINE_HEIGHT + 2 * TEXT_PADDING;
+        const h = boxHeight(1, t.size, t.lineSpacing);
         // The box starts at the click, with the first line's middle on it.
         const shifted = topLeftForCenter(at, 0, h, pageRotation);
         return startEdit(
@@ -243,7 +246,7 @@
 
   async function startEdit(a: TextAnnotation, isNew: boolean) {
     await commitEdit();
-    await Promise.all([loadFonts(), ensureFont(a.font)]);
+    await Promise.all([loadFonts(), ensureTextFont(a.font)]);
     editing = { annot: a, isNew };
     editText = a.text;
     await tick();
@@ -781,9 +784,12 @@
     style:font-weight={resolveStyle(a).bold ? 700 : 400}
     style:font-style={resolveStyle(a).italic ? 'italic' : 'normal'}
     style:font-size="{a.size * viewer.scale}px"
-    style:line-height={LINE_HEIGHT}
+    style:line-height={lineSpacingOf(a)}
     style:padding="{TEXT_PADDING * viewer.scale}px"
     style:color={rgbToCss(a.color)}
+    style:text-align={alignOf(a)}
+    style:text-decoration-line={[a.underline && 'underline', a.strike && 'line-through'].filter(Boolean).join(' ') || undefined}
+    style:background={a.background ? rgbToCss(a.background) : undefined}
     oninput={autoSize}
     onblur={() => void commitEdit()}
     onpointerdown={(e) => e.stopPropagation()}
@@ -934,6 +940,8 @@
     background: var(--editing-fill);
     resize: none;
     overflow: hidden;
+    font-kerning: none;
+    font-variant-ligatures: none;
     white-space: pre-wrap;
     transform-origin: 0 0;
     outline: none;

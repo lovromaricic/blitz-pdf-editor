@@ -152,9 +152,9 @@ export async function ensureFontsFor(styles: Iterable<TextStyle>) {
 /** Last font chosen for new text in this session (memory only). */
 export const lastTextStyle: { font: string; bold: boolean; italic: boolean } = { font: 'arimo', bold: false, italic: false };
 
+/** Line height of new text (line spacing 1.25), and of stamps' and older code's measuring. */
 export const LINE_HEIGHT = 1.25;
-/** Inner padding of text boxes, in points. */
-export const TEXT_PADDING = 3;
+export { TEXT_PADDING } from './text-box-layout';
 
 let measureCtx: CanvasRenderingContext2D | null = null;
 
@@ -162,45 +162,12 @@ let measureCtx: CanvasRenderingContext2D | null = null;
 export function measureStyled(text: string, style: TextStyle, size: number) {
   measureCtx ??= document.createElement('canvas').getContext('2d')!;
   measureCtx.font = cssFontFor(style, size);
+  // Like the PDF: no kerning.
+  measureCtx.fontKerning = 'none';
   return measureCtx.measureText(text).width;
 }
 
 /** Older API, by face key (stamps use "sans-bold"). */
 export function measure(text: string, key: FontKey, size: number) {
   return measureStyled(text, key === 'sans-bold' ? { font: 'sans', bold: true } : { font: key }, size);
-}
-
-/** Greedy word wrap. Long words break between characters. Empty lines are kept. */
-export function wrapText(text: string, style: TextStyle, size: number, maxWidth: number): string[] {
-  const fits = (t: string) => measureStyled(t, style, size) <= maxWidth;
-  const lines: string[] = [];
-  for (const paragraph of text.split('\n')) {
-    let line = '';
-    for (const word of paragraph.split(/(\s+)/).filter(Boolean)) {
-      if (/^\s+$/.test(word)) {
-        if (line) line += word;
-        continue;
-      }
-      if (fits((line + word).trimEnd())) {
-        line += word;
-        continue;
-      }
-      if (line.trim()) lines.push(line.trimEnd());
-      line = '';
-      if (fits(word)) {
-        line = word;
-        continue;
-      }
-      // A single word wider than the box: split it between characters.
-      for (const ch of word) {
-        if (line && !fits(line + ch)) {
-          lines.push(line);
-          line = '';
-        }
-        line += ch;
-      }
-    }
-    lines.push(line.trimEnd());
-  }
-  return lines;
 }

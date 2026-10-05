@@ -182,8 +182,13 @@ describe('custom colors', () => {
       const annot = doc.context.lookup(ref, PDFDict);
       const ap = annot.lookupMaybe(PDFName.of('AP'), PDFDict)?.lookup(PDFName.of('N'));
       if (!(ap instanceof PDFRawStream)) continue;
-      const ops = new TextDecoder().decode(decodePDFRawStream(ap).decode());
-      for (const m of ops.matchAll(/([\d.]+) ([\d.]+) ([\d.]+) (?:rg|RG)/g)) hexes.add(toHex(m.slice(1, 4)));
+      // Text boxes draw inside a transparency group (a form XObject of the appearance).
+      const xobjects = ap.dict.lookupMaybe(PDFName.of('Resources'), PDFDict)?.lookupMaybe(PDFName.of('XObject'), PDFDict);
+      const forms = (xobjects?.values() ?? []).map((r) => doc.context.lookup(r)).filter((x) => x instanceof PDFRawStream) as (typeof ap)[];
+      for (const stream of [ap, ...forms]) {
+        const ops = new TextDecoder().decode(decodePDFRawStream(stream).decode());
+        for (const m of ops.matchAll(/([\d.]+) ([\d.]+) ([\d.]+) (?:rg|RG)/g)) hexes.add(toHex(m.slice(1, 4)));
+      }
     }
     for (const [name, rgb] of Object.entries(picks)) expect(hexes, name).toContain(toHex(rgb.map(String)));
   });
