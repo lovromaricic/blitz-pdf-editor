@@ -139,6 +139,8 @@ export class Viewer {
   }
   /** The PDF's own content (Edit content tool): what's on each page, and deleting it. */
   readonly content = new ContentEditing();
+  /** Open the text editor on a text box (and put the caret at a point on screen). Taken by its page's layer. */
+  editRequest = $state.raw<{ pageId: string; id: string; caret?: [number, number] } | null>(null);
   /** Original content selected with the Edit content tool: items on one page (ids from its analysis). */
   contentSelection = $state.raw<{ pageId: string; ids: string[] } | null>(null);
   /** Crop mode for one inserted image (see actions.startCrop), or null. */

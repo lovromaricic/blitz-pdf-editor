@@ -406,6 +406,11 @@
       return formats;
     },
     focus: () => view.focus(),
+    caretAt: (x, y) => {
+      const pos = view.posAtCoords({ left: x, top: y });
+      if (pos) view.dispatch(view.state.tr.setSelection(TextSelection.create(view.state.doc, pos.pos)));
+      view.focus();
+    },
     list: (action) => {
       syncSelection(view);
       listCommand(action)(view.state, view.dispatch);

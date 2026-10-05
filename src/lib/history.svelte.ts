@@ -71,6 +71,17 @@ export class History<T> {
     return entry.state;
   }
 
+  /** A change that belongs to the last step (it stays one undo step; the document counts as changed). */
+  touch() {
+    this.future = [];
+    this.version = this.nextVersion++;
+  }
+
+  /** Forget what redo could bring back (an edit that was taken back as if it never happened). */
+  dropRedo() {
+    this.future = [];
+  }
+
   /** Every state undo or redo can still go back to. */
   states(): T[] {
     return [...this.past, ...this.future].map((e) => e.state);

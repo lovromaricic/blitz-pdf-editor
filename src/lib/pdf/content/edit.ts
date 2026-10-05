@@ -9,10 +9,10 @@
 // Works on pdf-lib documents, in the content worker (and in tests).
 import { PDFArray, PDFDict, PDFName, PDFNumber, PDFRef, PDFStream, type PDFDocument, type PDFObject, type PDFPage } from '@cantoo/pdf-lib';
 import { interpretPage, pageContentBytes, streamData, type ImageItem, type MarkedContent, type OpRef, type PageContent, type Quad, type TextRun } from './interpret';
-import { groupBlocks } from './blocks';
+import { groupBlocks, type TextBlock } from './blocks';
 import { isDict, isName, writeOperand, type Op } from './lexer';
 import { rewriteStream, textRemoval } from './rewrite';
-import { fontLabel } from './fonts';
+import { fontLabel, type FontInfo } from './fonts';
 
 export interface ContentItem {
   /** Stable for this version of the file and page. */
@@ -36,7 +36,51 @@ export interface ContentItem {
   coversPage?: boolean;
   /** Why it can't be deleted cleanly (shown to the user), or undefined. */
   blocked?: string;
+  /** Text blocks: how to turn it into a text box, or why that can't be done faithfully. */
+  convert?: Conversion;
+  noConvert?: string;
 }
+
+/** A font class of ours for the original font: Arimo, Tinos or Cousine (metric-compatible with Arial, Times and Courier). */
+export type FontClass = 'sans' | 'serif' | 'mono';
+
+export interface ConvRun {
+  text: string;
+  family: FontClass;
+  bold: boolean;
+  italic: boolean;
+  size: number;
+  color: [number, number, number];
+}
+
+export interface ConvLine {
+  runs: ConvRun[];
+  /** Page space (the text is upright): left and right ends, baseline. */
+  left: number;
+  right: number;
+  baseline: number;
+}
+
+/** A text block as one of our text boxes: its lines as they are, and how they're set. */
+export interface Conversion {
+  lines: ConvLine[];
+  align: 'left' | 'center' | 'right' | 'justify';
+  /** Distance between baselines (points); null for a single line. */
+  gap: number | null;
+  size: number;
+  family: FontClass;
+  /** The original font's name, and whether it maps to a known family (else a sensible guess). */
+  fontName: string;
+  matched: boolean;
+}
+
+export const NO_CONVERT = {
+  turned: 'Turned text can’t be converted into a text box. It can only be deleted.',
+  vertical: 'Vertical text can’t be converted into a text box. It can only be deleted.',
+  scripts: 'This text has superscripts or subscripts, which a text box can’t reproduce. It can only be deleted.',
+  mixed: 'This text mixes very different fonts or sizes on one line, so it can’t be converted faithfully. It can only be deleted.',
+  unreadable: 'The letters of this text can’t be read from the PDF, so it can’t be converted. It can only be deleted.',
+} as const;
 
 export interface PageAnalysis {
   /** 'unreadable': the content couldn't be analyzed; nothing is offered. */
@@ -98,6 +142,11 @@ function model(doc: PDFDocument, pageIndex: number): Model {
       blocked: reasons[0],
     });
     runs.set(id, b.runs);
+    const conv = reasons[0] ? null : conversionOf(b, content);
+    const item = items[items.length - 1];
+    if (conv && 'reason' in conv) item.noConvert = conv.reason;
+    else if (conv) item.convert = conv;
+    else item.noConvert = reasons[0];
   }
   content.images.forEach((im, k) => {
     const id = `i${key(im.at)}`;
@@ -385,4 +434,105 @@ function pruneResources(page: PDFPage, resources: PDFDict) {
     const names = used(op);
     for (const k of [...d.keys()]) if (!names.has(k.decodeText())) d.delete(k);
   }
+}
+
+// --- Converting a text block into a text box ------------------------------------------------
+
+/** A size as people set it: 10.99 is 11 (matrix arithmetic), 10.5 stays. */
+const tidySize = (n: number) => {
+  const tenth = Math.round(n * 10) / 10;
+  return Math.abs(tenth - n) < 0.03 ? tenth : Math.round(n * 100) / 100;
+};
+
+const classOf = (f: FontInfo): FontClass => (f.mono ? 'mono' : f.serif ? 'serif' : 'sans');
+const KNOWN: Record<FontClass, RegExp> = {
+  sans: /arial|helvetica|arimo|liberation ?sans|nimbus ?sans/i,
+  serif: /times|tinos|liberation ?serif|nimbus ?rom/i,
+  mono: /courier|cousine|liberation ?mono|nimbus ?mono/i,
+};
+
+/** How a block becomes a text box with the same lines, baselines and alignment, or why it can't. */
+export function conversionOf(b: TextBlock, content: PageContent): Conversion | { reason: string } {
+  const runs = b.runs.map((i) => content.text[i]).filter((r) => !r.invisible);
+  const turn = ((b.angle % 360) + 360) % 360;
+  if (Math.min(turn, 360 - turn) > 0.5) return { reason: NO_CONVERT.turned };
+  if (runs.some((r) => r.font.vertical)) return { reason: NO_CONVERT.vertical };
+  if (runs.some((r) => r.glyphs.some((g) => g.text === ''))) return { reason: NO_CONVERT.unreadable };
+  const baselineOf = (r: TextRun) => Math.min(...r.glyphs.map((g) => g.quad[0][1])) - r.font.descent * r.size;
+
+  const lines: ConvLine[] = [];
+  const gapsEm: number[][] = [];
+  let classes = new Set<FontClass>();
+  for (const line of b.lines) {
+    const visible = line.runs.filter((r) => r.glyphs.some((g) => g.text.trim()));
+    if (!visible.length) continue;
+    const size = Math.max(...visible.map((r) => r.size));
+    for (const r of visible) {
+      if (r.size < 0.85 * size || Math.abs(baselineOf(r) - line.v) > 0.15 * size) return { reason: NO_CONVERT.scripts };
+    }
+    const lineClasses = new Set(visible.map((r) => classOf(r.font)));
+    if (lineClasses.size > 1 || visible.some((r) => r.size < 0.95 * size)) return { reason: NO_CONVERT.mixed };
+    classes = new Set([...classes, ...lineClasses]);
+    // The line's glyphs left to right, with a space wherever there's a visible gap.
+    const glyphs = line.runs
+      .flatMap((r) => r.glyphs.map((g) => ({ g, r })))
+      .sort((p, q) => p.g.quad[0][0] - q.g.quad[0][0]);
+    const out: ConvRun[] = [];
+    const gaps: number[] = [];
+    let end = -Infinity;
+    // Word gaps: from the end of one word's ink to the start of the next (justification widens them).
+    let inkEnd = -Infinity;
+    let boundary = false;
+    for (const { g, r } of glyphs) {
+      const ink = !!g.text.trim();
+      if (ink) {
+        if ((boundary || g.quad[0][0] - inkEnd > 0.15 * r.size) && inkEnd > -Infinity) gaps.push((g.quad[0][0] - inkEnd) / r.size);
+        inkEnd = g.quad[1][0];
+        boundary = false;
+      } else boundary = true;
+      const fmt = { family: classOf(r.font), bold: r.font.bold, italic: r.font.italic, size: tidySize(r.size), color: r.color ?? [0, 0, 0] };
+      const last = out[out.length - 1];
+      const gap = g.quad[0][0] - end;
+      let text = g.text;
+      if (last && gap > 0.15 * r.size && !/\s$/.test(last.text) && !/^\s/.test(text)) text = ' ' + text;
+      end = Math.max(end, g.quad[1][0]);
+      if (last && last.family === fmt.family && last.bold === fmt.bold && last.italic === fmt.italic && last.size === fmt.size && last.color.every((v, i) => Math.abs(v - fmt.color[i]) < 0.004)) last.text += text;
+      else out.push({ text, ...fmt });
+    }
+    const textRuns = out.map((r) => ({ ...r, text: r.text.replace(/\s+/g, ' ') }));
+    textRuns[0].text = textRuns[0].text.trimStart();
+    textRuns[textRuns.length - 1].text = textRuns[textRuns.length - 1].text.trimEnd();
+    const xs = visible.flatMap((r) => r.glyphs.filter((g) => g.text.trim()).flatMap((g) => [g.quad[0][0], g.quad[1][0]]));
+    lines.push({ runs: textRuns.filter((r) => r.text), left: Math.min(...xs), right: Math.max(...xs), baseline: line.v });
+    gapsEm.push(gaps);
+  }
+  if (classes.size > 1) return { reason: NO_CONVERT.mixed };
+  lines.sort((a, c) => c.baseline - a.baseline);
+  const size = tidySize(b.size);
+  const tol = Math.max(0.75, 0.04 * size);
+  const same = (vs: number[]) => Math.max(...vs) - Math.min(...vs) <= tol;
+  let align: Conversion['align'] = 'left';
+  if (lines.length > 1) {
+    const lefts = lines.map((l) => l.left);
+    const rights = lines.map((l) => l.right);
+    const centers = lines.map((l) => (l.left + l.right) / 2);
+    const avg = (v: number[]) => (v.length ? v.reduce((a, c) => a + c, 0) / v.length : 0);
+    const spread = gapsEm.slice(0, -1).map(avg).filter(Boolean);
+    if (same(lefts) && same(rights.slice(0, -1)) && spread.length && Math.max(...spread) - Math.min(...spread, avg(gapsEm.at(-1) ?? [])) > 0.04) align = 'justify';
+    else if (same(lefts)) align = 'left';
+    else if (same(rights)) align = 'right';
+    else if (same(centers)) align = 'center';
+  }
+  const gaps = lines.slice(1).map((l, i) => lines[i].baseline - l.baseline).sort((a, c) => a - c);
+  const family = [...classes][0] ?? 'sans';
+  const first = runs.find((r) => classOf(r.font) === family) ?? runs[0];
+  return {
+    lines,
+    align,
+    gap: gaps.length ? gaps[Math.floor(gaps.length / 2)] : null,
+    size,
+    family,
+    fontName: first.font.name,
+    matched: KNOWN[family].test(first.font.name),
+  };
 }

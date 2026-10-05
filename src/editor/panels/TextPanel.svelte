@@ -431,6 +431,8 @@
     <label for="tx-spacing">Line spacing</label>
     <select id="tx-spacing" value={isMixed(fmt.lineSpacing) ? '' : String(fmt.lineSpacing)} onchange={(e) => apply({ lineSpacing: +e.currentTarget.value }, 'Line spacing')}>
       {#if isMixed(fmt.lineSpacing)}<option value="" disabled>Mixed</option>{/if}
+      <!-- A spacing taken over from a PDF's own text is shown as it is. -->
+      {#if !isMixed(fmt.lineSpacing) && !(LINE_SPACINGS as readonly number[]).includes(fmt.lineSpacing as number)}<option value={String(fmt.lineSpacing)}>{formatSpacing(fmt.lineSpacing as number)}</option>{/if}
       {#each LINE_SPACINGS as v (v)}
         <option value={String(v)}>{formatSpacing(v)}</option>
       {/each}

@@ -54,7 +54,8 @@ export function groupBlocks(content: PageContent): TextBlock[] {
     const measured = list.map(({ r, i }) => {
       const us = r.glyphs.flatMap((g) => g.quad.map((p) => dot(p, u)));
       const bottom = Math.min(...r.glyphs.map((g) => dot(g.quad[0], v)));
-      return { r, i, u0: Math.min(...us), u1: Math.max(...us), v: bottom - r.font.descent * r.size, blank: !r.glyphs.some((g) => g.text.trim()) };
+      return { r, i, u0: Math.min(...us), u1: Math.max(...us), v: bottom - r.font.descent * r.size, // Unknown text (no Unicode for a glyph) is still something drawn: only real white space is blank.
+      blank: r.glyphs.every((g) => g.text !== '' && !g.text.trim()) };
     });
     // Lines: runs on one baseline, close along it.
     for (const m of measured.filter((x) => !x.blank)) {

@@ -48,11 +48,17 @@
       </dl>
     {/if}
     <div class="actions">
+      {#if one?.kind === 'text'}
+        <button type="button" class="btn btn-primary" disabled={!actions.canEditContent()} onclick={() => actions.editContent()}>{S.edit}</button>
+      {/if}
       <button type="button" class="btn btn-danger" disabled={!actions.canDeleteContent()} onclick={() => actions.deleteContent()}>{S.delete}</button>
     </div>
     {#if blocked}
       <p class="error" role="status">{blocked}</p>
     {:else}
+      {#if one?.kind === 'text'}
+        <p class="hint">{one.noConvert ?? S.editHint}</p>
+      {/if}
       <p class="hint">{S.deleteHint}</p>
     {/if}
   </div>

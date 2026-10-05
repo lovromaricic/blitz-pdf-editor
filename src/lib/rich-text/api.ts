@@ -10,6 +10,8 @@ export interface RichEditorApi {
   /** Every format in the selection (to know whether all its fonts have bold, say). */
   readonly formats: RunFormat[];
   focus(): void;
+  /** Put the caret at a point on screen (client coordinates), if it's on the text. */
+  caretAt(x: number, y: number): void;
   /** A list command on the paragraphs the selection touches (the Text panel's List buttons). */
   list(action: import('../list-commands').ListAction): void;
   /** The list state of those paragraphs. */

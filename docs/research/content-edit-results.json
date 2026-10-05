@@ -20,7 +20,7 @@
     "pdfjsItems": 20,
     "showOps": 847,
     "problems": [],
-    "ms": 15,
+    "ms": 13,
     "delete": {
       "block": "The committee met on Tuesday to review t",
       "inForms": 0,
@@ -34,7 +34,7 @@
       "sizeAfter": 14355,
       "changedOutsidePx": 3,
       "changedInsidePx": 34469,
-      "saveMs": 8
+      "saveMs": 7
     },
     "leftovers": {
       "structTree": true,
@@ -64,7 +64,7 @@
     "pdfjsItems": 18,
     "showOps": 303,
     "problems": [],
-    "ms": 5,
+    "ms": 4,
     "delete": {
       "block": "Poštovani stanari, u četvrtak će se od 8",
       "inForms": 0,
@@ -78,7 +78,7 @@
       "sizeAfter": 21128,
       "changedOutsidePx": 11,
       "changedInsidePx": 2815,
-      "saveMs": 4
+      "saveMs": 3
     },
     "leftovers": {
       "structTree": true,
@@ -173,7 +173,51 @@
       "sizeAfter": 19778,
       "changedOutsidePx": 13,
       "changedInsidePx": 7045,
-      "saveMs": 5
+      "saveMs": 4
+    },
+    "leftovers": {
+      "structTree": true,
+      "thumb": false,
+      "xmp": false,
+      "incrementalSections": 1
+    }
+  },
+  {
+    "file": "chrome-aligned.pdf",
+    "ourBlocks": [
+      7
+    ],
+    "pdfjsBlocks": [
+      7
+    ],
+    "expected": [
+      7
+    ],
+    "images": [
+      0
+    ],
+    "expectedImages": [
+      0
+    ],
+    "textSimilarity": 1,
+    "pdfjsItems": 54,
+    "showOps": 783,
+    "problems": [],
+    "ms": 5,
+    "delete": {
+      "block": "Members agreed that the reading room sho",
+      "inForms": 0,
+      "pdfjsStillFinds": [],
+      "otherBlocksKept": true,
+      "shownBytesLeftInStreams": 0,
+      "imagesBefore": 0,
+      "imagesAfter": 0,
+      "imageBytesRemoved": 0,
+      "sizeBefore": 26549,
+      "sizeAfter": 26980,
+      "changedOutsidePx": 17,
+      "changedInsidePx": 4678,
+      "saveMs": 3
     },
     "leftovers": {
       "structTree": true,
@@ -203,7 +247,7 @@
     "pdfjsItems": 15,
     "showOps": 168,
     "problems": [],
-    "ms": 2,
+    "ms": 1,
     "delete": {
       "block": "Banka Primjer d.d.",
       "inForms": 0,
@@ -217,7 +261,7 @@
       "sizeAfter": 16790,
       "changedOutsidePx": 10,
       "changedInsidePx": 851,
-      "saveMs": 4
+      "saveMs": 3
     },
     "leftovers": {
       "structTree": true,
@@ -643,7 +687,7 @@
     "pdfjsItems": 2900,
     "showOps": 174241,
     "problems": [],
-    "ms": 1002,
+    "ms": 860,
     "delete": {
       "block": "The committee met on Tuesday to review t",
       "inForms": 0,
@@ -657,7 +701,7 @@
       "sizeAfter": 520554,
       "changedOutsidePx": 9,
       "changedInsidePx": 4516,
-      "saveMs": 103
+      "saveMs": 101
     },
     "leftovers": {
       "structTree": true,
@@ -700,7 +744,7 @@
       "sizeAfter": 880,
       "changedOutsidePx": 0,
       "changedInsidePx": 17697,
-      "saveMs": 2
+      "saveMs": 1
     },
     "leftovers": {
       "structTree": false,
@@ -1042,7 +1086,7 @@
       "sizeAfter": 1067,
       "changedOutsidePx": 0,
       "changedInsidePx": 783,
-      "saveMs": 1
+      "saveMs": 0
     },
     "leftovers": {
       "structTree": false,

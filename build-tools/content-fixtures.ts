@@ -32,11 +32,13 @@ const fontFile = (pkg: string, dir: string, name: string) => readFileSync(`node_
 const ARIMO = fontFile('arimo', '400Regular', 'Arimo_400Regular.ttf');
 const ARIMO_BOLD = fontFile('arimo', '700Bold', 'Arimo_700Bold.ttf');
 const TINOS = fontFile('tinos', '400Regular', 'Tinos_400Regular.ttf');
+const COUSINE = fontFile('cousine', '400Regular', 'Cousine_400Regular.ttf');
 const dataUrl = (b: Buffer) => `data:font/ttf;base64,${b.toString('base64')}`;
 const FONT_CSS = `
   @font-face { font-family: 'Arimo'; font-weight: 400; src: url(${dataUrl(ARIMO)}); }
   @font-face { font-family: 'Arimo'; font-weight: 700; src: url(${dataUrl(ARIMO_BOLD)}); }
   @font-face { font-family: 'Tinos'; font-weight: 400; src: url(${dataUrl(TINOS)}); }
+  @font-face { font-family: 'Cousine'; font-weight: 400; src: url(${dataUrl(COUSINE)}); }
   html { -webkit-print-color-adjust: exact; }
   body { margin: 0; font-family: 'Arimo'; font-size: 11pt; line-height: 1.35; color: #1d2530; }
   h1 { font-size: 20pt; margin: 0 0 14pt; }
@@ -156,6 +158,20 @@ async function chromeHard() {
      <p style="font-size:8pt;color:#5b6573;margin-top:24pt"><sup>1</sup> Prices from the March catalogue.</p>`,
   );
   await save('chrome-table-list.pdf', pdf);
+}
+
+async function chromeAligned() {
+  // Paragraphs to convert into text boxes: every alignment, Croatian, serif and monospace.
+  const { pdf } = await chromePdf(
+    `<h1>Alignment</h1>
+     <p style="text-align:justify;width:360pt">${para(3, 1)}</p>
+     <p style="text-align:center;width:360pt">${para(2, 3)}</p>
+     <p style="text-align:right;width:360pt">${para(2, 0)}</p>
+     <p style="width:360pt">Čitaonica će biti otvorena svakog radnog dana, a đaci mogu posuditi knjige uz iskaznicu. Šetnja vrtom je dopuštena.</p>
+     <p style="font-family:Tinos;font-size:12pt;width:360pt">${para(2, 2)}</p>
+     <p style="font-family:Cousine;font-size:10pt;width:360pt">${para(1, 5)}</p>`,
+  );
+  await save('chrome-aligned.pdf', pdf);
 }
 
 async function bankForm() {
@@ -450,6 +466,7 @@ await chromeArticle();
 await chromeCroatian();
 await chromeColumns();
 await chromeHard();
+await chromeAligned();
 await bankForm();
 await longDocument();
 await scanned();

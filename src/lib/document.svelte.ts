@@ -188,6 +188,12 @@ export class EditorDocument {
     this.pages = next;
   }
 
+  /** Change the pages as part of the last undo step (no new step). */
+  amend(next: readonly PageRef[]) {
+    this.history.touch();
+    this.pages = next;
+  }
+
   undo() {
     const prev = this.history.undo(this.snapshot());
     if (prev) this.restore(prev);

@@ -80,7 +80,10 @@
   }
 
   function onKey(e: KeyboardEvent, item: ContentItem) {
-    if (e.key === 'Delete' || e.key === 'Backspace') {
+    if (e.key === 'Enter' && item.kind === 'text') {
+      if (!selected.includes(item.id) || selected.length > 1) select(item, false);
+      void actions.editContent();
+    } else if (e.key === 'Delete' || e.key === 'Backspace') {
       if (!selected.includes(item.id)) select(item, false);
       void actions.deleteContent();
     } else if (e.key === 'Escape' && selected.length) {
@@ -135,7 +138,7 @@
         data-kind={item.kind}
         aria-label={item.blocked ? `${describe(item)}. ${item.blocked}` : describe(item)}
         aria-pressed={selected.includes(item.id)}
-        aria-describedby={item.blocked ? undefined : `content-hint-${page.id}`}
+        aria-describedby={item.blocked ? undefined : item.convert ? `content-hint-edit-${page.id}` : `content-hint-${page.id}`}
         style:left="{b.left}px"
         style:top="{b.top}px"
         style:width="{b.width}px"
@@ -146,10 +149,16 @@
         onpointerleave={() => leave(item)}
         oncontextmenu={(e) => onMenu(e, item)}
         onkeydown={(e) => onKey(e, item)}
+        ondblclick={(e) => {
+          if (item.kind !== 'text') return;
+          select(item, false);
+          void actions.editContent([e.clientX, e.clientY]);
+        }}
         onfocus={() => !selected.includes(item.id) && select(item, false)}
       ></div>
     {/each}
     <span class="visually-hidden" id="content-hint-{page.id}">{S.hitHint}</span>
+    <span class="visually-hidden" id="content-hint-edit-{page.id}">{S.hitHintEdit}</span>
     {#if label}
       <span class="content-label" aria-hidden="true" style:left="{label.x}px" style:top="{label.y}px">{label.text}</span>
     {/if}

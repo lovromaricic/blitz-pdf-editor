@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs';
 import { inflateSync } from 'node:zlib';
 import { PDFDocument, PDFName, PDFRawStream, PDFStream, StandardFonts, decodePDFRawStream } from '@cantoo/pdf-lib';
 import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
-import { analyzePage, deleteItems, BLOCKED, ContentEditError } from '../src/lib/pdf/content/edit';
+import { analyzePage, deleteItems, BLOCKED, ContentEditError, NO_CONVERT } from '../src/lib/pdf/content/edit';
 import { collectGarbage } from '../src/lib/pdf/gc';
 
 const fixture = (f: string) => new Uint8Array(readFileSync(`test-fixtures/content/${f}`));
@@ -176,5 +176,44 @@ describe('content inside form XObjects', () => {
     expect(items).toHaveLength(2);
     expect(items[0].blocked).toBe(BLOCKED.repeated);
     expect(() => deleteItems(doc, 0, [items[0].id])).toThrow(ContentEditError);
+  });
+});
+
+describe('converting text blocks into text boxes: what the analysis says', () => {
+  const conv = async (f: string) => analyzePage(await load(fixture(f)), 0).items.filter((i) => i.kind === 'text');
+  it('alignment, lines, spacing, font class and size', async () => {
+    const items = await conv('chrome-aligned.pdf');
+    const by = (start: string) => items.find((i) => i.text!.startsWith(start))!.convert!;
+    expect(by('Members').align).toBe('justify');
+    expect(by('Members').lines).toHaveLength(4);
+    expect(by('Volunteers').align).toBe('center');
+    expect(by('The committee').align).toBe('right');
+    expect(by('Čitaonica').align).toBe('left');
+    expect(by('Čitaonica').lines.map((l) => l.runs.map((r) => r.text).join(''))).toEqual([
+      'Čitaonica će biti otvorena svakog radnog dana, a đaci mogu posuditi',
+      'knjige uz iskaznicu. Šetnja vrtom je dopuštena.',
+    ]);
+    expect([by('A first').family, by('Questions').family, by('Members').family]).toEqual(['serif', 'mono', 'sans']);
+    expect(by('Members').size).toBe(11);
+    expect(by('Members').gap).toBeCloseTo(15, 1);
+    expect(by('Members').matched).toBe(true);
+  });
+  it('bold words keep their runs', async () => {
+    const p = (await conv('chrome-croatian-subset.pdf')).find((i) => i.text!.startsWith('Čišćenje'))!.convert!;
+    const bold = p.lines.flatMap((l) => l.runs).filter((r) => r.bold).map((r) => r.text.trim());
+    expect(bold).toEqual(['svakog ponedjeljka', 'prve subote u mjesecu']);
+  });
+  it('turned text and superscripts can only be deleted, with the reason', async () => {
+    const turned = (await conv('rotated-text.pdf')).find((i) => i.text!.startsWith('This line is turned'))!;
+    expect(turned.convert).toBeUndefined();
+    expect(turned.noConvert).toBe(NO_CONVERT.turned);
+    const sup = (await conv('chrome-table-list.pdf')).find((i) => i.text!.startsWith('A first estimate'))!;
+    expect(sup.noConvert).toBe(NO_CONVERT.scripts);
+    // Text on a turned page is upright in the PDF: that converts.
+    expect((await conv('rotated-pages.pdf'))[1].convert?.lines).toHaveLength(3);
+  });
+  it('a Type3 font maps to a guess, reported as not matched', async () => {
+    const t3 = (await conv('type3-font.pdf')).find((i) => i.text === 'HELLO TYPE THREE')!.convert!;
+    expect(t3.matched).toBe(false);
   });
 });

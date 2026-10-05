@@ -66,6 +66,20 @@
       ],
       "note": "Expected: heading, 12 table cells, 3 list items, the justified paragraph, the footnote = 18."
     },
+    "chrome-aligned.pdf": {
+      "producer": "Google Chrome print-to-PDF",
+      "features": [
+        "justified, centred and right-aligned paragraphs",
+        "Croatian",
+        "Tinos (serif) and Cousine (monospace)"
+      ],
+      "blocks": [
+        7
+      ],
+      "images": [
+        0
+      ]
+    },
     "bank-form-hr.pdf": {
       "producer": "Google Chrome layout + pdf-lib form fields",
       "features": [

@@ -26,6 +26,9 @@ import { focusLost, focusObject, focusSink, settleFocusAfterRemoval } from './fo
 import { looksDigitallySigned } from './files';
 import { friendlyError } from './friendly-error';
 import type { ContentItem } from './content-editing.svelte';
+import { FAMILY_FOR, FAMILY_LABEL, textBoxFromConversion } from './content-convert';
+import { screenEnv } from './font-metrics-store.svelte';
+import { loadFonts } from './fonts';
 import { canMoveUnits, insertAboveUnit, LAYER_LABELS, moveUnits, type LayerMove } from './z-order';
 import { fitIntoPage, placeInside } from './page-bounds';
 import { copyWithNewIds, describeUnits, GROUP_PREFIX, groupUnits, isGroupId, membersOf, ungroupUnits, unionBounds, unitOf, unitsIn } from './object-selection';
@@ -1147,10 +1150,30 @@ export class Actions {
   async deleteContent() {
     const s = this.contentSelected();
     if (!s) return;
+    const texts = s.items.filter((i) => i.kind === 'text').length;
+    const label = s.items.length > 1 ? CONTENT_STRINGS.undoMany(s.items.length) : texts ? CONTENT_STRINGS.undoText : CONTENT_STRINGS.undoImage;
+    if (!(await this.removeContent(s, label))) return;
+    this.viewer.announce(CONTENT_STRINGS.deleted(CONTENT_STRINGS.describe(texts, s.items.length - texts).replace(/^./, (c) => c.toUpperCase())));
+    await tick();
+    focusSink();
+  }
+
+  /**
+   * Remove the selected original content from the file (a new version of it)
+   * as one undo step, adding `box` to the page in the same step when given.
+   * Asks first where needed (signed file, a scan). True when it was done.
+   */
+  private async removeContent(s: NonNullable<ReturnType<Actions['contentSelected']>>, label: string, box?: TextAnnotation): Promise<boolean> {
     const { page, source, analysis, items } = s;
     const blocked = items.find((i) => i.blocked);
-    if (blocked) return this.viewer.notify(blocked.blocked!);
-    if (await this.viewer.content.checkLock(source)) return this.viewer.notify(CONTENT_STRINGS.restricted);
+    if (blocked) {
+      this.viewer.notify(blocked.blocked!);
+      return false;
+    }
+    if (await this.viewer.content.checkLock(source)) {
+      this.viewer.notify(CONTENT_STRINGS.restricted);
+      return false;
+    }
     const root = source.id.split('~')[0];
     if (looksDigitallySigned(source.bytes) && !this.signedOk.has(root)) {
       const r = await showDialog({
@@ -1163,10 +1186,10 @@ export class Actions {
         cancelValue: 'cancel',
         initialFocus: 'cancel',
       });
-      if (r.button !== 'continue') return;
+      if (r.button !== 'continue') return false;
       this.signedOk.add(root);
     }
-    if (analysis.scan && items.some((i) => i.coversPage)) {
+    if (!box && analysis.scan && items.some((i) => i.coversPage)) {
       const r = await showDialog({
         title: CONTENT_STRINGS.scanTitle,
         message: CONTENT_STRINGS.scanMessage,
@@ -1177,11 +1200,11 @@ export class Actions {
         cancelValue: 'cancel',
         initialFocus: 'cancel',
       });
-      if (r.button !== 'delete') return;
+      if (r.button !== 'delete') return false;
     }
     const newId = `${root}~${++this.contentVersion}`;
     const done = await this.viewer.runTask(CONTENT_STRINGS.deleting, () => this.viewer.content.remove(source, page.sourceIndex, items.map((i) => i.id), newId), { delay: 1000 });
-    if (!done) return;
+    if (!done) return false;
     try {
       await this.doc.addReplacementSource(source, done.bytes, 'edit', newId);
       // Values typed into form fields carry over (same fields, same ids).
@@ -1191,20 +1214,92 @@ export class Actions {
     } catch (e) {
       // Nothing changed: the new version is dropped.
       this.pruneSources();
-      return this.viewer.notify(friendlyError(e), { error: true });
+      this.viewer.notify(friendlyError(e), { error: true });
+      return false;
     }
-    const texts = items.filter((i) => i.kind === 'text').length;
-    const label = items.length > 1 ? CONTENT_STRINGS.undoMany(items.length) : texts ? CONTENT_STRINGS.undoText : CONTENT_STRINGS.undoImage;
-    this.doc.edit(label, this.doc.pages.map((p) => (p.sourceId === source.id ? { ...p, sourceId: newId } : p)));
+    this.doc.edit(
+      label,
+      this.doc.pages.map((p) => {
+        const moved = p.sourceId === source.id ? { ...p, sourceId: newId } : p;
+        return box && p.id === page.id ? { ...moved, annots: [...(p.annots ?? []), box] } : moved;
+      }),
+    );
     this.viewer.contentSelection = null;
-    this.viewer.announce(CONTENT_STRINGS.deleted(CONTENT_STRINGS.describe(texts, items.length - texts).replace(/^./, (c) => c.toUpperCase())));
     if (done.result.removedMetadata && !this.metadataNoted) {
       this.metadataNoted = true;
       this.viewer.notify(CONTENT_STRINGS.metadata);
     }
     this.pruneSources();
-    await tick();
-    focusSink();
+    return true;
+  }
+
+  /** Can the selected original content be turned into a text box (one text block that converts faithfully)? */
+  canEditContent() {
+    const s = this.contentSelected();
+    return !!s && s.items.length === 1 && !!s.items[0].convert && !s.items[0].blocked && !this.viewer.content.locked.get(s.source.id);
+  }
+
+  /** The text box made from original text, while its first editing session lasts. */
+  private conversion: { pageId: string; id: string; itemId: string; pages: readonly PageRef[] } | null = null;
+  private fontNoted = false;
+
+  /**
+   * Edit the selected text block: it becomes one of our text boxes (the same
+   * words, lines and look, in the closest bundled font), the original text
+   * leaves the file, and the editor opens on it (caret at `caret`, a point on
+   * screen). One undo step together with the typing that follows.
+   */
+  async editContent(caret?: [number, number]) {
+    const s = this.contentSelected();
+    if (!s || s.items.length !== 1 || s.items[0].kind !== 'text') return;
+    const item = s.items[0];
+    if (!item.convert) return this.viewer.notify(item.blocked ?? item.noConvert ?? '');
+    const c = item.convert;
+    const families = [...new Set(c.lines.flatMap((l) => l.runs.map((r) => FAMILY_FOR[r.family])))];
+    await Promise.all([loadFonts(), ...families.map((f) => ensureTextFont(f))]);
+    const { box } = textBoxFromConversion(c, this.doc.pageBounds(s.page), screenEnv);
+    if (!(await this.removeContent(s, CONTENT_STRINGS.undoEdit, box))) return;
+    this.conversion = { pageId: s.page.id, id: box.id, itemId: item.id, pages: this.doc.pages };
+    this.viewer.selectAnnot({ pageId: s.page.id, id: box.id });
+    this.viewer.editRequest = { pageId: s.page.id, id: box.id, caret };
+    this.viewer.announce(CONTENT_STRINGS.converted);
+    if (!this.fontNoted) {
+      this.fontNoted = true;
+      this.viewer.notify(CONTENT_STRINGS.fontNote(FAMILY_LABEL[c.family], c.matched ? [] : [c.fontName]));
+    }
+  }
+
+  /** Is this text box's first editing session (right after converting original text) still on? */
+  isConverting(id: string) {
+    return this.conversion?.id === id;
+  }
+
+  /**
+   * The first editing session of converted text ended: unchanged, the original
+   * text comes back as if nothing happened (no undo step); otherwise the result
+   * becomes part of the conversion's undo step (null: the box was emptied).
+   */
+  endConversion(result: TextAnnotation | null | 'unchanged') {
+    const c = this.conversion;
+    if (!c) return;
+    this.conversion = null;
+    if (result === 'unchanged') {
+      // Only if nothing else happened meanwhile.
+      if (this.doc.pages !== c.pages) return;
+      this.doc.undo();
+      this.doc.history.dropRedo();
+      this.pruneSources();
+      this.viewer.selectContent({ pageId: c.pageId, ids: [c.itemId] });
+      this.viewer.announce(CONTENT_STRINGS.restored);
+      void tick().then(() => document.querySelector<HTMLElement>(`[data-content-id="${CSS.escape(c.itemId)}"]`)?.focus());
+      return;
+    }
+    this.doc.amend(
+      this.doc.pages.map((p) =>
+        p.id !== c.pageId ? p : { ...p, annots: result ? (p.annots ?? []).map((a) => (a.id === c.id ? result : a)) : (p.annots ?? []).filter((a) => a.id !== c.id) },
+      ),
+    );
+    if (!result) this.viewer.selectObjects(null);
   }
 
   /** Edited versions of files that neither the document nor undo/redo refer to any more. */

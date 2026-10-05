@@ -378,21 +378,45 @@
     editing = null;
     viewer.textEditor = null;
     const boxChanged = Object.keys(e.box).length > 0;
-    if (!e.paragraphs && !boxChanged) return; // nothing typed (a new box stays unmade)
+    // Text just converted from the PDF: its first session decides whether the conversion stays.
+    const converting = actions.isConverting(e.id);
+    if (!e.paragraphs && !boxChanged) {
+      if (converting) actions.endConversion('unchanged');
+      return; // nothing typed (a new box stays unmade)
+    }
     if (!e.paragraphs && e.isNew) return;
     const paragraphs = trimEnd(e.paragraphs ?? paragraphsOf(saved ?? e.base));
     const text = plainText(paragraphs);
     if (!text.trim()) {
-      if (!e.isNew) actions.deleteAnnotation(page.id, e.id);
+      if (converting) actions.endConversion(null);
+      else if (!e.isNew) actions.deleteAnnotation(page.id, e.id);
       return;
     }
     const sameBox = !saved || (Object.keys(e.box) as (keyof TextAnnotation)[]).every((k) => JSON.stringify(saved[k]) === JSON.stringify(e.box[k]));
-    if (!e.isNew && saved && sameBox && JSON.stringify(normalize(paragraphsOf(saved))) === JSON.stringify(paragraphs)) return;
+    if (!e.isNew && saved && sameBox && JSON.stringify(normalize(paragraphsOf(saved))) === JSON.stringify(paragraphs)) {
+      if (converting) actions.endConversion('unchanged');
+      return;
+    }
     await Promise.all(paragraphs.flatMap((p) => p.runs).map((r) => ensureTextFont(r.font)));
     const laid = growOnPage(layoutText({ ...(saved ?? e.base), ...e.box, paragraphs, text })).annot;
     if (e.isNew) actions.addAnnotation(page.id, laid);
+    else if (converting) actions.endConversion(laid);
     else actions.updateAnnotation(page.id, laid, 'Edit text');
   }
+
+  // Requests to edit a box on this page (converted original text): open the editor on it.
+  let pendingCaret: [number, number] | null = null;
+  $effect(() => {
+    const r = viewer.editRequest;
+    if (!r || r.pageId !== page.id) return;
+    const a = (page.annots ?? []).find((x) => x.id === r.id);
+    if (!a || a.type !== 'text') return;
+    untrack(() => {
+      viewer.editRequest = null;
+      pendingCaret = r.caret ?? null;
+      void startEdit(a, false);
+    });
+  });
 
   /** The edit surface covers the box exactly: same center, size and turn as BoxedView draws it. */
   const editGeom = $derived(editDraft ? boxedGeometry(editDraft, toScreen, viewer.scale, pageRotation) : null);
@@ -412,7 +436,7 @@
 
   // Leaving the Text tool (or the page) finishes the edit.
   $effect(() => {
-    if (viewer.tool !== 'text' && viewer.tool !== 'select') void commitEdit();
+    if (viewer.tool !== 'text' && viewer.tool !== 'select' && viewer.tool !== 'content') void commitEdit();
   });
 
   // --- Highlight --------------------------------------------------------------
@@ -1306,7 +1330,12 @@
         scale={viewer.scale}
         onChange={(paragraphs, text) => editing && (editing = { ...editing, paragraphs, text })}
         onComposing={(on) => editing && (editing = { ...editing, composing: on })}
-        onReady={(api) => (viewer.textEditor = api)}
+        onReady={(api) => {
+          viewer.textEditor = api;
+          // Opened by a double-click on converted text: the caret goes where it was clicked.
+          if (pendingCaret) api.caretAt(...pendingCaret);
+          pendingCaret = null;
+        }}
         onBox={(box) => editing && (editing = { ...editing, box })}
         onFinish={() => {
           void commitEdit();
