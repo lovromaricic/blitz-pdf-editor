@@ -89,6 +89,11 @@ export const COMMANDS = {
   'help.report': { label: 'Report a problem' },
   'help.about': { label: 'About' },
 
+  // Text formatting (a text box selected or being edited). Not in menus; tooltips in the Text panel.
+  'text.bold': { label: 'Bold', keys: ['mod+b'] },
+  'text.italic': { label: 'Italic', keys: ['mod+i'] },
+  'text.underline': { label: 'Underline', keys: ['mod+u'] },
+
   // Markup tools (toolbar, not menus). Single keys, ignored while typing.
   'tool.select': { label: 'Select', keys: ['v'], nativeInFields: true },
   'tool.text': { label: 'Text', keys: ['t'], nativeInFields: true },

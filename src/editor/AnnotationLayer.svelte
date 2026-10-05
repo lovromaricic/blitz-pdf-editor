@@ -2,7 +2,9 @@
   import { capturePointer } from '../lib/dom';
   import { focusSink } from '../lib/focus';
   import { ensureTextFont } from '../lib/font-metrics-store.svelte';
-  import { alignOf, lineSpacingOf } from '../lib/text-format';
+  import { alignOf, lineSpacingOf, styleAvailable } from '../lib/text-format';
+  import { comboFromEvent } from '../lib/commands';
+  import { textStyleForCombo } from '../lib/text-shortcuts';
   // Markup on one page: draws annotations (in stacking order) and handles the markup tools
   // (Highlight, Draw, Shapes, Text, Stamp, Comment, Sign) and Select, including
   // moving, resizing and turning inserted images. Coordinates are converted between screen and PDF
@@ -248,16 +250,39 @@
     await commitEdit();
     await Promise.all([loadFonts(), ensureTextFont(a.font)]);
     editing = { annot: a, isNew };
+    viewer.textEditor = { toggle: toggleWhileEditing };
     editText = a.text;
     await tick();
     editor?.focus();
     autoSize();
   }
 
+  /** A style shortcut while typing: the box being edited changes now (an existing box: one undo step). */
+  function toggleWhileEditing(style: 'bold' | 'italic' | 'underline' | 'strike') {
+    const e = editing;
+    if (!e) return;
+    if ((style === 'bold' || style === 'italic') && !styleAvailable(e.annot.font, style)) {
+      viewer.notify(`This font has no ${style}.`);
+      return;
+    }
+    const value = !e.annot[style];
+    editing = { ...e, annot: { ...e.annot, [style]: value } };
+    (viewer.toolProps.text as Record<string, unknown>)[style] = value;
+    if (!e.isNew) {
+      const current = page.annots?.find((x) => x.id === e.annot.id);
+      if (current?.type === 'text') {
+        const next = { ...current, [style]: value };
+        actions.updateAnnotation(page.id, style === 'bold' || style === 'italic' ? layoutText(next) : next, { bold: 'Bold', italic: 'Italic', underline: 'Underline', strike: 'Strikethrough' }[style]);
+      }
+    }
+    void tick().then(autoSize);
+  }
+
   async function commitEdit() {
     const e = editing;
     if (!e) return;
     editing = null;
+    viewer.textEditor = null;
     const text = editText.replace(/\s+$/, '');
     if (!text.trim()) {
       if (!e.isNew) actions.deleteAnnotation(page.id, e.annot.id);
@@ -795,6 +820,13 @@
     onpointerdown={(e) => e.stopPropagation()}
     onkeydown={(e) => {
       e.stopPropagation();
+      // Ctrl/Cmd+B, I, U style the box being typed in.
+      const style = textStyleForCombo(comboFromEvent(e));
+      if (style) {
+        e.preventDefault();
+        void actions.toggleTextStyle(style);
+        return;
+      }
       if (e.key === 'Escape' || (e.key === 'Enter' && (e.metaKey || e.ctrlKey))) {
         e.preventDefault();
         editor?.blur();

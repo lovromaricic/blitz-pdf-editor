@@ -108,3 +108,33 @@ test('every Text panel control changes the text box on screen', async ({ page })
   await expect(panel.getByRole('button', { name: 'Bold' })).toHaveAttribute('title', 'This font has no bold');
   await expect(text).toHaveCSS('font-weight', '400');
 });
+
+test('Ctrl/Cmd+B, I and U style the selected text box, and the box being typed in', async ({ page }) => {
+  await setup(page);
+  const panel = page.getByRole('complementary', { name: 'Properties' });
+  const hit = page.locator('.page[data-index="0"] .box-hit[data-kind="text"]');
+  await hit.focus();
+  await page.keyboard.press('ControlOrMeta+b');
+  await expect(panel.getByRole('button', { name: 'Bold' })).toHaveAttribute('aria-pressed', 'true');
+  expect(await undoLabel(page)).toBe('Bold');
+  await page.keyboard.press('ControlOrMeta+i');
+  await expect(panel.getByRole('button', { name: 'Italic' })).toHaveAttribute('aria-pressed', 'true');
+  await page.keyboard.press('ControlOrMeta+u');
+  await expect(panel.getByRole('button', { name: 'Underline' })).toHaveAttribute('aria-pressed', 'true');
+  // Tooltips name the shortcut where there is one; strikethrough has none.
+  await expect(panel.getByRole('button', { name: 'Bold' })).toHaveAttribute('title', /^Bold \((Ctrl\+B|⌘B)\)$/);
+  await expect(panel.getByRole('button', { name: 'Strikethrough' })).toHaveAttribute('title', 'Strikethrough');
+
+  // While typing: the editor takes the shortcut and the box changes.
+  await hit.dblclick();
+  const editor = page.getByRole('textbox', { name: 'Text', exact: true });
+  await expect(editor).toBeFocused();
+  await page.keyboard.press('ControlOrMeta+u');
+  await expect(editor).not.toHaveCSS('text-decoration-line', /underline/);
+  expect(await undoLabel(page)).toBe('Underline');
+  await page.keyboard.press('ControlOrMeta+b');
+  await expect(editor).toHaveCSS('font-weight', '400');
+  await page.keyboard.press('Escape');
+  await expect(box(page).locator('.text')).toHaveCSS('font-weight', '400');
+  await expect(box(page).locator('.bar')).toHaveCount(0);
+});

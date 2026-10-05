@@ -156,6 +156,11 @@
     },
     'edit.find': { run: () => focusById('doc-search') },
 
+    // Text formatting shortcuts (only while a text box is selected or edited; otherwise the key is left alone).
+    'text.bold': { run: () => void actions.toggleTextStyle('bold'), enabled: () => actions.canStyleText() },
+    'text.italic': { run: () => void actions.toggleTextStyle('italic'), enabled: () => actions.canStyleText() },
+    'text.underline': { run: () => void actions.toggleTextStyle('underline'), enabled: () => actions.canStyleText() },
+
     // View
     'view.zoomIn': { run: () => viewer.zoomIn() },
     'view.zoomOut': { run: () => viewer.zoomOut() },

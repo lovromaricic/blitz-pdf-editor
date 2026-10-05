@@ -124,6 +124,8 @@ export class Viewer {
   selectedAnnot = $state<AnnotRef | null>(null);
   /** The selected annotation while it's being dragged (not yet in the document), for live panel values. */
   livePreview = $state.raw<Annotation | null>(null);
+  /** While a text box is being typed in: toggles its styles (set by the page's text editor). */
+  textEditor = $state.raw<{ toggle: (style: 'bold' | 'italic' | 'underline' | 'strike') => void } | null>(null);
   /** Image panel: corner handles and size fields keep the image's proportions. */
   imageAspectLock = $state(true);
 

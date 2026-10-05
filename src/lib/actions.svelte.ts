@@ -21,6 +21,11 @@ import { defaultImageSize } from './image-geometry';
 import { heicDecodes } from './landing/heic-probe';
 import { viewportFor } from './pdf/render';
 import { focusObject, settleFocusAfterRemoval } from './focus';
+import { styleAvailable } from './text-format';
+import { ensureTextFont } from './font-metrics-store.svelte';
+import { layoutText } from './text-layout';
+
+const STYLE_LABELS = { bold: 'Bold', italic: 'Italic', underline: 'Underline', strike: 'Strikethrough' } as const;
 import { groupMarks, padTextRect } from './redact-marks';
 import type { OcrLanguage } from './ocr';
 import { isWorthwhile, type CompressSettings } from './pdf/compress';
@@ -746,6 +751,30 @@ export class Actions {
 
   canPaste() {
     return annotClipboard !== null && this.doc.pages.length > 0;
+  }
+
+  /** Can a style shortcut act now? (A text box is being edited or is selected.) */
+  canStyleText() {
+    return !!this.viewer.textEditor || this.selectedAnnot?.annot.type === 'text';
+  }
+
+  /** Bold / italic / underline / strikethrough on the text box being edited or selected: one undo step. */
+  async toggleTextStyle(style: 'bold' | 'italic' | 'underline' | 'strike') {
+    if (this.viewer.textEditor) return this.viewer.textEditor.toggle(style);
+    const sel = this.selectedAnnot;
+    if (!sel || sel.annot.type !== 'text') return;
+    const a = sel.annot;
+    if ((style === 'bold' || style === 'italic') && !styleAvailable(a.font, style)) {
+      this.viewer.notify(`This font has no ${style}.`);
+      return;
+    }
+    let next = { ...a, [style]: !a[style] };
+    if (style === 'bold' || style === 'italic') {
+      await ensureTextFont(a.font);
+      next = layoutText(next);
+    }
+    (this.viewer.toolProps.text as Record<string, unknown>)[style] = next[style];
+    this.updateAnnotation(sel.page.id, next, STYLE_LABELS[style]);
   }
 
   /** A copy next to the selected object, on the same page (the clipboard is left alone). */
