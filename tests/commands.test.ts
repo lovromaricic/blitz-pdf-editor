@@ -70,3 +70,25 @@ describe('Insert image', () => {
     expect(MARKUP_TOOLS.map((t) => String(t.id))).not.toContain('image');
   });
 });
+
+describe('Edit menu', () => {
+  const flat = (entries: MenuEntry[]): string[] => entries.flatMap((e) => (e === '-' ? [] : typeof e === 'string' ? [e] : flat(e.items)));
+
+  it('has no Preferences item (desktop and the phone accordion share the menus)', () => {
+    expect(Object.values(COMMANDS).some((c) => (c.label as string).startsWith('Preferences'))).toBe(false);
+    for (const m of MENUS) expect(flat(m.items).some((id) => id.includes('preferences'))).toBe(false);
+  });
+
+  it('never starts or ends a menu with a separator, or has two in a row', () => {
+    const check = (items: MenuEntry[]) => {
+      expect(items[0]).not.toBe('-');
+      expect(items.at(-1)).not.toBe('-');
+      items.forEach((e, i) => {
+        if (e === '-') expect(items[i + 1]).not.toBe('-');
+        if (typeof e === 'object') check(e.items);
+      });
+    };
+    for (const m of MENUS) check(m.items);
+    expect(MENUS.find((m) => m.label === 'Edit')!.items.at(-1)).toBe('edit.find');
+  });
+});

@@ -42,7 +42,6 @@ export const COMMANDS = {
   'edit.delete': { label: 'Delete', keys: ['delete', 'backspace'], nativeInFields: true },
   'edit.selectAll': { label: 'Select all', keys: ['mod+a'], nativeInFields: true },
   'edit.find': { label: 'Find…', keys: ['mod+f'] },
-  'edit.preferences': { label: 'Preferences…' },
 
   // View
   'view.zoomIn': { label: 'Zoom in', keys: ['mod+=', 'mod++'] },
