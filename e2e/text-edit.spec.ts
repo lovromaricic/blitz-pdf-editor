@@ -159,3 +159,40 @@ test('typing grows the box line by line, with the layout\'s line breaks; an empt
   await expect(page.locator('.page[data-index="0"] .boxed[data-kind="text"]')).toHaveCount(1);
   expect(await page.evaluate(() => (window as unknown as Record<string, any>).__doc.history.undoLabel)).toBe('Add text');
 });
+
+test('while typing or pasting, the box shows the new text right away (not the previous text)', async ({ page, context }) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  await openBlank(page);
+  await page.getByRole('toolbar', { name: 'Editing tools' }).getByRole('button', { name: 'Text', exact: true }).click();
+  const pg = (await page.locator('.page[data-index="0"]').boundingBox())!;
+  await page.mouse.click(pg.x + 80, pg.y + 120);
+  const field = page.getByRole('textbox', { name: 'Text', exact: true });
+  await expect(field).toBeFocused();
+  await page.keyboard.type('Old text');
+  await page.keyboard.press('Escape');
+
+  const shown = () => page.locator('.page[data-index="0"] .boxed[data-kind="text"] .line').allTextContents().then((l) => l.join('\n').replace(/ /g, ''));
+  await expect.poll(shown).toBe('Old text');
+
+  // Edit it: select everything and type over it.
+  await page.getByRole('toolbar', { name: 'Editing tools' }).getByRole('button', { name: 'Select', exact: true }).click();
+  await page.locator('.page[data-index="0"] .box-hit[data-kind="text"]').dblclick();
+  await expect(field).toBeFocused();
+  await page.keyboard.press('ControlOrMeta+a');
+  await page.keyboard.type('New');
+  await expect.poll(shown).toBe('New');
+  await page.keyboard.type('!');
+  await expect.poll(shown).toBe('New!');
+  await page.keyboard.press('Backspace');
+  await expect.poll(shown).toBe('New');
+
+  // Paste (plain text) at the end.
+  await page.evaluate(() => navigator.clipboard.writeText(' pasted words'));
+  await page.keyboard.press('ControlOrMeta+v');
+  await expect(field).toHaveValue('New pasted words');
+  await expect.poll(shown).toBe('New pasted words');
+
+  await page.keyboard.press('Escape');
+  await expect.poll(shown).toBe('New pasted words');
+  expect(await page.evaluate(() => (window as unknown as Record<string, any>).__doc.pages[0].annots[0].text)).toBe('New pasted words');
+});

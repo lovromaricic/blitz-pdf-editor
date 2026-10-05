@@ -297,17 +297,25 @@
       if (!e.isNew) actions.deleteAnnotation(page.id, e.annot.id);
       return;
     }
-    if (!e.isNew && text === e.annot.text) return;
+    // Compare with the saved box: the draft already holds the typed text (it's drawn live).
+    const saved = page.annots?.find((x) => x.id === e.annot.id);
+    if (!e.isNew && saved?.type === 'text' && text === saved.text) return;
     const laid = layoutText({ ...e.annot, text });
     if (e.isNew) actions.addAnnotation(page.id, laid);
     else actions.updateAnnotation(page.id, laid, 'Edit text');
   }
 
-  /** Typing lays the draft out again with the shared layout: same line breaks, same height as when saved. */
-  function onEditInput() {
+  /**
+   * Typing lays the draft out again with the shared layout: same line breaks,
+   * same height as when saved. Read the field itself: this handler runs before
+   * bind:value has updated editText, which would lay out the previous text.
+   */
+  function onEditInput(ev: Event) {
     const e = editing;
     if (!e) return;
-    editing = { ...e, annot: layoutText({ ...e.annot, text: editText }) };
+    const text = (ev.currentTarget as HTMLTextAreaElement).value;
+    editText = text;
+    editing = { ...e, annot: layoutText({ ...e.annot, text }) };
   }
 
   /** The edit field covers the box exactly: same center, size and turn as BoxedView draws it. */
