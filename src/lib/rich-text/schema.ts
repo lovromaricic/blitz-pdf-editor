@@ -30,7 +30,9 @@ export const cssFamilyHook = { family: (font: string) => font };
 
 export const schema = new Schema({
   nodes: {
-    doc: { content: 'paragraph+' },
+    // `box`: box settings changed while editing (alignment, spacing, background…). Kept in
+    // the document so they're part of the editor's undo and redo, and of the one session step.
+    doc: { content: 'paragraph+', attrs: { box: { default: null } } },
     paragraph: {
       content: 'text*',
       // The format of an empty paragraph (sets its line height, and is the typing style there).

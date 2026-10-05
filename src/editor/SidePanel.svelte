@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { markupPanelFor } from '../lib/panel-choice';
   import { tick } from 'svelte';
   // Contextual panel: a tool panel if one is open, else the selected pages, else document info.
   import type { Actions } from '../lib/actions.svelte';
@@ -43,19 +44,8 @@
     lastPanel = p;
   });
 
-  /** Which markup panel to show: the selected annotation's kind, else the active tool's. */
-  const markup = $derived.by(() => {
-    const annot = actions.selectedAnnot?.annot;
-    // Inserted images have their own panel; signatures stay with Sign.
-    if (annot?.type === 'image' && annot.role === 'image') return 'image';
-    const key = annot?.type ?? viewer.tool;
-    const map: Record<string, string> = {
-      highlight: 'vector', ink: 'vector', draw: 'vector', shape: 'vector', shapes: 'vector',
-      text: 'text', stamp: 'stamp', note: 'comment', comment: 'comment', image: 'sign', sign: 'sign',
-      form: 'form',
-    };
-    return map[key] ?? null;
-  });
+  /** Which markup panel to show (from the selection, the tool and text editing; never from focus). */
+  const markup = $derived(markupPanelFor(actions.selectedAnnot?.annot, viewer.tool, !!viewer.textEditor));
 </script>
 
 <!-- In a phone sheet (itself a labelled region) this is a plain container, not a second landmark. -->

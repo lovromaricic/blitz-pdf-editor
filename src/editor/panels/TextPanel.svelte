@@ -14,7 +14,7 @@
   import AlignJustify from '@lucide/svelte/icons/text-align-justify';
   import Minus from '@lucide/svelte/icons/minus';
   import Plus from '@lucide/svelte/icons/plus';
-  import type { Component } from 'svelte';
+  import { tick, type Component } from 'svelte';
   import { BACKGROUND_COLORS, INK_COLORS, type TextAlign, type TextAnnotation } from '../../lib/annotations';
   import { useActions } from '../../lib/actions.svelte';
   import { FALLBACK_FONT } from '../../lib/font-catalog';
@@ -77,7 +77,7 @@
         if (run.font) await ensureTextFont(run.font as string);
         ed.format(run);
       }
-      if (Object.keys(box).length) ed.setBox(box, label, coalesceKey);
+      if (Object.keys(box).length) ed.setBox(box);
       return;
     }
     const list = targets;
@@ -182,6 +182,8 @@
     } else if (e.key === 'Enter') {
       e.preventDefault();
       commitSize();
+      // Done with the size: back to typing.
+      viewer.textEditor?.focus();
     }
   }
 
@@ -226,10 +228,43 @@
    */
   function keepTextFocus(node: HTMLElement) {
     const onDown = (e: MouseEvent) => {
-      if (viewer.textEditor && (e.target as Element).closest('button')) e.preventDefault();
+      if (viewer.textEditor && (e.target as Element).closest('button, [role="option"], [role="radio"]')) e.preventDefault();
+    };
+    // Fields, selects and sliders need focus themselves: used with the mouse, they
+    // give it back to the text (and its selection) once the change is made.
+    const onPointer = () => (pointerUsed = true);
+    const onKey = (e: KeyboardEvent) => {
+      pointerUsed = false;
+      // Shift+Tab from the first control goes back to the text.
+      const first = node.querySelector<HTMLElement>(':is(button, input, select):not(:disabled)');
+      if (e.key === 'Tab' && e.shiftKey && viewer.textEditor && document.activeElement === first) {
+        e.preventDefault();
+        viewer.textEditor.focus();
+      }
+    };
+    const onChange = (e: Event) => {
+      if ((e.target as Element).matches('select, input[type="range"]')) void tick().then(refocusText);
     };
     node.addEventListener('mousedown', onDown);
-    return () => node.removeEventListener('mousedown', onDown);
+    node.addEventListener('pointerdown', onPointer, true);
+    node.addEventListener('keydown', onKey, true);
+    node.addEventListener('change', onChange);
+    return () => {
+      node.removeEventListener('mousedown', onDown);
+      node.removeEventListener('pointerdown', onPointer, true);
+      node.removeEventListener('keydown', onKey, true);
+      node.removeEventListener('change', onChange);
+    };
+  }
+
+  /** The last panel input was the mouse (or touch), not the keyboard. */
+  let pointerUsed = false;
+  /** Back to the text being edited, after a control used with the mouse. Keyboard users stay where they are. */
+  function refocusText() {
+    const ed = viewer.textEditor;
+    if (!ed || !pointerUsed) return false;
+    ed.focus();
+    return true;
   }
 
   const formatSpacing = (v: number) => (Number.isInteger(v) ? v.toFixed(1) : String(v));
@@ -244,7 +279,7 @@
 
   <div class="field font">
     <label for="tx-font">Font</label>
-    <FontPicker id="tx-font" value={isMixed(fmt.font) ? items[0].font : fmt.font} onChange={chooseFont}>
+    <FontPicker restoreFocus={refocusText} id="tx-font" value={isMixed(fmt.font) ? items[0].font : fmt.font} onChange={chooseFont}>
       {#snippet extra(close)}
         {#if canUseLocalFonts}
           <button
@@ -355,6 +390,7 @@
   <div class="field">
     <span class="label">Color</span>
     <Swatches
+      restoreFocus={refocusText}
       label="Text color"
       colors={INK_COLORS}
       value={isMixed(fmt.color) ? null : fmt.color}
@@ -366,6 +402,7 @@
   <div class="field">
     <span class="label">Background</span>
     <Swatches
+      restoreFocus={refocusText}
       label="Background"
       colors={BACKGROUND_COLORS}
       allowNone

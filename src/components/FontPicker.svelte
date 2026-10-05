@@ -15,12 +15,15 @@
     value,
     onChange,
     extra,
+    restoreFocus,
   }: {
     id: string;
     value: string;
     onChange: (font: string) => void;
     /** Extra content at the bottom of the list (e.g. "My computer's fonts…"). */
     extra?: Snippet<[close: () => void]>;
+    /** When the list closes: put focus somewhere else (return true) instead of on its button. */
+    restoreFocus?: () => boolean;
   } = $props();
 
   let open = $state(false);
@@ -66,7 +69,7 @@
     open = false;
     if (returnFocus) {
       await tick();
-      trigger?.focus();
+      if (!restoreFocus?.()) trigger?.focus();
     }
   }
 

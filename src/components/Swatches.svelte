@@ -16,6 +16,7 @@
     allowNone = false,
     custom = true,
     mixed = false,
+    restoreFocus,
   }: {
     label: string;
     colors: { name: string; rgb: Rgb }[];
@@ -26,6 +27,8 @@
     custom?: boolean;
     /** Several objects with different colors are selected: none is shown as chosen. */
     mixed?: boolean;
+    /** When the custom picker closes: put focus somewhere else (return true) instead of on its button. */
+    restoreFocus?: () => boolean;
   } = $props();
 
   const options = $derived<{ name: string; rgb: Rgb | null }[]>(allowNone ? [{ name: 'None', rgb: null }, ...colors] : colors);
@@ -66,7 +69,7 @@
     if (latest && toHex(latest) !== startHex) rememberColor(latest);
     if (returnFocus) {
       await tick();
-      plusBtn?.focus();
+      if (!restoreFocus?.()) plusBtn?.focus();
     }
   }
 

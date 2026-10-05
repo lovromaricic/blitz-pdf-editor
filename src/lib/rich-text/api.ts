@@ -16,6 +16,6 @@ export interface RichEditorApi {
   openLink(): void;
   /** The box being edited, as drawn now (its box settings: alignment, spacing, background, opacity). */
   readonly box: import('../annotations').TextAnnotation;
-  /** Change box settings while editing (one undo step each for a saved box). */
-  setBox(changes: Partial<import('../annotations').TextAnnotation>, label: string, coalesceKey?: string): void;
+  /** Change box settings while editing: undoable inside the session, saved with it as one step. */
+  setBox(changes: Partial<import('../annotations').TextAnnotation>): void;
 }

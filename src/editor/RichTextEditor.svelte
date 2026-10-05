@@ -72,8 +72,8 @@
     onComposing: (on: boolean) => void;
     /** The editor's controls for the panel and shortcuts. */
     onReady: (api: RichEditorApi) => void;
-    /** Box settings changed from the panel while editing. */
-    onBox: (changes: Partial<TextAnnotation>, label: string, coalesceKey?: string) => void;
+    /** Box settings changed while editing: all of this session's changes (they change with undo and redo too). */
+    onBox: (box: Partial<TextAnnotation>) => void;
   } = $props();
 
   let host: HTMLDivElement;
@@ -278,7 +278,7 @@
     get box() {
       return annot;
     },
-    setBox: (changes, label, coalesceKey) => onBox(changes, label, coalesceKey),
+    setBox: (changes) => view.dispatch(view.state.tr.setDocAttribute('box', { ...(view.state.doc.attrs.box ?? {}), ...changes })),
   };
 
   onMount(() => {
@@ -298,6 +298,7 @@
           'Mod-i': () => (api.toggle('italic'), true),
           'Mod-u': () => (api.toggle('underline'), true),
           'Mod-k': () => (openLink(), true),
+          Tab: toPanel,
           // Open the link the caret is in (the card's Open, from the keyboard).
           'Alt-Enter': (state) => {
             const range = linkRangeAt(state.doc, state.selection.from, 'inside');
@@ -325,9 +326,11 @@
           closeHistory(tr);
           isolateNext = false;
         }
+        const before = view.state.doc.attrs.box;
         const next = view.state.apply(tr);
         view.updateState(next);
         if (tr.docChanged) onChange(paragraphsFromDoc(next.doc, fallback), plainTextOf(next.doc));
+        if (next.doc.attrs.box !== before) onBox(next.doc.attrs.box ?? {});
         update();
       },
       // Paste: plain text, unless it's our own copy from a text box (kept in memory, with its formats).
@@ -398,6 +401,30 @@
     };
   });
 
+  /**
+   * Pointer and key events in the text stay in it. Native listeners: Svelte's
+   * own (delegated) handlers run only after the event has passed the page,
+   * whose "click outside an object deselects" then took the box's selection,
+   * and the panel with it.
+   */
+  function keepEventsIn(node: HTMLElement) {
+    const stop = (e: Event) => e.stopPropagation();
+    node.addEventListener('pointerdown', stop);
+    node.addEventListener('keydown', stop);
+    return () => {
+      node.removeEventListener('pointerdown', stop);
+      node.removeEventListener('keydown', stop);
+    };
+  }
+
+  /** Tab goes on to the Text panel's controls (Shift+Tab from its first one comes back). */
+  function toPanel() {
+    const first = document.querySelector<HTMLElement>('.text-panel :is(button, input, select):not(:disabled)');
+    if (!first) return false;
+    first.focus();
+    return true;
+  }
+
   /** Copy: the system clipboard gets plain text and our marker (never HTML); the formatted copy stays in memory. */
   /**
    * Take in a selection change the browser made a moment ago and ProseMirror
@@ -452,11 +479,10 @@
   style:--lh={lineSpacingOf(annot)}
   style:text-align={alignOf(annot)}
   style:caret-color={rgbToCss(annot.color)}
-  onpointerdown={(e) => e.stopPropagation()}
   onpointermove={onPointerMove}
   onpointerleave={() => hovered && leaveSoon()}
-  onkeydown={(e) => e.stopPropagation()}
   role="presentation"
+  {@attach keepEventsIn}
 ></div>
 
 {#if linkForm}

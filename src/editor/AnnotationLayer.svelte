@@ -38,7 +38,7 @@
   import { clampFrame, frameCorners, frameToImage, imageFrame, resizeFrame, turnFrame, turnHandle, MIN_IMAGE_SIZE, type Frame } from '../lib/image-geometry';
   import { cssFamily, loadFonts, resolveStyle, TEXT_PADDING } from '../lib/fonts';
   import { boxHeight } from '../lib/text-box-layout';
-  import { DEFAULT_TEXT_WIDTH, formatTextBox, layoutText, makeStamp, topLeftForCenter } from '../lib/text-layout';
+  import { DEFAULT_TEXT_WIDTH, layoutText, makeStamp, topLeftForCenter } from '../lib/text-layout';
   import { normalize, paragraphsOf, plainText, runsOf } from '../lib/text-rich';
   import BoxedView from './BoxedView.svelte';
   import { useActions } from '../lib/actions.svelte';
@@ -260,7 +260,16 @@
    */
   // Raw: the paragraphs keep their identity (a deep proxy would make them new
   // on every change, and the layout's per-paragraph cache would never hit).
-  let editing = $state.raw<{ id: string; base: TextAnnotation; isNew: boolean; paragraphs: TextParagraph[] | null; text: string; composing: boolean } | null>(null);
+  // `box`: box settings changed from the panel while typing (part of the session's one undo step).
+  let editing = $state.raw<{
+    id: string;
+    base: TextAnnotation;
+    isNew: boolean;
+    paragraphs: TextParagraph[] | null;
+    text: string;
+    composing: boolean;
+    box: Partial<TextAnnotation>;
+  } | null>(null);
   /** The editing surface, loaded with the editor the first time a box is edited. */
   const loadRichEditor = () => import('./RichTextEditor.svelte').then((m) => m.default);
 
@@ -274,7 +283,7 @@
   /** What's drawn while typing: the box settings, with the surface's content laid out by the shared layout. */
   const editDraft = $derived.by((): TextAnnotation | null => {
     if (!editing) return null;
-    const box = savedEditing ?? editing.base;
+    const box = { ...(savedEditing ?? editing.base), ...editing.box };
     if (!editing.paragraphs) return box;
     void metricsState.version;
     return layoutText({ ...box, paragraphs: editing.paragraphs, text: editing.text });
@@ -283,7 +292,9 @@
   async function startEdit(a: TextAnnotation, isNew: boolean) {
     await commitEdit();
     await Promise.all([loadFonts(), ...[...new Set(runsOf(a).map((r) => r.font))].map(ensureTextFont), loadRichEditor()]);
-    editing = { id: a.id, base: a, isNew, paragraphs: null, text: a.text, composing: false };
+    editing = { id: a.id, base: a, isNew, paragraphs: null, text: a.text, composing: false, box: {} };
+    // The box stays selected while it's typed in: the panel (chosen from the selection) stays Text.
+    if (!isNew) viewer.selectAnnot({ pageId: page.id, id: a.id });
   }
 
   /** Remove white space and empty paragraphs at the very end (like the plain text field did). */
@@ -305,16 +316,19 @@
     const saved = savedEditing;
     editing = null;
     viewer.textEditor = null;
-    if (!e.paragraphs) return; // nothing typed (a new box stays unmade)
-    const paragraphs = trimEnd(e.paragraphs);
+    const boxChanged = Object.keys(e.box).length > 0;
+    if (!e.paragraphs && !boxChanged) return; // nothing typed (a new box stays unmade)
+    if (!e.paragraphs && e.isNew) return;
+    const paragraphs = trimEnd(e.paragraphs ?? paragraphsOf(saved ?? e.base));
     const text = plainText(paragraphs);
     if (!text.trim()) {
       if (!e.isNew) actions.deleteAnnotation(page.id, e.id);
       return;
     }
-    if (!e.isNew && saved && JSON.stringify(normalize(paragraphsOf(saved))) === JSON.stringify(paragraphs)) return;
+    const sameBox = !saved || (Object.keys(e.box) as (keyof TextAnnotation)[]).every((k) => JSON.stringify(saved[k]) === JSON.stringify(e.box[k]));
+    if (!e.isNew && saved && sameBox && JSON.stringify(normalize(paragraphsOf(saved))) === JSON.stringify(paragraphs)) return;
     await Promise.all(paragraphs.flatMap((p) => p.runs).map((r) => ensureTextFont(r.font)));
-    const laid = layoutText({ ...(saved ?? e.base), paragraphs, text });
+    const laid = layoutText({ ...(saved ?? e.base), ...e.box, paragraphs, text });
     if (e.isNew) actions.addAnnotation(page.id, laid);
     else actions.updateAnnotation(page.id, laid, 'Edit text');
   }
@@ -631,7 +645,8 @@
     if (!selecting) return;
     const host = ui.parentElement!;
     const onDown = (e: PointerEvent) => {
-      if (!(e.target as Element).closest('.annot, .handle') && viewer.selectedAnnot?.pageId === page.id) viewer.selectAnnot(null);
+      // The text being edited isn't "outside" (its box stays selected while typing).
+      if (!(e.target as Element).closest('.annot, .handle, .rich-editor') && viewer.selectedAnnot?.pageId === page.id) viewer.selectAnnot(null);
     };
     host.addEventListener('pointerdown', onDown);
     return () => host.removeEventListener('pointerdown', onDown);
@@ -831,12 +846,7 @@
         onChange={(paragraphs, text) => editing && (editing = { ...editing, paragraphs, text })}
         onComposing={(on) => editing && (editing = { ...editing, composing: on })}
         onReady={(api) => (viewer.textEditor = api)}
-        onBox={(changes, label, coalesceKey) => {
-          // A saved box changes now (one undo step); a new one keeps it for when it's made.
-          const saved = savedEditing;
-          if (saved) actions.updateAnnotation(page.id, formatTextBox(saved, changes), label, coalesceKey);
-          else if (editing) editing = { ...editing, base: { ...editing.base, ...changes } };
-        }}
+        onBox={(box) => editing && (editing = { ...editing, box })}
         onFinish={() => {
           void commitEdit();
           // The surface goes away with the edit: keep focus in the editor, not on <body>.
