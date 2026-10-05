@@ -21,7 +21,7 @@
   import { CLIPBOARD_KEYS, ClipboardShortcuts } from '../lib/clipboard-shortcuts';
   import { imageAcceptAttr, kindOf } from '../lib/landing/accepted-files';
   import { heicDecodes } from '../lib/landing/heic-probe';
-  import { CROP_STRINGS, IMAGE_STRINGS, OBJECT_STRINGS } from '../lib/strings';
+  import { CONTENT_STRINGS, CROP_STRINGS, IMAGE_STRINGS, OBJECT_STRINGS } from '../lib/strings';
   import type { EditorDocument } from '../lib/document.svelte';
   import { openFiles } from '../lib/open-files.svelte';
   import { viewportFor } from '../lib/pdf/render';
@@ -51,6 +51,8 @@
 
   // svelte-ignore state_referenced_locally (the editor is re-created per document)
   const viewer = new Viewer(doc);
+  // The content worker goes with the document.
+  $effect(() => () => viewer.content.destroy());
   installFocusModality();
   provideViewer(viewer);
   // svelte-ignore state_referenced_locally
@@ -154,11 +156,13 @@
     'edit.duplicate': { run: () => actions.duplicateAnnotation(), enabled: () => !!viewer.objectSelection },
     'edit.delete': {
       run: () => {
-        if (viewer.objectSelection) actions.deleteSelection();
+        if (viewer.contentSelection) void actions.deleteContent();
+        else if (viewer.objectSelection) actions.deleteSelection();
         else actions.delete();
       },
-      enabled: () => !!viewer.objectSelection || (viewer.selection.size > 0 && actions.canDelete()),
+      enabled: () => (viewer.contentSelection ? actions.canDeleteContent() : !!viewer.objectSelection || (viewer.selection.size > 0 && actions.canDelete())),
       label: () => {
+        if (viewer.contentSelection) return `Delete ${actions.describeContentSelection()}`;
         if (viewer.objectSelection) return `Delete ${actions.describeSelection()}`;
         const n = viewer.selection.size;
         return n > 0 ? `Delete ${n === 1 ? 'page' : `${n} pages`}` : 'Delete';
@@ -257,6 +261,8 @@
     if (!m) return [];
     const pasteKeys = formatKeys('mod+v');
     const cropRef = viewer.selectedAnnot && actions.canCrop(viewer.selectedAnnot) ? viewer.selectedAnnot : null;
+    // The PDF's own content (Edit content tool).
+    if (m.contentId) return [{ label: CONTENT_STRINGS.delete, run: () => commands.run('edit.delete'), disabled: !actions.canDeleteContent(), keys: formatKeys('delete') }];
     if (!m.objectId) {
       return [{ label: 'Paste here', run: () => actions.pasteAnnotation({ pageId: m.pageId, point: m.point! }), disabled: !actions.canPaste() }];
     }
@@ -288,6 +294,7 @@
     if (!restoreFocus || !m) return;
     // Back to the object (or, if it's gone or there was none, the editor's focus sink: never the canvas).
     if (m.objectId) focusObject(m.objectId);
+    else if (m.contentId) (document.querySelector<HTMLElement>(`[data-content-id="${CSS.escape(m.contentId)}"]`) ?? document.getElementById('editor-main'))?.focus();
     else focusSink();
   }
 
@@ -548,8 +555,9 @@
     if (e.key === 'Escape' && !e.defaultPrevented && !document.querySelector('dialog[open]')) {
       const target = e.target as HTMLElement;
       if (target.closest('input, textarea, [role="menu"]')) return;
-      if (viewer.objectSelection) {
+      if (viewer.objectSelection || viewer.contentSelection) {
         viewer.selectObjects(null);
+        viewer.selectContent(null);
         viewer.announce('Selection cleared');
       } else if (viewer.tool !== 'select') viewer.setTool('select');
     }

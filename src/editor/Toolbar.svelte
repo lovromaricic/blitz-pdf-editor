@@ -96,7 +96,7 @@
         aria-pressed={active}
         aria-keyshortcuts={keys}
         aria-describedby={tip?.for === `tb-tool-${t.id}` ? 'toolbar-tip' : undefined}
-        data-tip="{t.label}{keys ? ` (${keys})` : ''}"
+        data-tip="{t.tip ?? t.label}{keys ? ` (${keys})` : ''}"
         tabindex={active ? 0 : -1}
         onclick={() => {
           hideTip();

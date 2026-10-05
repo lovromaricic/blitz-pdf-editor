@@ -20,7 +20,7 @@
     "pdfjsItems": 20,
     "showOps": 847,
     "problems": [],
-    "ms": 14,
+    "ms": 15,
     "delete": {
       "block": "The committee met on Tuesday to review t",
       "inForms": 0,
@@ -64,7 +64,7 @@
     "pdfjsItems": 18,
     "showOps": 303,
     "problems": [],
-    "ms": 4,
+    "ms": 5,
     "delete": {
       "block": "Poštovani stanari, u četvrtak će se od 8",
       "inForms": 0,
@@ -108,7 +108,7 @@
     "pdfjsItems": 33,
     "showOps": 1154,
     "problems": [],
-    "ms": 14,
+    "ms": 9,
     "delete": {
       "order": [
         "Neighbourhood Ne",
@@ -203,7 +203,7 @@
     "pdfjsItems": 15,
     "showOps": 168,
     "problems": [],
-    "ms": 1,
+    "ms": 2,
     "delete": {
       "block": "Banka Primjer d.d.",
       "inForms": 0,
@@ -643,7 +643,7 @@
     "pdfjsItems": 2900,
     "showOps": 174241,
     "problems": [],
-    "ms": 841,
+    "ms": 1002,
     "delete": {
       "block": "The committee met on Tuesday to review t",
       "inForms": 0,
@@ -657,7 +657,7 @@
       "sizeAfter": 520554,
       "changedOutsidePx": 9,
       "changedInsidePx": 4516,
-      "saveMs": 113
+      "saveMs": 103
     },
     "leftovers": {
       "structTree": true,

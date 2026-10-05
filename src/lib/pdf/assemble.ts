@@ -23,6 +23,8 @@ import type { FieldValue } from '../forms';
 import type { ImageAsset } from '../image-store';
 import type { PageDecoration } from '../decorations';
 import { addAnnotations, type FontProvider } from './write-annotations';
+import { collectGarbage } from './gc';
+export { collectGarbage };
 import { drawDecoration } from './write-decorations';
 import { analyze, estimateSizes, recompressImages, type Analysis, type CompressSettings, type RunOptions } from './compress';
 import { addInvisibleText, type OcrWord } from './ocr-text';
@@ -357,36 +359,6 @@ function pruneFormFields(doc: PDFDocument, pages: PDFPage[]) {
 
   const kept = fields.asArray().filter(keep);
   if (kept.length !== fields.size()) acroForm.set(PDFName.of('Fields'), doc.context.obj(kept));
-}
-
-/** pdf-lib writes every object it holds, reachable or not. Remove the unreachable ones. */
-export function collectGarbage(doc: PDFDocument) {
-  const { context } = doc;
-  const reachable = new Set<string>();
-  const stack: PDFObject[] = [];
-  const { Root, Info, Encrypt } = context.trailerInfo;
-  for (const o of [Root, Info, Encrypt]) if (o) stack.push(o);
-
-  while (stack.length) {
-    const obj = stack.pop()!;
-    if (obj instanceof PDFRef) {
-      const key = obj.toString();
-      if (reachable.has(key)) continue;
-      reachable.add(key);
-      const target = context.lookup(obj);
-      if (target) stack.push(target);
-    } else if (obj instanceof PDFDict) {
-      for (const [, v] of obj.entries()) stack.push(v);
-    } else if (obj instanceof PDFArray) {
-      for (const v of obj.asArray()) stack.push(v);
-    } else if (obj instanceof PDFStream) {
-      stack.push(obj.dict);
-    }
-  }
-
-  for (const [ref] of context.enumerateIndirectObjects()) {
-    if (!reachable.has(ref.toString())) context.delete(ref);
-  }
 }
 
 /** Compress one source file: re-encode images, keep typed form values, drop unused objects. */

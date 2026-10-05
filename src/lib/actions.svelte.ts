@@ -15,14 +15,17 @@ import { addOcrText, analyzeSources, blankPdfInWorker, compressSources, estimate
 import type { Rect } from './annotations';
 import { findMatchRects } from './search.svelte';
 import { isMac } from './commands';
-import { CROP_STRINGS, FLATTEN_STRINGS, IMAGE_STRINGS, NEW_PDF_STRINGS, OBJECT_STRINGS } from './strings';
+import { CONTENT_STRINGS, CROP_STRINGS, FLATTEN_STRINGS, IMAGE_STRINGS, NEW_PDF_STRINGS, OBJECT_STRINGS } from './strings';
 import { addImageFile, storedImage, type StoredImage } from './image-store';
 import { applyCropView, applyRatio, cropOf, cropPixels, enterCropFor, isFull, isPortrait, ratioValue, sameCrop, swapFrame, viewToCrop, type CropSession, type CropView, type RatioId } from './image-crop';
 import { UnsupportedImageError } from './image-prepare';
 import { defaultImageSize } from './image-geometry';
 import { heicDecodes } from './landing/heic-probe';
 import { viewportFor } from './pdf/render';
-import { focusLost, focusObject, settleFocusAfterRemoval } from './focus';
+import { focusLost, focusObject, focusSink, settleFocusAfterRemoval } from './focus';
+import { looksDigitallySigned } from './files';
+import { friendlyError } from './friendly-error';
+import type { ContentItem } from './content-editing.svelte';
 import { canMoveUnits, insertAboveUnit, LAYER_LABELS, moveUnits, type LayerMove } from './z-order';
 import { fitIntoPage, placeInside } from './page-bounds';
 import { copyWithNewIds, describeUnits, GROUP_PREFIX, groupUnits, isGroupId, membersOf, ungroupUnits, unionBounds, unitOf, unitsIn } from './object-selection';
@@ -1104,6 +1107,115 @@ export class Actions {
     this.updateAnnotation(ref.pageId, next, CROP_STRINGS.undoReset);
     if (c) this.viewer.imageCrop = this.cropSession(ref.pageId, next as ImageAnnotation, c.ratio);
     this.viewer.announce(CROP_STRINGS.resetDone);
+  }
+
+  // --- Original content (Edit content tool) -----------------------------------
+
+  /** The selected original content: its page, version of the file, analysis and items. */
+  private contentSelected() {
+    const sel = this.viewer.contentSelection;
+    const page = sel && this.doc.pages.find((p) => p.id === sel.pageId);
+    if (!sel || !page) return null;
+    const source = this.doc.source(page);
+    const analysis = this.viewer.content.get(source, page.sourceIndex);
+    if (!analysis || typeof analysis !== 'object') return null;
+    const items = sel.ids.map((id) => analysis.items.find((i) => i.id === id)).filter((i): i is ContentItem => !!i);
+    return items.length ? { page, source, analysis, items } : null;
+  }
+
+  describeContentSelection() {
+    const s = this.contentSelected();
+    if (!s) return '';
+    const texts = s.items.filter((i) => i.kind === 'text').length;
+    return CONTENT_STRINGS.describe(texts, s.items.length - texts);
+  }
+
+  canDeleteContent() {
+    const s = this.contentSelected();
+    return !!s && !s.items.some((i) => i.blocked) && !this.viewer.content.locked.get(s.source.id);
+  }
+
+  /** Files whose signature the user agreed to invalidate (by the original file). */
+  private signedOk = new Set<string>();
+  private metadataNoted = false;
+  private contentVersion = 0;
+
+  /**
+   * Delete the selected original content from the PDF, for real: a new version
+   * of the file without it (one undo step; undo goes back to the original).
+   */
+  async deleteContent() {
+    const s = this.contentSelected();
+    if (!s) return;
+    const { page, source, analysis, items } = s;
+    const blocked = items.find((i) => i.blocked);
+    if (blocked) return this.viewer.notify(blocked.blocked!);
+    if (await this.viewer.content.checkLock(source)) return this.viewer.notify(CONTENT_STRINGS.restricted);
+    const root = source.id.split('~')[0];
+    if (looksDigitallySigned(source.bytes) && !this.signedOk.has(root)) {
+      const r = await showDialog({
+        title: CONTENT_STRINGS.signedTitle,
+        message: CONTENT_STRINGS.signedMessage,
+        buttons: [
+          { value: 'cancel', label: CONTENT_STRINGS.cancel },
+          { value: 'continue', label: CONTENT_STRINGS.continue, primary: true },
+        ],
+        cancelValue: 'cancel',
+        initialFocus: 'cancel',
+      });
+      if (r.button !== 'continue') return;
+      this.signedOk.add(root);
+    }
+    if (analysis.scan && items.some((i) => i.coversPage)) {
+      const r = await showDialog({
+        title: CONTENT_STRINGS.scanTitle,
+        message: CONTENT_STRINGS.scanMessage,
+        buttons: [
+          { value: 'cancel', label: CONTENT_STRINGS.cancel },
+          { value: 'delete', label: CONTENT_STRINGS.scanConfirm, danger: true },
+        ],
+        cancelValue: 'cancel',
+        initialFocus: 'cancel',
+      });
+      if (r.button !== 'delete') return;
+    }
+    const newId = `${root}~${++this.contentVersion}`;
+    const done = await this.viewer.runTask(CONTENT_STRINGS.deleting, () => this.viewer.content.remove(source, page.sourceIndex, items.map((i) => i.id), newId), { delay: 1000 });
+    if (!done) return;
+    try {
+      await this.doc.addReplacementSource(source, done.bytes, 'edit', newId);
+      // Values typed into form fields carry over (same fields, same ids).
+      const typed = (source.pdf.annotationStorage.serializable as { map?: Map<string, object> }).map;
+      const next = this.doc.sources.get(newId)!;
+      if (typed) for (const [k, v] of typed) next.pdf.annotationStorage.setValue(k, v);
+    } catch (e) {
+      // Nothing changed: the new version is dropped.
+      this.pruneSources();
+      return this.viewer.notify(friendlyError(e), { error: true });
+    }
+    const texts = items.filter((i) => i.kind === 'text').length;
+    const label = items.length > 1 ? CONTENT_STRINGS.undoMany(items.length) : texts ? CONTENT_STRINGS.undoText : CONTENT_STRINGS.undoImage;
+    this.doc.edit(label, this.doc.pages.map((p) => (p.sourceId === source.id ? { ...p, sourceId: newId } : p)));
+    this.viewer.contentSelection = null;
+    this.viewer.announce(CONTENT_STRINGS.deleted(CONTENT_STRINGS.describe(texts, items.length - texts).replace(/^./, (c) => c.toUpperCase())));
+    if (done.result.removedMetadata && !this.metadataNoted) {
+      this.metadataNoted = true;
+      this.viewer.notify(CONTENT_STRINGS.metadata);
+    }
+    this.pruneSources();
+    await tick();
+    focusSink();
+  }
+
+  /** Edited versions of files that neither the document nor undo/redo refer to any more. */
+  pruneSources() {
+    const used = new Set(this.doc.allPageLists().flatMap((list) => list.map((p) => p.sourceId)));
+    for (const s of [...this.doc.sources.values()]) {
+      if (used.has(s.id) || !s.id.includes('~')) continue;
+      this.doc.sources.delete(s.id);
+      this.viewer.content.forget(s.id);
+      void s.pdf.loadingTask.destroy().catch(() => {});
+    }
   }
 
   /** The selected text boxes (not being typed in), when only text boxes are selected. */

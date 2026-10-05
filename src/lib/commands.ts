@@ -117,6 +117,7 @@ export const COMMANDS = {
 
   // Markup tools (toolbar, not menus). Single keys, ignored while typing.
   'tool.select': { label: 'Select', keys: ['v'], nativeInFields: true },
+  'tool.content': { label: 'Edit content', keys: ['e'], nativeInFields: true },
   'tool.text': { label: 'Text', keys: ['t'], nativeInFields: true },
   'tool.highlight': { label: 'Highlight', keys: ['h'], nativeInFields: true },
   'tool.draw': { label: 'Draw', keys: ['d'], nativeInFields: true },

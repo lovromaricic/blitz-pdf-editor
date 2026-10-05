@@ -13,7 +13,7 @@
     <span>Pages</span>
   </button>
   <span class="divider" aria-hidden="true"></span>
-  {#each MARKUP_TOOLS as t (t.id)}
+  {#each MARKUP_TOOLS.filter((t) => !t.desktopOnly) as t (t.id)}
     <button type="button" class="tool" class:active={viewer.tool === t.id} aria-pressed={viewer.tool === t.id} onclick={() => viewer.setTool(t.id)}>
       <t.icon size={ICON.size} strokeWidth={ICON.strokeWidth} aria-hidden="true" />
       <span>{t.label}</span>

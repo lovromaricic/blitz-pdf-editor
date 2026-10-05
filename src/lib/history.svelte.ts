@@ -71,6 +71,11 @@ export class History<T> {
     return entry.state;
   }
 
+  /** Every state undo or redo can still go back to. */
+  states(): T[] {
+    return [...this.past, ...this.future].map((e) => e.state);
+  }
+
   markSaved() {
     this.savedVersion = this.version;
   }

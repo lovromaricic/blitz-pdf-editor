@@ -91,6 +91,46 @@ export const CROP_STRINGS = {
       : `${n} cropped images were too large for this device to cut at full resolution, so they were saved at a lower resolution.`,
 } as const;
 
+/** Edit content: the PDF's own text blocks and images. */
+export const CONTENT_STRINGS = {
+  tool: 'Edit content',
+  textBlock: 'Text block',
+  image: 'Image',
+  originalText: 'Original text',
+  originalImage: 'Original image',
+  originalItems: (n: number) => `${n} items`,
+  font: 'Font',
+  size: 'Size',
+  color: 'Color',
+  pixelSize: 'Pixel size',
+  delete: 'Delete',
+  deleteHint: 'Deleting removes it from the PDF itself, not only from view. Undo brings it back.',
+  readOnly: 'Detected from the PDF (read only).',
+  undoText: 'Delete text',
+  undoImage: 'Delete image',
+  undoMany: (n: number) => `Delete ${n} items`,
+  deleted: (what: string) => `${what} deleted`,
+  describe: (texts: number, images: number) =>
+    texts + images === 1 ? (texts ? 'text block' : 'image') : `${texts + images} items`,
+  hitText: (text: string) => `Text block: ${text.length > 80 ? text.slice(0, 80) + '…' : text}`,
+  hitImage: (w: number, h: number) => `Image, ${w} by ${h} pixels`,
+  hitHint: 'Delete to remove it from the PDF',
+  reading: 'Reading the page…',
+  deleting: 'Deleting…',
+  unreadable: 'This page’s content can’t be edited.',
+  scan: 'This page is a scan. There is no text to edit.',
+  nothing: 'There’s no text or image on this page that can be edited.',
+  restricted: 'This PDF’s permissions don’t allow changing its content, so it can’t be edited here.',
+  signedTitle: 'This PDF is signed',
+  signedMessage: 'This PDF is digitally signed. Editing it will invalidate the signature.',
+  continue: 'Continue',
+  cancel: 'Cancel',
+  scanTitle: 'Delete the scan?',
+  scanMessage: 'The page will be blank.',
+  scanConfirm: 'Delete',
+  metadata: 'The document’s XMP metadata was removed too, because it can repeat deleted text. The title and author are kept.',
+} as const;
+
 /** File › New blank PDF… */
 export const NEW_PDF_STRINGS = {
   command: 'New blank PDF…',

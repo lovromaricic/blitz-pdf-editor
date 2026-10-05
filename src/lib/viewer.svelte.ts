@@ -3,6 +3,7 @@ import { isGroupId, unitOf, type ObjectSelection } from './object-selection';
 import { limitRect, type LimitKind } from './page-bounds';
 import { marginPoints } from './snapping';
 import type { CropSession } from './image-crop';
+import { ContentEditing } from './content-editing.svelte';
 import { getContext, setContext, tick } from 'svelte';
 import type { EditorDocument, PageRef } from './document.svelte';
 import type { Margins } from './page-ops';
@@ -56,7 +57,7 @@ export interface Task {
   cancel?: () => void;
 }
 
-export type Tool = 'select' | 'text' | 'highlight' | 'draw' | 'shapes' | 'stamp' | 'comment' | 'sign' | 'form';
+export type Tool = 'select' | 'content' | 'text' | 'highlight' | 'draw' | 'shapes' | 'stamp' | 'comment' | 'sign' | 'form';
 
 /** Settings each markup tool uses for new annotations. */
 export interface ToolProps {
@@ -136,6 +137,10 @@ export class Viewer {
     const s = this.objectSelection;
     return s && s.ids.length === 1 && !isGroupId(s.ids[0]) ? { pageId: s.pageId, id: s.ids[0] } : null;
   }
+  /** The PDF's own content (Edit content tool): what's on each page, and deleting it. */
+  readonly content = new ContentEditing();
+  /** Original content selected with the Edit content tool: items on one page (ids from its analysis). */
+  contentSelection = $state.raw<{ pageId: string; ids: string[] } | null>(null);
   /** Crop mode for one inserted image (see actions.startCrop), or null. */
   imageCrop = $state.raw<CropSession | null>(null);
   /** The selected annotation while it's being dragged (not yet in the document), for live panel values. */
@@ -145,7 +150,7 @@ export class Viewer {
    * page (`point`, in PDF space, where "Paste here" puts things). Opened by a
    * right-click, a long press, the Menu key or Shift+F10; Editor.svelte shows it.
    */
-  contextMenu = $state.raw<{ x: number; y: number; pageId: string; objectId: string | null; point: [number, number] | null } | null>(null);
+  contextMenu = $state.raw<{ x: number; y: number; pageId: string; objectId: string | null; point: [number, number] | null; contentId?: string } | null>(null);
   /** While a text box is being typed in: its editor (formats the selection or the typing style). */
   textEditor = $state.raw<RichEditorApi | null>(null);
   /** Image panel: corner handles and size fields keep the image's proportions. */
@@ -263,8 +268,19 @@ export class Viewer {
     if (tool === 'sign' && !this.signature) this.signatureDialog = true;
     this.tool = tool;
     this.objectSelection = null;
+    this.contentSelection = null;
     this.panel = null;
     window.getSelection()?.removeAllRanges();
+  }
+
+  /** Select original content (Edit content tool) on one page, or nothing. Clears other selections. */
+  selectContent(sel: { pageId: string; ids: string[] } | null) {
+    this.contentSelection = sel && sel.ids.length ? sel : null;
+    if (this.contentSelection) {
+      this.objectSelection = null;
+      if (this.selection.size) this.selection = new Set();
+      this.panel = null;
+    }
   }
 
   selectAnnot(ref: AnnotRef | null) {
@@ -279,6 +295,7 @@ export class Viewer {
     const same = !!next && !!cur && cur.pageId === next.pageId && cur.ids.length === next.ids.length && cur.ids.every((id, i) => id === next.ids[i]);
     if (!same) this.objectSelection = next;
     if (next) {
+      this.contentSelection = null;
       if (this.selection.size) this.selection = new Set();
       this.panel = null;
     }

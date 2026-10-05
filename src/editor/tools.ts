@@ -1,6 +1,7 @@
 // The markup tools, in toolbar order, with their Lucide icons (ISC licence).
 // Shared by the desktop floating toolbar and the mobile tool strip.
 import type { Component } from 'svelte';
+import FilePenLine from '@lucide/svelte/icons/file-pen-line';
 import Highlighter from '@lucide/svelte/icons/highlighter';
 import MessageSquare from '@lucide/svelte/icons/message-square';
 import MousePointer2 from '@lucide/svelte/icons/mouse-pointer-2';
@@ -12,8 +13,10 @@ import Stamp from '@lucide/svelte/icons/stamp';
 import Type from '@lucide/svelte/icons/type';
 import type { Tool } from '../lib/viewer.svelte';
 
-export const MARKUP_TOOLS: { id: Tool; label: string; icon: Component }[] = [
+export const MARKUP_TOOLS: { id: Tool; label: string; icon: Component; tip?: string; desktopOnly?: boolean }[] = [
   { id: 'select', label: 'Select', icon: MousePointer2 },
+  // The PDF's own text and images (desktop and tablet; phones get it later).
+  { id: 'content', label: 'Edit content', tip: 'Edit text and images', icon: FilePenLine, desktopOnly: true },
   { id: 'text', label: 'Text', icon: Type },
   { id: 'highlight', label: 'Highlight', icon: Highlighter },
   { id: 'draw', label: 'Draw', icon: Pen },

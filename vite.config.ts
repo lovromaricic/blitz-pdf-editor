@@ -20,6 +20,7 @@ export default defineConfig({
   optimizeDeps: {
     include: [
       '@cantoo/pdf-lib',
+      '@cantoo/pdf-lib/standard-fonts',
       '@cantoo/fontkit',
       'fflate',
       'tesseract.js',

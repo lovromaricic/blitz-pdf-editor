@@ -23,6 +23,7 @@
   import MarkupPanel from './panels/MarkupPanel.svelte';
   import SignPanel from './panels/SignPanel.svelte';
   import ImagePanel from './panels/ImagePanel.svelte';
+  import ContentPanel from './panels/ContentPanel.svelte';
   import StampPanel from './panels/StampPanel.svelte';
   import TextPanel from './panels/TextPanel.svelte';
   import MergePanel from './panels/MergePanel.svelte';
@@ -82,6 +83,8 @@
     <CompressPanel />
   {:else if viewer.panel === 'imagesToPdf'}
     <ImagesToPdfPanel />
+  {:else if viewer.contentSelection}
+    <ContentPanel />
   {:else if selectionPanel === 'group' || selectionPanel === 'multi'}
     <SelectionPanel />
   {:else if markup === 'vector'}

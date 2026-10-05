@@ -69,7 +69,8 @@ Measured by deleting the visible span that carries /ActualText in `tagged-actual
 - **XMP metadata**: the fixture's description repeats the hidden text.
   - We can't know which metadata repeats page content.
   - Proposal: when content was deleted, remove the XMP packet and keep the Info dictionary (title, author, subject, keywords), and say so in the save message. Your call.
-- **Old revisions** (incremental updates): **gone**. The app's save is already a full rewrite (one %%EOF), and the garbage collector drops unreachable objects; the old "100 EUR" content isn't in the saved file.
+- **Old revisions** (incremental updates): **gone**. The app's save is already a full rewrite (one %%EOF), and the garbage collector drops unreachable objects.
+  - Correction (Phase 1): the Phase 0 harness checked this vacuously, because pdf-lib writes text as hex strings, so "100 EUR" never appeared literally. `tests/content-edit.test.ts` now proves it properly: it inflates every stream in the raw file and decodes hex strings, finds "100 EUR" before the edit, and finds it gone after.
 - **Link annotations** over a deleted block stay clickable.
   - Plan: remove links whose area lies inside deleted content.
 - **Invisible OCR text** (render mode 3) under a scan:

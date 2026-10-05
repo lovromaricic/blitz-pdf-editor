@@ -112,7 +112,8 @@
     Math.min(Math.max(p[0], pagePdf[0] + inset), pagePdf[2] - inset),
     Math.min(Math.max(p[1], pagePdf[1] + inset), pagePdf[3] - inset),
   ];
-  const selecting = $derived(viewer.tool === 'select');
+  /** Our own objects can be selected, moved and edited (Select; also Edit content, where they take precedence over the PDF's own content). */
+  const selecting = $derived(viewer.tool === 'select' || viewer.tool === 'content');
   /** Crop mode for an image on this page: the overlay replaces the object meanwhile. */
   const cropping = $derived(viewer.imageCrop?.pageId === page.id ? viewer.imageCrop : null);
   const placing = $derived(['text', 'stamp', 'comment', 'sign'].includes(viewer.tool));
@@ -1003,9 +1004,9 @@
     };
   }
 
-  // Clicking the page outside any annotation deselects.
+  // Clicking the page outside any annotation deselects (Select tool; Edit content handles its own clicks).
   $effect(() => {
-    if (!selecting) return;
+    if (viewer.tool !== 'select') return;
     const host = ui.parentElement!;
     const onDown = (e: PointerEvent) => {
       const t = e.target as Element;

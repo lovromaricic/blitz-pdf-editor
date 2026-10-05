@@ -238,9 +238,9 @@ export class EditorDocument {
    * Load new bytes for an existing file (e.g. compressed) as a new source with
    * the same pages. Returns the new source id; pages are re-pointed by the caller.
    */
-  async addReplacementSource(old: Source, bytes: Uint8Array, suffix: string): Promise<string> {
+  async addReplacementSource(old: Source, bytes: Uint8Array, suffix: string, givenId?: string): Promise<string> {
     const pdf = await loadPdf(bytes);
-    const id = `${old.id}-${suffix}-${Date.now().toString(36)}`;
+    const id = givenId ?? `${old.id}-${suffix}-${Date.now().toString(36)}`;
     const source = new Source(id, old.name, bytes.length, bytes, pdf, undefined, old.kind);
     source.sizes = old.sizes;
     source.rotations = old.rotations;
@@ -251,6 +251,11 @@ export class EditorDocument {
     };
     this.sources.set(id, source);
     return id;
+  }
+
+  /** Every page list undo or redo can still go back to, and the current one. */
+  allPageLists(): (readonly PageRef[])[] {
+    return [this.pages, ...this.history.states().map((s) => s.pages)];
   }
 
   async loadInfo() {
