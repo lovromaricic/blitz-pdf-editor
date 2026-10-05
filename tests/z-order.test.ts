@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from 'vitest';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
-import { canMoveLayer, insertAbove, layerPosition, moveLayer, type LayerMove } from '../src/lib/z-order';
+import { canMoveLayer, insertAbove, layerPosition, moveLayer, nextBeneath, stepThrough, type LayerMove } from '../src/lib/z-order';
 import { EditorDocument, Source, type PageRef } from '../src/lib/document.svelte';
 import { Viewer } from '../src/lib/viewer.svelte';
 import { Actions } from '../src/lib/actions.svelte';
@@ -43,6 +43,29 @@ describe('layer order operations', () => {
 
   it('reports the place of an object (1 = bottom)', () => {
     expect(layerPosition(list, 'c')).toEqual({ index: 3, count: 4 });
+  });
+});
+
+describe('selecting through the layers', () => {
+  it("Tab and Shift+Tab step through a page's objects bottom to top, then leave", () => {
+    expect(stepThrough(3, null, false)).toBe(0);
+    expect(stepThrough(3, 0, false)).toBe(1);
+    expect(stepThrough(3, 2, false)).toBe('leave');
+    expect(stepThrough(3, 2, true)).toBe(1);
+    expect(stepThrough(3, 0, true)).toBe('page');
+    expect(stepThrough(3, null, true)).toBe('page');
+    expect(stepThrough(0, null, false)).toBe('leave');
+  });
+
+  it('Alt+click goes to the next object beneath and wraps around', () => {
+    const stack = ['top', 'mid', 'bottom'];
+    expect(nextBeneath(stack, null)).toBe('mid');
+    expect(nextBeneath(stack, 'top')).toBe('mid');
+    expect(nextBeneath(stack, 'mid')).toBe('bottom');
+    expect(nextBeneath(stack, 'bottom')).toBe('top');
+    expect(nextBeneath(stack, 'elsewhere')).toBe('mid');
+    expect(nextBeneath(['only'], 'only')).toBe('only');
+    expect(nextBeneath([], null)).toBeNull();
   });
 });
 

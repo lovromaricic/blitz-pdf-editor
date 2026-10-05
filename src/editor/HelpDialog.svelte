@@ -58,6 +58,8 @@
       menu: 'Objects on the page',
       rows: [
         { label: 'Object menu (cut, copy, order, delete…)', keys: ['Shift+F10', 'Menu key', 'right-click'] },
+        { label: 'Select the object underneath (again: further down)', keys: ['Alt+click'] },
+        { label: 'Next / previous object on the page, bottom first', keys: ['Tab', 'Shift+Tab'] },
         { label: 'Move the selected object (Shift: 10× further)', keys: ['← ↑ → ↓', 'Shift+arrows'] },
       ],
     },

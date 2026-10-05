@@ -53,3 +53,29 @@ export function layerPosition(list: readonly HasId[], id: string): { index: numb
   const i = list.findIndex((a) => a.id === id);
   return i < 0 ? null : { index: i + 1, count: list.length };
 }
+
+/**
+ * Tab / Shift+Tab through a page's objects in layer order (bottom first).
+ * `current` is the selected object's index, or null when the page itself has
+ * focus. Returns the index to select, or 'leave' to let focus go on (past the
+ * last object) or 'page' (back before the first).
+ */
+export function stepThrough(count: number, current: number | null, back: boolean): number | 'leave' | 'page' {
+  if (count === 0) return back ? 'page' : 'leave';
+  if (current === null) return back ? 'page' : 0;
+  const next = current + (back ? -1 : 1);
+  if (next < 0) return 'page';
+  if (next >= count) return 'leave';
+  return next;
+}
+
+/**
+ * Alt+click: the next object beneath at that point. `stack` lists the objects
+ * under the pointer, topmost first; it continues from the selected one and
+ * wraps around (from the topmost when the selected one isn't there).
+ */
+export function nextBeneath(stack: readonly string[], selectedId: string | null): string | null {
+  if (!stack.length) return null;
+  const i = selectedId ? stack.indexOf(selectedId) : -1;
+  return stack[((i < 0 ? 0 : i) + 1) % stack.length];
+}

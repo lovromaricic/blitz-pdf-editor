@@ -1,6 +1,7 @@
 <script lang="ts">
   import { capturePointer } from '../lib/dom';
-  import { focusSink } from '../lib/focus';
+  import { focusObject, focusSink } from '../lib/focus';
+  import { nextBeneath } from '../lib/z-order';
   import { ensureTextFont, metricsState } from '../lib/font-metrics-store.svelte';
   import { alignOf, lineSpacingOf, styleAvailable } from '../lib/text-format';
   import { comboFromEvent } from '../lib/commands';
@@ -564,10 +565,35 @@
     window.addEventListener('pointercancel', stop);
   }
 
+  /**
+   * Alt+click: select the next object beneath the pointer (repeated, it goes on
+   * down and wraps around), without moving anything. So an object that's
+   * completely covered can still be selected, and brought forward.
+   */
+  function selectBeneath(e: PointerEvent) {
+    const pageEl = ui.closest('.page');
+    const stack = [
+      ...new Set(
+        document
+          .elementsFromPoint(e.clientX, e.clientY)
+          .filter((el) => el.closest('.page') === pageEl)
+          .map((el) => el.closest<HTMLElement | SVGElement>('[data-annot-id]')?.dataset.annotId)
+          .filter((id): id is string => !!id),
+      ),
+    ];
+    const id = nextBeneath(stack, selectedId);
+    const a = id ? annots.find((x) => x.id === id) : undefined;
+    if (!a) return;
+    select(a);
+    focusObject(a.id);
+    viewer.announce(`${describe(a)} selected, ${stack.indexOf(a.id) + 1} of ${stack.length} at this point`);
+  }
+
   function onAnnotDown(e: PointerEvent, a: Annotation) {
     if (!selecting || e.button !== 0) return;
     e.preventDefault();
     e.stopPropagation();
+    if (e.altKey) return selectBeneath(e);
     if (e.pointerType === 'touch') watchLongPress(e, a);
     if (e.pointerType === 'touch' && a.type === 'image' && a.id === selectedId && onImageTouchDown(e, a)) return;
     select(a);

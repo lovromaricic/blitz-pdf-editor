@@ -214,3 +214,71 @@ test('touch: a long press on an object opens its menu', async ({ browser }) => {
   expect(await ids(page)).toEqual(['text']);
   await context.close();
 });
+
+/** Three stamps on top of each other (bottom first): a, b, c. */
+async function stack(page: Page) {
+  await page.evaluate(() => {
+    const w = window as unknown as W;
+    const pageId = w.__doc.pages[0].id;
+    for (const [i, label] of ['A', 'B', 'C'].entries()) {
+      w.__actions.addAnnotation(pageId, { id: `s${label}`, type: 'stamp', label, color: [0.2 * i, 0.3, 0.6], opacity: 1, rotate: 0, rect: [150 + i * 10, 500, 350 + i * 10, 560] });
+    }
+    w.__viewer.setTool('select');
+  });
+  await expect(page.locator('.page[data-index="0"] .box-hit[data-kind="stamp"]')).toHaveCount(3);
+}
+const selected = (page: Page) => page.evaluate(() => (window as unknown as W).__viewer.selectedAnnot?.id ?? null);
+const live = (page: Page) => page.locator('div.visually-hidden[aria-live="polite"]:not(#page-announcer)');
+
+test('a click selects the topmost object; Alt+click the next one beneath, cycling round, announced', async ({ page }) => {
+  await open(page);
+  await stack(page);
+  const top = (await page.locator('[data-annot-id="sC"]').boundingBox())!;
+  const at = { x: top.x + 40, y: top.y + top.height / 2 }; // inside all three
+  await page.mouse.click(at.x, at.y);
+  expect(await selected(page)).toBe('sC');
+  await page.keyboard.down('Alt');
+  await page.mouse.click(at.x, at.y);
+  expect(await selected(page)).toBe('sB');
+  await expect(live(page)).toHaveText('Stamp selected, 2 of 3 at this point');
+  await page.mouse.click(at.x, at.y);
+  expect(await selected(page)).toBe('sA');
+  await page.mouse.click(at.x, at.y);
+  expect(await selected(page)).toBe('sC'); // wrapped around
+  await page.keyboard.up('Alt');
+  // Nothing moved; the covered one can now be brought up.
+  await page.keyboard.down('Alt');
+  await page.mouse.click(at.x, at.y);
+  await page.mouse.click(at.x, at.y);
+  await page.keyboard.up('Alt');
+  expect(await selected(page)).toBe('sA');
+  await page.keyboard.press('ControlOrMeta+Shift+ArrowUp');
+  expect(await page.evaluate(() => (window as unknown as W).__doc.pages[0].annots.map((a: { id: string }) => a.id))).toEqual(['sB', 'sC', 'sA']);
+  expect(await page.evaluate(() => (window as unknown as W).__doc.history.undoLabel)).toBe('Bring to front');
+});
+
+test('Tab and Shift+Tab from the page go through its objects in layer order, announced', async ({ page }) => {
+  await open(page);
+  await stack(page);
+  await page.locator('#document-view').focus();
+  await page.keyboard.press('Tab');
+  expect(await selected(page)).toBe('sA');
+  await expect(page.locator('[data-annot-id="sA"]')).toBeFocused();
+  await expect(live(page)).toHaveText('Stamp, 1 of 3');
+  await page.keyboard.press('Tab');
+  await page.keyboard.press('Tab');
+  expect(await selected(page)).toBe('sC');
+  await expect(live(page)).toHaveText('Stamp, 3 of 3');
+  await page.keyboard.press('Shift+Tab');
+  expect(await selected(page)).toBe('sB');
+  // Cmd/Ctrl+Down sends it back one step (and it keeps focus).
+  await page.keyboard.press('ControlOrMeta+ArrowDown');
+  expect(await page.evaluate(() => (window as unknown as W).__doc.pages[0].annots.map((a: { id: string }) => a.id))).toEqual(['sB', 'sA', 'sC']);
+  await expect(page.locator('[data-annot-id="sB"]')).toBeFocused();
+  // Before the first: back to the page; past the last: on out of the page.
+  await page.keyboard.press('Shift+Tab');
+  await expect(page.locator('#document-view')).toBeFocused();
+  expect(await selected(page)).toBeNull();
+  for (let i = 0; i < 4; i++) await page.keyboard.press('Tab');
+  expect(await page.evaluate(() => !!document.activeElement?.closest('#document-view'))).toBe(false);
+});

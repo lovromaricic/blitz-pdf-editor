@@ -11,6 +11,7 @@
   import { tick, untrack } from 'svelte';
   import { focusLost, focusObject, focusSink, installFocusModality } from '../lib/focus';
   import ContextMenu, { type ContextItem } from '../components/ContextMenu.svelte';
+  import { stepThrough } from '../lib/z-order';
   import { app, closeDocument } from '../lib/app-state.svelte';
   import { Actions, provideActions } from '../lib/actions.svelte';
   import { describe } from '../lib/annotations';
@@ -272,6 +273,61 @@
     else focusSink();
   }
 
+  /**
+   * Tab / Shift+Tab from the page (or an object on it, Select tool): the
+   * objects of that page in layer order, bottom first, each selected and
+   * announced ("Text, 3 of 5"). Past the last one focus leaves the page; before
+   * the first it goes back to the page.
+   */
+  function tabThroughObjects(e: KeyboardEvent): boolean {
+    if (e.key !== 'Tab' || e.ctrlKey || e.metaKey || e.altKey || viewer.tool !== 'select') return false;
+    const scroller = document.getElementById('document-view');
+    const t = e.target as HTMLElement;
+    const objectEl = t.closest?.<HTMLElement>('[data-annot-id]');
+    if (!scroller || !(t === scroller || (objectEl && scroller.contains(objectEl)))) return false;
+    const id = objectEl?.dataset.annotId ?? null;
+    const page = (id && doc.pages.find((p) => p.annots?.some((a) => a.id === id))) || doc.pages[viewer.currentIndex];
+    const list = page?.annots ?? [];
+    const at = id ? list.findIndex((a) => a.id === id) : -1;
+    const step = stepThrough(list.length, at < 0 ? null : at, e.shiftKey);
+    if (step === 'page') {
+      if (t === scroller) return false;
+      e.preventDefault();
+      viewer.selectAnnot(null);
+      scroller.focus({ preventScroll: true });
+      return true;
+    }
+    if (step === 'leave') {
+      if (t === scroller) return false;
+      // On to whatever comes after the page area (the browser would go on into the page's other parts).
+      const after = [...document.querySelectorAll<HTMLElement>('a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea, [tabindex]:not([tabindex="-1"])')].find(
+        (el) => !scroller.contains(el) && el.offsetParent !== null && !!(scroller.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING),
+      );
+      if (!after) return false;
+      e.preventDefault();
+      after.focus();
+      return true;
+    }
+    e.preventDefault();
+    const a = list[step];
+    viewer.selectAnnot({ pageId: page!.id, id: a.id });
+    void tick().then(() => {
+      const el = document.querySelector<HTMLElement>(`[data-annot-id="${a.id}"]`);
+      const pageEl = el?.closest<HTMLElement>('.page');
+      if (el && pageEl) {
+        // Out of view: scroll the page so it shows below the floating toolbar.
+        const r = el.getBoundingClientRect();
+        const v = scroller.getBoundingClientRect();
+        if (r.bottom < v.top + viewer.insetTop || r.top > v.bottom - viewer.insetBottom) {
+          viewer.goToPage(doc.pages.indexOf(page!), Math.max(0, r.top - pageEl.getBoundingClientRect().top - 24));
+        }
+      }
+      focusObject(a.id);
+      viewer.announce(`${describe(a)}, ${step + 1} of ${list.length}`);
+    });
+    return true;
+  }
+
   /** The Menu key or Shift+F10 with an object selected: its menu, beside it. */
   function openSelectedObjectMenu() {
     const sel = viewer.selectedAnnot;
@@ -418,6 +474,7 @@
     // Single-key shortcuts don't apply inside dialogs or menus.
     const inOverlay = !!document.querySelector('dialog[open]') || !!(e.target as HTMLElement).closest?.('[role="menu"], [role="menubar"]');
     if (!inOverlay && clipboardShortcut(e)) return;
+    if (!inOverlay && tabThroughObjects(e)) return;
     // The context menu of the selected object (the thumbnails handle these keys for pages themselves).
     if ((e.key === 'ContextMenu' || (e.key === 'F10' && e.shiftKey)) && !e.defaultPrevented && !inOverlay && !isTextField(e.target) && openSelectedObjectMenu()) {
       e.preventDefault();
