@@ -47,9 +47,9 @@ for (const c of CASES) {
     await expect(guide).toHaveCount(1);
     const g = (await guide.boundingBox())!;
     const pg = (await page.locator('.page[data-index="0"]').boundingBox())!;
-    // The margin is 36 pt as shown (or a quarter of the smaller side on a small page), at any zoom.
+    // The margin is 25 mm as shown (or a quarter of the smaller side on a small page), at any zoom.
     const scale = await page.evaluate(() => (window as unknown as W).__viewer.scale as number);
-    const expected = Math.min(36, Math.min(...c.size) / 4) * scale;
+    const expected = Math.min((25 * 72) / 25.4, Math.min(...c.size) / 4) * scale;
     // (The box of a 1 px stroke starts half a pixel before the line.)
     expect(Math.abs(g.x + 0.5 - pg.x - expected)).toBeLessThan(1);
 

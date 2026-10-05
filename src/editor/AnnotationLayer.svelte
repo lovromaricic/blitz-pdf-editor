@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { MediaQuery } from 'svelte/reactivity';
   import { capturePointer } from '../lib/dom';
   import { focusObject, focusSink } from '../lib/focus';
   import { nextBeneath } from '../lib/z-order';
@@ -600,9 +601,33 @@
     return candidates({ page: pageArea, margins: marginLines, smart: viewer.smartGuides, others });
   }
 
+  /** Where the dragged object is (screen px), so guide labels keep clear of it. */
+  let dragBox = $state.raw<Rect | null>(null);
+
+  /**
+   * A small label beside each guide line, saying what it matched: near the top
+   * of a vertical line, the left end of a horizontal one; left out where it
+   * would cover the object being dragged (or another label).
+   */
+  const guideLabels = $derived.by(() => {
+    const out: { x: number; y: number; text: string }[] = [];
+    const taken: Rect[] = dragBox ? [dragBox] : [];
+    for (const g of guides) {
+      const w = g.label.length * 6;
+      const x = g.axis === 'x' ? g.at + 4 : pageArea[0] + 4;
+      const y = g.axis === 'x' ? pageArea[1] + 14 : g.at - 4;
+      const r: Rect = [x, y - 11, x + w, y + 2];
+      if (taken.some((t) => r[0] < t[2] && t[0] < r[2] && r[1] < t[3] && t[1] < r[3])) continue;
+      taken.push(r);
+      out.push({ x, y, text: g.label });
+    }
+    return out;
+  });
+
   /** Show the guides and say what was matched (at most once a second). */
-  function showGuides(next: Guide[]) {
+  function showGuides(next: Guide[], box: Rect | null = null) {
     guides = next;
+    dragBox = next.length ? box : null;
     const now = Date.now();
     if (next.length && now - lastGuideNotice > 1000) {
       lastGuideNotice = now;
@@ -637,7 +662,7 @@
       showGuides([]);
       return plain;
     }
-    showGuides(r.guides);
+    showGuides(r.guides, [b[0] + sx + r.dx, b[1] + sy + r.dy, b[2] + sx + r.dx, b[3] + sy + r.dy]);
     return m;
   }
 
@@ -883,9 +908,10 @@
         const sx = snapEdge('x', ps[0], moving.snap.cands);
         const sy = snapEdge('y', ps[1], moving.snap.cands);
         const snapped = toPdf(sx.v, sy.v);
-        if (inside(bounds(moving.resize(snapped, e)), moving.limit.rect)) {
+        const sized = moving.resize(snapped, e);
+        if (inside(bounds(sized), moving.limit.rect)) {
           p = snapped;
-          showGuides([...sx.guides, ...sy.guides]);
+          showGuides([...sx.guides, ...sy.guides], screenBoxOf(bounds(sized)));
         } else showGuides([]);
       } else showGuides([]);
       const next = moving.resize(onPage(p), e);
@@ -1050,7 +1076,8 @@
     if (selected || !selMembers.length) return null;
     const boxOf = (r: Rect) => screenBox([toScreen([r[0], r[1]]), toScreen([r[2], r[3]])]);
     const all = boxOf(unionBounds(selMembers)!);
-    return { all: [all[0] - 4, all[1] - 4, all[2] + 4, all[3] + 4], parts: selMembers.map((a) => boxOf(bounds(a))) };
+    // Inside the real bounds, like a single object's frame.
+    return { all: [all[0] + 0.75, all[1] + 0.75, all[2] - 0.75, all[3] - 0.75], parts: selMembers.map((a) => boxOf(bounds(a))).map((b) => [b[0] + 0.5, b[1] + 0.5, b[2] - 0.5, b[3] - 0.5]) };
   });
 
   /** Geometry rectangle used for resizing (without stroke). */
@@ -1070,7 +1097,21 @@
     label?: string;
     /** The round handle that turns an image. */
     turn?: boolean;
+    /** A line's end (drawn on the point), not a corner (drawn inside it). */
+    end?: boolean;
   }
+
+  /** Handles' targets: at least 24 px, 44 px for fingers (they reach past the frame, invisibly). */
+  const coarse = new MediaQuery('(pointer: coarse), (max-width: 720px)');
+  const HANDLE = 10;
+  /** A corner handle sits inside its corner (its outer edges on the bounds), toward the frame's middle. */
+  const inward = (h: Handle, all: Handle[]): Point => {
+    if (h.turn || h.end) return [0, 0];
+    const corners = all.filter((x) => !x.turn && !x.end);
+    const cx = corners.reduce((n, x) => n + x.at[0], 0) / corners.length;
+    const cy = corners.reduce((n, x) => n + x.at[1], 0) / corners.length;
+    return [Math.sign(cx - h.at[0]) * (HANDLE / 2), Math.sign(cy - h.at[1]) * (HANDLE / 2)];
+  };
 
   /** Distance of an image's turn handle above its top edge, in px. */
   const TURN_HANDLE_GAP = 24;
@@ -1098,8 +1139,8 @@
     if (a.type === 'shape' && (a.shape === 'line' || a.shape === 'arrow')) {
       const original = a;
       return [
-        { at: toScreen(a.from), cursor: 'move', resize: (p: Point) => ({ ...original, from: p }) },
-        { at: toScreen(a.to), cursor: 'move', resize: (p: Point) => ({ ...original, to: p }) },
+        { at: toScreen(a.from), cursor: 'move', end: true, resize: (p: Point) => ({ ...original, from: p }) },
+        { at: toScreen(a.to), cursor: 'move', end: true, resize: (p: Point) => ({ ...original, to: p }) },
       ];
     }
     const r = geomRect(a);
@@ -1132,22 +1173,17 @@
     const a = preview ?? selected;
     if (!a || a.type !== 'image') return null;
     const f = frameOf(a);
-    return { corners: frameCorners(f, 3), top: turnHandle(f, 3), handle: a.role === 'image' ? turnHandle(f, TURN_HANDLE_GAP) : null };
+    return { corners: frameCorners(f, -0.5), top: turnHandle(f, 0), handle: a.role === 'image' ? turnHandle(f, TURN_HANDLE_GAP) : null };
   });
 
   const selectionBox = $derived.by(() => {
     // While typing, the outline follows the box as it grows.
     const a = editDraft ?? preview ?? selected;
     if (!a || a.type === 'image') return null;
-    if (isBoxed(a)) {
-      const b = screenBox([toScreen([a.rect[0], a.rect[1]]), toScreen([a.rect[2], a.rect[3]])]);
-      return [b[0] - 3, b[1] - 3, b[2] + 3, b[3] + 3];
-    }
-    const prims = toPrimitives(a, toScreen, viewer.scale);
-    const pts = prims.flatMap((p) => (p.kind === 'ellipse' ? [[p.cx - p.rx, p.cy - p.ry], [p.cx + p.rx, p.cy + p.ry]] as Point[] : p.points));
-    const b = screenBox(pts);
-    const pad = 4 + (a.type === 'highlight' ? 0 : (('width' in a ? a.width : 0) * viewer.scale) / 2);
-    return [b[0] - pad, b[1] - pad, b[2] + pad, b[3] + pad];
+    // On the object's real bounds (stroke and arrowheads included), the outline's
+    // 1px line inside them: a frame snapped to a margin never seems to cross it.
+    const b = screenBoxOf(bounds(a));
+    return [b[0] + 0.5, b[1] + 0.5, b[2] - 0.5, b[3] - 0.5];
   });
 
   function onAnnotKey(e: KeyboardEvent, a: Annotation) {
@@ -1290,7 +1326,7 @@
     {@const m = marginLines}
     {@const label = `${viewer.marginMm} mm`}
     <!-- Margin guides: never saved, printed or exported, and never in the way of the pointer. -->
-    <rect class="margin-guide" x={m.left} y={m.top} width={m.right - m.left} height={m.bottom - m.top} />
+    <rect class="margin-guide" class:flash={viewer.marginFlash === page.id} x={m.left} y={m.top} width={m.right - m.left} height={m.bottom - m.top} />
     <text class="margin-label" x={m.left} y={m.top - pageArea[1] >= 14 ? m.top - 4 : m.top + 12}>{label}</text>
   {/if}
   {#each guides as g, i (i)}
@@ -1299,6 +1335,9 @@
     {:else}
       <line class="guide" x1={pageArea[0]} x2={pageArea[2]} y1={g.at} y2={g.at} />
     {/if}
+  {/each}
+  {#each guideLabels as l, i (i)}
+    <text class="guide-label" x={l.x} y={l.y}>{l.text}</text>
   {/each}
   {#if blockOutline}
     {#each blockOutline.parts as b, i (i)}
@@ -1317,16 +1356,18 @@
     {/if}
   {/if}
   {#each handles as h, i (i)}
+    {@const hit = coarse.current ? 44 : 24}
+    {@const o = inward(h, handles)}
     <!-- Handles are a pointer convenience; keyboard users use arrow keys and the panel's fields. -->
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <g style:cursor={h.cursor} style:pointer-events={editing ? 'none' : undefined} onpointerdown={(e) => onHandleDown(e, h)}>
-      <!-- A finger-sized target on touch screens. -->
-      <rect class="handle-touch" x={h.at[0] - 22} y={h.at[1] - 22} width="44" height="44" />
+      <!-- The target: at least 24 px (44 px for fingers), centered on the corner. -->
+      <rect class="handle-touch" x={h.at[0] - hit / 2} y={h.at[1] - hit / 2} width={hit} height={hit} />
       {#if h.turn}
         <circle class="handle" cx={h.at[0]} cy={h.at[1]} r="6" />
       {:else}
         <!-- While typing the handles show where the box is, but resizing waits until editing ends. -->
-        <rect class="handle" class:inert={!!editing} x={h.at[0] - 5} y={h.at[1] - 5} width="10" height="10" />
+        <rect class="handle" class:inert={!!editing} x={h.at[0] + o[0] - HANDLE / 2} y={h.at[1] + o[1] - HANDLE / 2} width={HANDLE} height={HANDLE} />
       {/if}
     </g>
   {/each}
@@ -1399,6 +1440,12 @@
     stroke-width: 1;
     stroke-dasharray: 4 3;
   }
+  /* An object just stopped at the margin. */
+  .margin-guide.flash {
+    stroke: var(--danger);
+    stroke-opacity: 1;
+    stroke-width: 2;
+  }
   .margin-label {
     fill: var(--accent);
     fill-opacity: 0.7;
@@ -1408,6 +1455,11 @@
   .guide {
     stroke: var(--accent);
     stroke-width: 1;
+  }
+  .guide-label {
+    fill: var(--accent);
+    font-size: 11px;
+    font-family: var(--font-sans);
   }
   /* The rectangle dragged to select objects. */
   .marquee {
@@ -1427,15 +1479,9 @@
     stroke-width: 1;
   }
   .handle-touch {
-    display: none;
     fill: transparent;
     pointer-events: all;
     touch-action: none;
-  }
-  @media (pointer: coarse), (max-width: 720px) {
-    .handle-touch {
-      display: block;
-    }
   }
   .capture {
     position: absolute;

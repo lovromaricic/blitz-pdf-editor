@@ -355,9 +355,15 @@ export class Viewer {
   /** Snap objects to the page center and to each other while dragging. */
   smartGuides = $state(true);
   /** The margin, in millimetres (limited per page to a quarter of its smaller side). */
-  marginMm = $state(12.7);
+  marginMm = $state(25);
   /** The margins (only while shown) are a hard limit for objects moved, resized, added or typed into. */
   keepInMargins = $state(false);
+
+  /** Show or hide the margins; hiding them also ends "Keep objects inside margins". */
+  toggleMargins() {
+    this.showMargins = !this.showMargins;
+    if (!this.showMargins) this.keepInMargins = false;
+  }
 
   /** The margin on a page, in points (the same on every side). */
   marginOn(page: PageRef) {

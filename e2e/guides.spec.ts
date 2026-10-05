@@ -60,24 +60,32 @@ test('Show margins: drawn on the page; a box dragged near the left margin lands 
   await expect(page.locator('.page[data-index="0"] .margin-guide')).toHaveCount(0);
   await view(page, 'Show margins');
   await expect(page.locator('.page[data-index="0"] .margin-guide')).toHaveCount(1);
-  await expect(page.locator('.page[data-index="0"] .margin-label')).toHaveText('12.7 mm');
+  await expect(page.locator('.page[data-index="0"] .margin-label')).toHaveText('25 mm');
   const s = await scale(page);
-  // From x = 150 pt to about 3 px right of the margin (36 pt).
-  const dx = (36 - 150) * s + 3;
+  const M = (25 * 72) / 25.4;
+  // From x = 150 pt to about 3 px right of the margin.
+  const dx = (M - 150) * s + 3;
   await drag(page, 'a', dx, 0, async () => {
     await expect(page.locator('.page[data-index="0"] line.guide')).not.toHaveCount(0);
+    // Its label says what it matched.
+    await expect(page.locator('.page[data-index="0"] .guide-label', { hasText: 'left margin' })).toHaveCount(1);
+    // The selection frame stays inside the line (it's drawn on the object's real bounds).
+    const frame = (await page.locator('.page[data-index="0"] .sel-box').first().boundingBox())!;
+    const line = (await page.locator('.page[data-index="0"] .margin-guide').boundingBox())!;
+    expect(frame.x).toBeGreaterThanOrEqual(line.x - 0.01);
   });
   await expect(page.locator('.page[data-index="0"] line.guide')).toHaveCount(0);
-  expect((await rect(page, 'a'))[0]).toBeCloseTo(36, 1);
-  // Margin size: 25.4 mm (radio), and the margin moves with it.
-  await view(page, /^25\.4 mm/, 'Margin size');
-  await expect(page.locator('.page[data-index="0"] .margin-label')).toHaveText('25.4 mm');
+  await expect(page.locator('.page[data-index="0"] .guide-label')).toHaveCount(0);
+  expect((await rect(page, 'a'))[0]).toBeCloseTo(M, 1);
+  // Margin size: 12.7 mm (radio), and the margin moves with it.
+  await view(page, /^12\.7 mm/, 'Margin size');
+  await expect(page.locator('.page[data-index="0"] .margin-label')).toHaveText('12.7 mm');
   // Margins off: they pull nothing (and aren't drawn).
   await view(page, 'Show margins');
   await expect(page.locator('.page[data-index="0"] .margin-guide')).toHaveCount(0);
   const before = (await rect(page, 'a'))[0];
-  await drag(page, 'a', (72 - before) * s + 3, 0);
-  expect((await rect(page, 'a'))[0]).not.toBeCloseTo(72, 1);
+  await drag(page, 'a', (36 - before) * s + 3, 0);
+  expect((await rect(page, 'a'))[0]).not.toBeCloseTo(36, 1);
 });
 
 test('Smart guides: center on the page, line up with another object; Alt drags freely; off: no pull', async ({ page }) => {
@@ -135,4 +143,41 @@ test('guides and margins are never in the saved PDF', async ({ page }) => {
   await page.mouse.up();
   expect(during).toBe(plain);
   expect(await render()).toBe(plain);
+});
+
+test('Keep objects inside margins: a drag stops at the margin; an object already past it is left alone and only moves inward', async ({ page }) => {
+  await open(page);
+  // An object that already crosses the left margin (25 mm = 70.9 pt).
+  await page.evaluate(() => {
+    const w = window as unknown as W;
+    w.__actions.addAnnotation(w.__doc.pages[0].id, { id: 'out', type: 'stamp', label: 'OUT', color: [0.35, 0.35, 0.35], opacity: 1, rotate: 0, rect: [20, 300, 120, 330] });
+  });
+  // Disabled until the margins show; hiding them turns it off.
+  await page.getByRole('menubar', { name: 'Main menu' }).getByRole('menuitem', { name: 'View' }).click();
+  await expect(page.getByRole('menuitemcheckbox', { name: 'Keep objects inside margins' })).toHaveAttribute('aria-disabled', 'true');
+  await page.keyboard.press('Escape');
+  await view(page, 'Show margins');
+  await view(page, 'Keep objects inside margins');
+  // Turning it on moves nothing.
+  expect(await rect(page, 'out')).toEqual([20, 300, 120, 330]);
+
+  const s = await scale(page);
+  const M = (25 * 72) / 25.4;
+  // a far to the left: it stops at the margin (and the margin flashes).
+  await drag(page, 'a', -400 * s, 0, async () => {
+    await expect(page.locator('.page[data-index="0"] .margin-guide.flash')).toHaveCount(1);
+  });
+  expect((await rect(page, 'a'))[0]).toBeCloseTo(M, 1);
+  await expect(page.locator('div.visually-hidden[aria-live="polite"]:not(#page-announcer)')).toHaveText(/Stopped at the margin|Snapped/);
+  // The object past the margin: it can't go further out, but it can move in.
+  await drag(page, 'out', -100 * s, 0);
+  expect((await rect(page, 'out'))[0]).toBeCloseTo(20, 1);
+  await drag(page, 'out', 30 * s, 0, undefined, true);
+  expect((await rect(page, 'out'))[0]).toBeGreaterThan(40);
+
+  // Hiding the margins ends the limit.
+  await view(page, 'Show margins');
+  await page.getByRole('menubar', { name: 'Main menu' }).getByRole('menuitem', { name: 'View' }).click();
+  await expect(page.getByRole('menuitemcheckbox', { name: 'Keep objects inside margins' })).toHaveAttribute('aria-checked', 'false');
+  await page.keyboard.press('Escape');
 });

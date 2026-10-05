@@ -149,3 +149,33 @@ describe('the limit: page or margin', () => {
     expect(limitRect(page, -10, null).rect).toEqual(page);
   });
 });
+
+describe('the View settings for margins', () => {
+  const fakePdf = { getPage: async () => ({ rotate: 0, getViewport: () => ({}) }) } as unknown as PDFDocumentProxy;
+  function viewerOf() {
+    const doc = new EditorDocument();
+    const src = new Source('s', 'test.pdf', 1, new Uint8Array(), fakePdf);
+    src.sizes = [{ width: 612, height: 792 }];
+    src.views = [[0, 0, 612, 792]];
+    doc.sources.set('s', src);
+    doc.pages = [{ id: 'p0', sourceId: 's', sourceIndex: 0, rotation: 0 }] as PageRef[];
+    return { doc, viewer: new Viewer(doc) };
+  }
+
+  it('default: margins hidden, 25 mm, not a limit; smart guides on', () => {
+    const { viewer, doc } = viewerOf();
+    expect([viewer.showMargins, viewer.keepInMargins, viewer.smartGuides, viewer.marginMm]).toEqual([false, false, true, 25]);
+    expect(viewer.marginOn(doc.pages[0])).toBeCloseTo((25 * 72) / 25.4, 6);
+    expect(viewer.limitFor(doc.pages[0]).kind).toBe('page');
+  });
+
+  it('Keep inside margins only applies while the margins show; hiding them turns it off', () => {
+    const { viewer, doc } = viewerOf();
+    viewer.keepInMargins = true;
+    expect(viewer.limitFor(doc.pages[0]).kind).toBe('page'); // margins hidden: no margin limit
+    viewer.toggleMargins();
+    expect(viewer.limitFor(doc.pages[0])).toMatchObject({ kind: 'margin', rect: [70.87, 70.87, 541.13, 721.13].map((v) => expect.closeTo(v, 1)) });
+    viewer.toggleMargins();
+    expect(viewer.keepInMargins).toBe(false);
+  });
+});

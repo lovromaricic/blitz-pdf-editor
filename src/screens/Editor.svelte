@@ -190,11 +190,14 @@
     'view.thumbnails': { run: () => (viewer.showThumbnails = !viewer.showThumbnails), checked: () => viewer.showThumbnails },
     'view.panel': { run: () => (viewer.showPanel = !viewer.showPanel), checked: () => viewer.showPanel },
     'view.fullscreen': { run: toggleFullscreen, checked: () => isFullscreen },
-    'view.margins': { run: () => (viewer.showMargins = !viewer.showMargins), checked: () => viewer.showMargins },
+    'view.margins': { run: () => viewer.toggleMargins(), checked: () => viewer.showMargins },
+    // Only while the margins show (hiding them turns it off too); turning it on moves nothing.
+    'view.keepInMargins': { run: () => (viewer.keepInMargins = !viewer.keepInMargins), checked: () => viewer.keepInMargins, enabled: () => viewer.showMargins },
     'view.smartGuides': { run: () => (viewer.smartGuides = !viewer.smartGuides), checked: () => viewer.smartGuides },
     'view.margin6': { run: () => (viewer.marginMm = 6.35), checked: () => viewer.marginMm === 6.35 },
     'view.margin12': { run: () => (viewer.marginMm = 12.7), checked: () => viewer.marginMm === 12.7 },
-    'view.margin25': { run: () => (viewer.marginMm = 25.4), checked: () => viewer.marginMm === 25.4 },
+    'view.margin20': { run: () => (viewer.marginMm = 20), checked: () => viewer.marginMm === 20 },
+    'view.margin25': { run: () => (viewer.marginMm = 25), checked: () => viewer.marginMm === 25 },
 
     // Page (selection, or the current page when nothing is selected)
     'page.rotateLeft': { run: () => actions.rotate(-90) },
