@@ -21,7 +21,7 @@
   import { CLIPBOARD_KEYS, ClipboardShortcuts } from '../lib/clipboard-shortcuts';
   import { imageAcceptAttr, kindOf } from '../lib/landing/accepted-files';
   import { heicDecodes } from '../lib/landing/heic-probe';
-  import { IMAGE_STRINGS, OBJECT_STRINGS } from '../lib/strings';
+  import { CROP_STRINGS, IMAGE_STRINGS, OBJECT_STRINGS } from '../lib/strings';
   import type { EditorDocument } from '../lib/document.svelte';
   import { openFiles } from '../lib/open-files.svelte';
   import { viewportFor } from '../lib/pdf/render';
@@ -237,6 +237,11 @@
   }, (id) => {
     // Opening a menu keeps the text box being typed in; any command but a text one finishes it first.
     if (!(COMMANDS[id] as CommandMeta).whileEditing) viewer.textEditor?.finish();
+    // Crop mode: undo and redo leave it unchanged; other commands (but view ones) apply it first.
+    if (viewer.imageCrop) {
+      if (id === 'edit.undo' || id === 'edit.redo') actions.cancelCrop();
+      else if (!id.startsWith('view.')) actions.applyCrop();
+    }
   });
 
   // --- Canvas context menu (objects and empty spots of a page) ----------------------
@@ -251,6 +256,7 @@
     const m = viewer.contextMenu;
     if (!m) return [];
     const pasteKeys = formatKeys('mod+v');
+    const cropRef = viewer.selectedAnnot && actions.canCrop(viewer.selectedAnnot) ? viewer.selectedAnnot : null;
     if (!m.objectId) {
       return [{ label: 'Paste here', run: () => actions.pasteAnnotation({ pageId: m.pageId, point: m.point! }), disabled: !actions.canPaste() }];
     }
@@ -260,6 +266,8 @@
       // Onto this object's page.
       { label: 'Paste', run: () => actions.pasteAnnotation({ pageId: m.pageId }), disabled: !actions.canPaste(), keys: pasteKeys },
       commandItem('edit.duplicate', 'Duplicate'),
+      // A single inserted image (not in a group, not one of several): crop mode, the same as the panel's Crop button.
+      ...(cropRef && cropRef.id === m.objectId ? [{ label: CROP_STRINGS.cropMenu, run: () => actions.startCrop(cropRef) }] : []),
       '-',
       // Only here (no menu bar item, panel button or shortcut): one place, one function each.
       { label: OBJECT_STRINGS.group, run: () => actions.groupSelection(), disabled: !actions.canGroup() },
@@ -472,6 +480,26 @@
     void actions.insertImageFiles(files, drop);
   }
 
+  // Crop mode lasts while its image is selected and unchanged: undone or changed
+  // under it, it's cancelled; anything else selected, the crop is applied.
+  $effect(() => {
+    const c = viewer.imageCrop;
+    if (!c) return;
+    const a = doc.pages.find((p) => p.id === c.pageId)?.annots?.find((x) => x.id === c.id);
+    const sel = viewer.selectedAnnot;
+    untrack(() => {
+      if (a !== c.base) actions.cancelCrop();
+      else if (sel?.id !== c.id) actions.applyCrop();
+    });
+  });
+
+  /** A click anywhere but the crop overlay and the panel's crop controls applies the crop. */
+  function onCropOutside(e: PointerEvent) {
+    if (!viewer.imageCrop) return;
+    if ((e.target as Element | null)?.closest?.('[data-crop-keep], [data-crop-controls]')) return;
+    actions.applyCrop();
+  }
+
   // After any page edit (including undo/redo): keep selection valid and refresh search hits.
   $effect(() => {
     void doc.pages;
@@ -547,6 +575,7 @@
 </script>
 
 <svelte:window
+  onpointerdowncapture={onCropOutside}
   onkeydown={onKeyDown}
   onbeforeunload={onBeforeUnload}
   oncopy={onClipboard}

@@ -135,7 +135,10 @@ export async function drawBoxed(
         ctx.translate(a.flipX ? g.w : 0, a.flipY ? g.h : 0);
         ctx.scale(a.flipX ? -1 : 1, a.flipY ? -1 : 1);
       }
-      ctx.drawImage(img, 0, 0, g.w, g.h);
+      // Only the cropped part of the original.
+      const [x0, y0, x1, y1] = a.crop ?? [0, 0, 1, 1];
+      const [nw, nh] = [img.naturalWidth, img.naturalHeight];
+      ctx.drawImage(img, x0 * nw, y0 * nh, (x1 - x0) * nw, (y1 - y0) * nh, 0, 0, g.w, g.h);
     }
     ctx.restore();
   }

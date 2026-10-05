@@ -11,7 +11,8 @@
   import { useViewer } from '../../lib/viewer.svelte';
   import { defaultImageSize, frameToImage, imageFrame, normalizeAngle, type Frame } from '../../lib/image-geometry';
   import { storedImage } from '../../lib/image-store';
-  import { IMAGE_STRINGS as T } from '../../lib/strings';
+  import { CROP_STRINGS as C, IMAGE_STRINGS as T } from '../../lib/strings';
+  import { cropOf, cropPixels, RATIOS } from '../../lib/image-crop';
   import { ICON } from '../tools';
   import Range from '../../components/Range.svelte';
   import PanelHeader from './PanelHeader.svelte';
@@ -42,6 +43,9 @@
   /** In points, from the page's top-left as shown. */
   const frame = $derived(image && view ? imageFrame(image, view.toShown, 1, view.rotation) : null);
   const stored = $derived(image?.imageKey ? storedImage(image.imageKey) : undefined);
+  /** Crop mode for this image. */
+  const crop = $derived(viewer.imageCrop && viewer.imageCrop.id === sel?.annot.id ? viewer.imageCrop : null);
+  const ref = $derived(sel ? { pageId: sel.page.id, id: sel.annot.id } : null);
 
   type Field = 'x' | 'y' | 'w' | 'h' | 'angle';
   let errors = $state<Partial<Record<Field, string>>>({});
@@ -94,7 +98,8 @@
 
   function resetSize() {
     if (!frame || !view || !stored) return;
-    const [w, h] = defaultImageSize([stored.width, stored.height], [view.size.width, view.size.height]);
+    // The cropped part's natural size (one CSS px per pixel at 100%), shrunk to fit the page.
+    const [w, h] = defaultImageSize(cropPixels(cropOf(image!), [stored.width, stored.height]), [view.size.width, view.size.height]);
     apply({ ...frame, w, h }, 'Reset image size');
   }
 
@@ -102,7 +107,40 @@
 
 <PanelHeader title={T.panelTitle} onClose={() => viewer.selectAnnot(null)} />
 
-{#if sel && image}
+{#if sel && image && crop}
+  <!-- Crop mode: clicks here don't end it. -->
+  <div class="panel-form" data-crop-controls>
+    <fieldset>
+      <legend>{C.ratio}</legend>
+      <div class="ratios">
+        {#each RATIOS as r (r.id)}
+          <label class="option">
+            <input type="radio" name="crop-ratio" value={r.id} checked={crop.ratio === r.id} onchange={() => actions.setCropRatio(r.id)} />
+            {r.label}
+          </label>
+        {/each}
+      </div>
+    </fieldset>
+    <fieldset disabled={crop.ratio === 'free' || crop.ratio === '1:1'}>
+      <legend>{C.orientation}</legend>
+      <div class="ratios">
+        {#each [[false, C.landscape], [true, C.portrait]] as const as [portrait, label] (label)}
+          <label class="option">
+            <input type="radio" name="crop-orientation" checked={crop.portrait === portrait} onchange={() => actions.swapCropOrientation()} />
+            {label}
+          </label>
+        {/each}
+      </div>
+    </fieldset>
+    <div class="actions">
+      <button type="button" class="btn btn-primary" onclick={() => actions.applyCrop()}>{C.apply}</button>
+      <button type="button" class="btn" onclick={() => actions.cancelCrop()}>{C.cancel}</button>
+      <button type="button" class="btn btn-soft" disabled={!actions.canResetCrop(ref)} onclick={() => actions.resetCrop(ref)}>{C.reset}</button>
+    </div>
+    <p class="hint">{C.hint}</p>
+    <p class="hint">{C.keys}</p>
+  </div>
+{:else if sel && image}
   <div class="panel-form">
     <fieldset>
       <legend>{T.position}</legend>
@@ -129,6 +167,16 @@
         {T.lockAspect}
       </label>
     </fieldset>
+
+    {#if actions.canCrop(ref)}
+      <div class="row-buttons">
+        <button type="button" class="btn" onclick={() => actions.startCrop(ref)}>{C.crop}</button>
+        {#if image.crop}
+          <button type="button" class="btn" onclick={() => actions.resetCrop(ref)}>{C.reset}</button>
+        {/if}
+      </div>
+      {#if image.crop}<p class="hint">{C.hint}</p>{/if}
+    {/if}
 
     <div class="field">
       <label for="img-angle">{T.rotation}</label>
@@ -202,6 +250,14 @@
   .grid input {
     width: 100%;
     min-width: 0;
+  }
+  .ratios {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: var(--space-2);
+  }
+  fieldset:disabled .option {
+    color: var(--muted);
   }
   .row {
     display: flex;

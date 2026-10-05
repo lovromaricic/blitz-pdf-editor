@@ -155,12 +155,19 @@
       <path d={LINES_SVG} fill="none" stroke={rgbToCss(NOTE_OUTLINE)} stroke-width={NOTE_LINE_WIDTH} />
     </svg>
   {:else if a.type === 'image'}
-    <img
-      src={a.dataUrl}
-      alt=""
-      draggable="false"
-      style:transform={a.type === 'image' && (a.flipX || a.flipY) ? `scale(${a.flipX ? -1 : 1}, ${a.flipY ? -1 : 1})` : undefined}
-    />
+    {@const c = a.crop ?? [0, 0, 1, 1]}
+    <!-- The crop shows part of the whole original; flips apply after it. -->
+    <div class="crop" style:transform={a.flipX || a.flipY ? `scale(${a.flipX ? -1 : 1}, ${a.flipY ? -1 : 1})` : undefined}>
+      <img
+        src={a.dataUrl}
+        alt=""
+        draggable="false"
+        style:width="{100 / (c[2] - c[0])}%"
+        style:height="{100 / (c[3] - c[1])}%"
+        style:left="{(-100 * c[0]) / (c[2] - c[0])}%"
+        style:top="{(-100 * c[1]) / (c[3] - c[1])}%"
+      />
+    </div>
   {/if}
 </div>
 
@@ -209,9 +216,15 @@
     white-space: nowrap;
     line-height: 1;
   }
-  img {
-    display: block;
+  .crop {
+    position: relative;
     width: 100%;
     height: 100%;
+    overflow: hidden;
+  }
+  img {
+    position: absolute;
+    display: block;
+    max-width: none;
   }
 </style>

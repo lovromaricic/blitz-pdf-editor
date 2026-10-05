@@ -34,6 +34,12 @@ export function imageAssets(keys: Iterable<string>): Record<string, ImageAsset> 
   return out;
 }
 
+/** Forget every image (the document was closed): its object URLs and bytes go. */
+export function releaseImages() {
+  for (const img of images.values()) URL.revokeObjectURL(img.url);
+  images.clear();
+}
+
 let worker: Worker | null = null;
 let nextId = 0;
 

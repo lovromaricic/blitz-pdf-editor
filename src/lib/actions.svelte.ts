@@ -14,8 +14,9 @@ import { canvasToBlob, createRasterizer } from './rasterize';
 import { addOcrText, analyzeSources, blankPdfInWorker, compressSources, estimateCompression, imagesToPdfInWorker, redactInWorker, writePdf, writePdfs } from './pdf/pdf-writer';
 import type { Rect } from './annotations';
 import { findMatchRects } from './search.svelte';
-import { FLATTEN_STRINGS, IMAGE_STRINGS, NEW_PDF_STRINGS, OBJECT_STRINGS } from './strings';
-import { addImageFile, type StoredImage } from './image-store';
+import { CROP_STRINGS, FLATTEN_STRINGS, IMAGE_STRINGS, NEW_PDF_STRINGS, OBJECT_STRINGS } from './strings';
+import { addImageFile, storedImage, type StoredImage } from './image-store';
+import { applyCropView, applyRatio, cropOf, cropPixels, enterCropFor, isFull, isPortrait, ratioValue, sameCrop, swapFrame, viewToCrop, type CropSession, type CropView, type RatioId } from './image-crop';
 import { UnsupportedImageError } from './image-prepare';
 import { defaultImageSize } from './image-geometry';
 import { heicDecodes } from './landing/heic-probe';
@@ -38,7 +39,7 @@ import type { ImagesToPdfOptions } from './pdf/images-to-pdf';
 import { isImageFile, prepareImage } from './image-input';
 import { setDocument } from './app-state.svelte';
 import { openDocument } from './document.svelte';
-import type { Viewer } from './viewer.svelte';
+import type { AnnotRef, Viewer } from './viewer.svelte';
 
 let blankCounter = 0;
 
@@ -982,6 +983,125 @@ export class Actions {
       `Move ${describeUnits(sel.list, sel.ids)}`,
       `nudge:${sel.ids.join(',')}`,
     );
+  }
+
+  // --- Cropping images ------------------------------------------------------
+  // One way in (startCrop) for the Image panel's Crop button, double-click and
+  // the context menu. Nothing changes in the document until the crop is applied.
+
+  /** Can this object be cropped? Inserted images (not signatures) that aren't in a group. */
+  canCrop(ref: AnnotRef | null = this.viewer.selectedAnnot) {
+    const found = ref && this.findAnnot(ref.pageId, ref.id);
+    const a = found?.annot;
+    return !!a && a.type === 'image' && a.role === 'image' && !!a.imageKey && !!storedImage(a.imageKey) && !a.groups?.length;
+  }
+
+  /** Enter crop mode for an image: the whole original shows, the current crop framed. */
+  startCrop(ref: AnnotRef | null = this.viewer.selectedAnnot) {
+    if (!ref || !this.canCrop(ref)) return;
+    const cur = this.viewer.imageCrop;
+    if (cur?.id === ref.id) return;
+    if (cur) this.applyCrop();
+    this.viewer.textEditor?.finish();
+    this.viewer.selectAnnot(ref);
+    const a = this.findAnnot(ref.pageId, ref.id)!.annot as ImageAnnotation;
+    this.viewer.imageCrop = this.cropSession(ref.pageId, a, 'free');
+    this.viewer.announce(CROP_STRINGS.started);
+  }
+
+  private cropSession(pageId: string, a: ImageAnnotation, ratio: RatioId): CropSession {
+    const stored = storedImage(a.imageKey!)!;
+    const view = enterCropFor(a);
+    return { pageId, id: a.id, base: a, view, px: [stored.width, stored.height], ratio, portrait: isPortrait(view) };
+  }
+
+  private cropSizeTimer: ReturnType<typeof setTimeout> | undefined;
+
+  /** The crop frame or image moved (drag, keys): announces the new size once things settle. */
+  setCropView(view: CropView) {
+    const c = this.viewer.imageCrop;
+    if (!c) return;
+    this.viewer.imageCrop = { ...c, view };
+    clearTimeout(this.cropSizeTimer);
+    this.cropSizeTimer = setTimeout(() => {
+      const now = this.viewer.imageCrop;
+      if (now) this.viewer.announce(CROP_STRINGS.size(...cropPixels(viewToCrop(now.view, now.base.flipX, now.base.flipY), now.px)));
+    }, 250);
+  }
+
+  /** The ratio of the crop frame (the largest frame of it inside the current one). */
+  setCropRatio(ratio: RatioId) {
+    const c = this.viewer.imageCrop;
+    if (!c) return;
+    const portrait = ratio === 'free' ? c.portrait : isPortrait(c.view);
+    this.viewer.imageCrop = { ...c, ratio, portrait };
+    this.setCropView(applyRatio(c.view, ratioValue(ratio, c.px, portrait)));
+  }
+
+  /** Portrait ⇄ landscape for the chosen ratio. */
+  swapCropOrientation() {
+    const c = this.viewer.imageCrop;
+    if (!c || c.ratio === 'free' || c.ratio === '1:1') return;
+    this.viewer.imageCrop = { ...c, portrait: !c.portrait };
+    this.setCropView(swapFrame(c.view));
+  }
+
+  /** Leave crop mode, keeping the crop: one undo step ("Crop"), none when nothing changed. */
+  applyCrop() {
+    const c = this.viewer.imageCrop;
+    if (!c) return;
+    this.viewer.imageCrop = null;
+    clearTimeout(this.cropSizeTimer);
+    const found = this.findAnnot(c.pageId, c.id);
+    if (!found || found.annot !== c.base) return;
+    const next = applyCropView(c.base, c.view, c.px);
+    if (sameCrop(next, c.base) && next.rect.every((v, i) => Math.abs(v - c.base.rect[i]) < 0.01)) {
+      this.viewer.announce(CROP_STRINGS.unchanged);
+    } else {
+      const [placed] = this.onPage(c.pageId, [next]);
+      this.updateAnnotation(c.pageId, placed, CROP_STRINGS.undo);
+      this.viewer.announce(CROP_STRINGS.applied(...cropPixels(cropOf(next), c.px)));
+    }
+    void tick().then(() => focusObject(c.id));
+  }
+
+  /** Leave crop mode without changing anything. */
+  cancelCrop() {
+    const c = this.viewer.imageCrop;
+    if (!c) return;
+    this.viewer.imageCrop = null;
+    clearTimeout(this.cropSizeTimer);
+    this.viewer.announce(CROP_STRINGS.cancelled);
+    void tick().then(() => focusObject(c.id));
+  }
+
+  /** Is the image cropped (or, in crop mode, framed smaller than the whole)? */
+  canResetCrop(ref: AnnotRef | null = this.viewer.selectedAnnot) {
+    const c = this.viewer.imageCrop;
+    if (c && c.id === ref?.id) return !!c.base.crop || !isFull(viewToCrop(c.view, c.base.flipX, c.base.flipY));
+    const a = ref && this.findAnnot(ref.pageId, ref.id)?.annot;
+    return !!a && a.type === 'image' && !!a.crop && this.canCrop(ref);
+  }
+
+  /**
+   * The whole image again, at the same scale, where it was: one undo step
+   * ("Reset crop"). In crop mode, crop mode goes on from the whole image.
+   */
+  resetCrop(ref: AnnotRef | null = this.viewer.selectedAnnot) {
+    if (!ref || !this.canResetCrop(ref)) return;
+    const c = this.viewer.imageCrop?.id === ref.id ? this.viewer.imageCrop : null;
+    const a = this.findAnnot(ref.pageId, ref.id)!.annot as ImageAnnotation;
+    if (c && !a.crop) {
+      // Not cropped yet: only the frame changes.
+      this.setCropView({ image: c.view.image, frame: c.view.image });
+      this.viewer.announce(CROP_STRINGS.resetDone);
+      return;
+    }
+    const whole = enterCropFor(a).image;
+    const [next] = this.onPage(ref.pageId, [applyCropView(a, { image: whole, frame: whole }, [storedImage(a.imageKey!)!.width, storedImage(a.imageKey!)!.height])]);
+    this.updateAnnotation(ref.pageId, next, CROP_STRINGS.undoReset);
+    if (c) this.viewer.imageCrop = this.cropSession(ref.pageId, next as ImageAnnotation, c.ratio);
+    this.viewer.announce(CROP_STRINGS.resetDone);
   }
 
   /** The selected text boxes (not being typed in), when only text boxes are selected. */

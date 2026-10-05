@@ -49,6 +49,7 @@
   import { DEFAULT_TEXT_WIDTH, layoutText, makeStamp, topLeftForCenter } from '../lib/text-layout';
   import { normalize, paragraphsOf, plainText, runsOf } from '../lib/text-rich';
   import BoxedView from './BoxedView.svelte';
+  import CropOverlay from './CropOverlay.svelte';
   import { useActions } from '../lib/actions.svelte';
   import type { PageRef } from '../lib/document.svelte';
   import { useViewer } from '../lib/viewer.svelte';
@@ -112,6 +113,8 @@
     Math.min(Math.max(p[1], pagePdf[1] + inset), pagePdf[3] - inset),
   ];
   const selecting = $derived(viewer.tool === 'select');
+  /** Crop mode for an image on this page: the overlay replaces the object meanwhile. */
+  const cropping = $derived(viewer.imageCrop?.pageId === page.id ? viewer.imageCrop : null);
   const placing = $derived(['text', 'stamp', 'comment', 'sign'].includes(viewer.tool));
   const capturing = $derived(viewer.tool === 'draw' || viewer.tool === 'shapes' || placing);
 
@@ -1134,7 +1137,7 @@
 
   const handles = $derived.by((): Handle[] => {
     const a = editDraft ?? preview ?? selected;
-    if (!a || (!selecting && !editing)) return [];
+    if (!a || (!selecting && !editing) || cropping?.id === a.id) return [];
     if (a.type === 'image') return imageHandles(a);
     if (a.type === 'shape' && (a.shape === 'line' || a.shape === 'arrow')) {
       const original = a;
@@ -1171,7 +1174,7 @@
   /** An image's selection outline, following its turn. */
   const imageOutline = $derived.by(() => {
     const a = preview ?? selected;
-    if (!a || a.type !== 'image') return null;
+    if (!a || a.type !== 'image' || cropping?.id === a.id) return null;
     const f = frameOf(a);
     return { corners: frameCorners(f, -0.5), top: turnHandle(f, 0), handle: a.role === 'image' ? turnHandle(f, TURN_HANDLE_GAP) : null };
   });
@@ -1251,7 +1254,9 @@
 <!-- One element per object, in stacking order (bottom first), all on the same level:
      what's drawn on top is also what's clicked and tabbed to last. -->
 {#each all as a (a.id)}
-  {#if isBoxed(a)}
+  {#if cropping?.id === a.id && a.type === 'image'}
+    <CropOverlay session={cropping} frame={frameOf(cropping.base)} scale={viewer.scale} />
+  {:else if isBoxed(a)}
     <BoxedView {a} {toScreen} scale={viewer.scale} {pageRotation} z={4} hideText={editing?.composing && a.id === editing.id} />
     {#if selecting}
       {@const g = boxedGeometry(a, toScreen, viewer.scale, pageRotation)}
@@ -1274,6 +1279,7 @@
         onkeydown={(e) => onAnnotKey(e, a)}
         onfocus={() => !isSelected(a) && select(a)}
         ondblclick={() => {
+          if (a.type === 'image') return actions.startCrop({ pageId: page.id, id: a.id });
           if (a.type !== 'text') return;
           if (a.groups) viewer.notify(OBJECT_STRINGS.ungroupToEdit);
           else void startEdit(a, false);

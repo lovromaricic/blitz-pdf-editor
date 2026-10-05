@@ -61,6 +61,32 @@ export const IMAGE_STRINGS = {
   hint: 'Drag to move, drag a corner to resize (Alt: from the center), drag the round handle to rotate (Shift: 15° steps). Arrow keys nudge.',
 } as const;
 
+/** Cropping inserted images (Image panel, double-click, context menu). */
+export const CROP_STRINGS = {
+  crop: 'Crop',
+  cropMenu: 'Crop…',
+  title: 'Crop image',
+  ratio: 'Aspect ratio',
+  orientation: 'Orientation',
+  portrait: 'Portrait',
+  landscape: 'Landscape',
+  reset: 'Reset crop',
+  apply: 'Apply crop',
+  cancel: 'Cancel',
+  hint: 'Crops become permanent when you save the PDF.',
+  keys: 'Drag a handle to resize, drag inside to move the image. Arrow keys move the image (Shift: 10 px), Alt+arrows resize. Enter applies, Escape cancels.',
+  undo: 'Crop',
+  undoReset: 'Reset crop',
+  started: 'Crop mode. Arrow keys move the image, Alt+arrows resize, Enter applies, Escape cancels.',
+  size: (w: number, h: number) => `Crop ${w} by ${h} pixels`,
+  applied: (w: number, h: number) => `Cropped to ${w} by ${h} pixels`,
+  unchanged: 'Crop unchanged',
+  cancelled: 'Crop cancelled',
+  resetDone: 'Crop reset: the whole image shows',
+  frame: 'Crop frame',
+  handle: (name: string) => `Crop handle, ${name}`,
+} as const;
+
 /** File › New blank PDF… */
 export const NEW_PDF_STRINGS = {
   command: 'New blank PDF…',

@@ -155,6 +155,12 @@ export interface ImageAnnotation extends Boxed {
   /** Mirrored left-right / top-bottom (as seen upright). */
   flipX?: boolean;
   flipY?: boolean;
+  /**
+   * Inserted images: the part of the original shown, [x0, y0, x1, y1] from 0
+   * to 1 of the original as shown (none: all of it). The rect is that part;
+   * turn and flips apply after. Cut for real when the PDF is saved.
+   */
+  crop?: [number, number, number, number];
 }
 
 export type BoxedAnnotation = TextAnnotation | StampAnnotation | NoteAnnotation | ImageAnnotation;

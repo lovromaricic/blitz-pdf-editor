@@ -2,6 +2,7 @@
 import { isGroupId, unitOf, type ObjectSelection } from './object-selection';
 import { limitRect, type LimitKind } from './page-bounds';
 import { marginPoints } from './snapping';
+import type { CropSession } from './image-crop';
 import { getContext, setContext, tick } from 'svelte';
 import type { EditorDocument, PageRef } from './document.svelte';
 import type { Margins } from './page-ops';
@@ -135,6 +136,8 @@ export class Viewer {
     const s = this.objectSelection;
     return s && s.ids.length === 1 && !isGroupId(s.ids[0]) ? { pageId: s.pageId, id: s.ids[0] } : null;
   }
+  /** Crop mode for one inserted image (see actions.startCrop), or null. */
+  imageCrop = $state.raw<CropSession | null>(null);
   /** The selected annotation while it's being dragged (not yet in the document), for live panel values. */
   livePreview = $state.raw<Annotation | null>(null);
   /**
