@@ -1,5 +1,6 @@
 <script lang="ts">
   import { capturePointer } from '../lib/dom';
+  import { focusSink } from '../lib/focus';
   // Markup on one page: draws annotations (in stacking order) and handles the markup tools
   // (Highlight, Draw, Shapes, Text, Stamp, Comment, Sign) and Select, including
   // moving, resizing and turning inserted images. Coordinates are converted between screen and PDF
@@ -679,7 +680,7 @@
       actions.deleteAnnotation(page.id, a.id);
     } else if (e.key === 'Escape') {
       viewer.selectAnnot(null);
-      (e.currentTarget as SVGElement).blur();
+      focusSink();
     } else if (e.key.startsWith('Arrow')) {
       // Nudge in screen direction: 1 px, or 10 px with Shift.
       const step = e.shiftKey ? 10 : 1;
@@ -786,6 +787,8 @@
       if (e.key === 'Escape' || (e.key === 'Enter' && (e.metaKey || e.ctrlKey))) {
         e.preventDefault();
         editor?.blur();
+        // The text box goes away with the edit: keep focus in the editor, not on <body>.
+        focusSink();
       }
     }}
   ></textarea>

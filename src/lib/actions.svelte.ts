@@ -20,6 +20,7 @@ import { UnsupportedImageError } from './image-prepare';
 import { defaultImageSize } from './image-geometry';
 import { heicDecodes } from './landing/heic-probe';
 import { viewportFor } from './pdf/render';
+import { focusObject, settleFocusAfterRemoval } from './focus';
 import { groupMarks, padTextRect } from './redact-marks';
 import type { OcrLanguage } from './ocr';
 import { isWorthwhile, type CompressSettings } from './pdf/compress';
@@ -74,6 +75,8 @@ export class Actions {
     }
     const firstIndex = this.doc.pages.indexOf(pages[0]);
     this.doc.edit(`Delete ${this.plural(pages.length, 'page')}`, deletePages(this.doc.pages, this.ids(pages)));
+    this.viewer.announce(pages.length === 1 ? 'Page deleted' : `${pages.length} pages deleted`);
+    void tick().then(() => settleFocusAfterRemoval());
     this.viewer.clearSelection();
     this.viewer.syncAfterEdit();
     this.viewer.goToPage(Math.min(firstIndex, this.doc.pages.length - 1));
@@ -600,7 +603,7 @@ export class Actions {
     if (notes.length) this.viewer.notify(notes.join(' '));
     // Keyboard users can nudge it with the arrow keys right away.
     await tick();
-    document.querySelector<HTMLElement>(`[data-annot-id="${last.id}"]`)?.focus({ preventScroll: true });
+    focusObject(last.id);
   }
 
   // --- Forms ----------------------------------------------------------------
@@ -672,11 +675,14 @@ export class Actions {
     this.editAnnots(pageId, label, (list) => list.map((a) => (a.id === annot.id ? annot : a)), coalesceKey);
   }
 
-  deleteAnnotation(pageId: string, id: string) {
+  deleteAnnotation(pageId: string, id: string, announce = 'deleted') {
     const found = this.findAnnot(pageId, id);
     if (!found) return;
     this.editAnnots(pageId, `Delete ${describe(found.annot).toLowerCase()}`, (list) => list.filter((a) => a.id !== id));
     if (this.viewer.selectedAnnot?.id === id) this.viewer.selectedAnnot = null;
+    this.viewer.announce(`${describe(found.annot)} ${announce}`);
+    // Its element (which may have had focus) is gone: never leave focus on <body> or the canvas.
+    void tick().then(() => settleFocusAfterRemoval());
   }
 
   copyAnnotation() {
@@ -688,7 +694,7 @@ export class Actions {
     const sel = this.selectedAnnot;
     if (!sel) return;
     annotClipboard = sel.annot;
-    this.deleteAnnotation(sel.page.id, sel.annot.id);
+    this.deleteAnnotation(sel.page.id, sel.annot.id, 'cut');
   }
 
   canPaste() {
@@ -702,6 +708,7 @@ export class Actions {
     const copy = { ...translate(sel.annot, 12, -12), id: newAnnotationId() };
     this.editAnnots(sel.page.id, `Duplicate ${describe(copy).toLowerCase()}`, (list) => [...list, copy]);
     this.viewer.selectAnnot({ pageId: sel.page.id, id: copy.id });
+    void tick().then(() => focusObject(copy.id));
   }
 
   /** Can the object move further to the front (or back) among the objects on its page? */
@@ -731,6 +738,8 @@ export class Actions {
     this.editAnnots(page.id, `Paste ${describe(copy).toLowerCase()}`, (list) => [...list, copy]);
     this.viewer.setTool('select');
     this.viewer.selectAnnot({ pageId: page.id, id: copy.id });
+    // The new object is selected: focus goes to it, so arrow keys and Delete act on it.
+    void tick().then(() => focusObject(copy.id));
   }
 }
 

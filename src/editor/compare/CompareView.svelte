@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tabRing } from '../../lib/focus';
   // Compare two PDFs: the open document (as edited) next to another file, with
   // the words that differ highlighted, a list of changes, and synced scrolling.
   // Compares text only; everything stays on this device.
@@ -263,12 +264,12 @@
             <h3 class="col-name"><span class="swatch {c.kind}" aria-hidden="true"></span>{c.side.name}</h3>
             {#if c.id === 'a'}
               <!-- svelte-ignore a11y_no_noninteractive_tabindex (a scrollable region must be focusable to scroll by keyboard) -->
-              <div class="scroll" bind:this={colA} bind:clientWidth={widthA} onscroll={() => onScroll('a')} tabindex="0" role="region" aria-label="{c.side.name}">
+              <div class="scroll" bind:this={colA} bind:clientWidth={widthA} onscroll={() => onScroll('a')} {@attach tabRing} tabindex="0" role="region" aria-label="{c.side.name}">
                 {@render pages(c.side, c.lay, c.marks, c.kind, colA)}
               </div>
             {:else}
               <!-- svelte-ignore a11y_no_noninteractive_tabindex (a scrollable region must be focusable to scroll by keyboard) -->
-              <div class="scroll" bind:this={colB} bind:clientWidth={widthB} onscroll={() => onScroll('b')} tabindex="0" role="region" aria-label="{c.side.name}">
+              <div class="scroll" bind:this={colB} bind:clientWidth={widthB} onscroll={() => onScroll('b')} {@attach tabRing} tabindex="0" role="region" aria-label="{c.side.name}">
                 {@render pages(c.side, c.lay, c.marks, c.kind, colB)}
               </div>
             {/if}
@@ -482,6 +483,9 @@
     overflow: auto;
   }
   .scroll:focus-visible {
+    outline: none;
+  }
+  .scroll:global([data-tab-focus]):focus-visible {
     outline: var(--focus-ring);
     outline-offset: -2px;
   }

@@ -3,6 +3,7 @@
 </script>
 
 <script lang="ts">
+  import { tabRing } from '../lib/focus';
   import licenses from 'virtual:licenses';
   import { APP_NAME, APP_VERSION } from '../config';
   import { COMMANDS, formatKeys, isMac, type CommandId, type CommandMeta } from '../lib/commands';
@@ -74,7 +75,7 @@
 
     <!-- Focusable so the content can be scrolled with the keyboard. -->
     <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-    <div class="body" tabindex="0" role="region" aria-labelledby="help-title">
+    <div class="body" {@attach tabRing} tabindex="0" role="region" aria-labelledby="help-title">
       {#if topic === 'guide'}
         <ul class="guide">
           <li><strong>Your files stay on this device.</strong> Nothing is uploaded or stored. Closing the tab clears everything, so save before you leave.</li>
@@ -205,5 +206,13 @@
   .or {
     color: var(--muted);
     font-size: var(--font-size-xs);
+  }
+  /* The scrollable text shows a ring only when reached with Tab (focus.ts). */
+  .body:focus-visible {
+    outline: none;
+  }
+  .body:global([data-tab-focus]):focus-visible {
+    outline: var(--focus-ring);
+    outline-offset: -2px;
   }
 </style>

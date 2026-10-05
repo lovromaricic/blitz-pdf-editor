@@ -1,7 +1,16 @@
 <script lang="ts">
+  import { tick } from 'svelte';
+  import { focusLost, focusSink } from '../../lib/focus';
   import X from '@lucide/svelte/icons/x';
 
   let { title, label = 'Properties', onClose }: { title: string; label?: string; onClose?: () => void } = $props();
+
+  /** Closing removes this button: keep focus in the editor rather than losing it on <body>. */
+  async function close() {
+    onClose?.();
+    await tick();
+    if (focusLost()) focusSink();
+  }
 </script>
 
 <header>
@@ -10,7 +19,7 @@
     <h2>{title}</h2>
   </div>
   {#if onClose}
-    <button type="button" class="close" aria-label="Close {title}" onclick={onClose}>
+    <button type="button" class="close" aria-label="Close {title}" onclick={close}>
       <X size={18} strokeWidth={1.7} aria-hidden="true" />
     </button>
   {/if}

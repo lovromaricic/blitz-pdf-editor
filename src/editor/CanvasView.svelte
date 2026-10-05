@@ -6,6 +6,7 @@
   import CircleCheck from '@lucide/svelte/icons/circle-check';
   import X from '@lucide/svelte/icons/x';
   import PageView from './PageView.svelte';
+  import { tabRing } from '../lib/focus';
 
   let { mobile = false, toolbar }: { mobile?: boolean; toolbar?: Snippet } = $props();
 
@@ -191,6 +192,7 @@
       if (e.target === e.currentTarget || (e.target as HTMLElement).classList.contains('pages')) viewer.clearSelection();
     }}
     id="document-view"
+    {@attach tabRing}
     tabindex="0"
     role="document"
     aria-label="Document"
@@ -346,7 +348,8 @@
     /* Page layers' z-indexes stay inside the scroller, under the floating controls. */
     isolation: isolate;
   }
-  .scroller:focus-visible {
+  /* Only when reached with Tab (focus.ts): a click, or a key pressed after one, draws nothing. */
+  .scroller:global([data-tab-focus]):focus-visible {
     outline: var(--focus-ring);
     outline-offset: -3px;
   }

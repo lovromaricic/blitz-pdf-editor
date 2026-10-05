@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { untrack } from 'svelte';
+  import { tick, untrack } from 'svelte';
+  import { focusLost, focusSink, installFocusModality } from '../lib/focus';
   import { app, closeDocument } from '../lib/app-state.svelte';
   import { Actions, provideActions } from '../lib/actions.svelte';
   import { describe } from '../lib/annotations';
@@ -36,6 +37,7 @@
 
   // svelte-ignore state_referenced_locally (the editor is re-created per document)
   const viewer = new Viewer(doc);
+  installFocusModality();
   provideViewer(viewer);
   // svelte-ignore state_referenced_locally
   const actions = new Actions(doc, viewer);
@@ -303,20 +305,39 @@
   $effect(() => {
     void doc.pages;
     untrack(() => {
+      // Whatever had focus may have been removed (an object, a page, a field): find it a home.
+      void tick().then(recoverFocus);
       viewer.syncAfterEdit();
       const q = viewer.search.query;
       if (q) void viewer.search.run(q, viewer.currentIndex, () => {});
     });
   });
 
+  /**
+   * Focus that fell on <body> (its element was removed: an object, a page, a
+   * closed popover) goes to the selected object if there is one, else to the
+   * editor's non-visual sink, never to the canvas scroll container.
+   */
+  function recoverFocus() {
+    if (!focusLost() || document.querySelector('dialog[open]')) return;
+    const sel = viewer.selectedAnnot;
+    const el = sel && document.querySelector<HTMLElement>(`[data-annot-id="${sel.id}"]`);
+    if (el) el.focus({ preventScroll: true });
+    else focusSink();
+  }
+
   function onKeyDown(e: KeyboardEvent) {
     // Compare is a separate full-screen view: editor shortcuts don't apply there.
     if (compareFile) return;
+    // A key pressed with focus lost: give it a home first (Tab keeps the browser's own starting point).
+    if (e.key !== 'Tab') recoverFocus();
     const plain = !e.ctrlKey && !e.metaKey && !e.altKey;
     // Single-key shortcuts don't apply inside dialogs or menus.
     const inOverlay = !!document.querySelector('dialog[open]') || !!(e.target as HTMLElement).closest?.('[role="menu"], [role="menubar"]');
     if (!inOverlay && clipboardShortcut(e)) return;
     if (!(plain && inOverlay) && commands.handleKey(e)) return;
+    // Backspace never navigates back (older browsers did), unless it's editing text.
+    if (e.key === 'Backspace' && !isTextField(e.target)) e.preventDefault();
     // Esc steps back: deselect the annotation, then return to the Select tool.
     if (e.key === 'Escape' && !e.defaultPrevented && !document.querySelector('dialog[open]')) {
       const target = e.target as HTMLElement;
@@ -406,6 +427,9 @@
       {#if viewer.showPanel}<SidePanel {commands} {actions} />{/if}
     </main>
   {/if}
+
+  <!-- What just happened, for screen readers (deletes move focus without anything to see). -->
+  <div class="visually-hidden" aria-live="polite">{viewer.announcement}</div>
 
   <HelpDialog topic={help} onClose={() => (help = null)} />
   {#if compareFile}<CompareView {doc} file={compareFile} onClose={() => (compareFile = null)} />{/if}

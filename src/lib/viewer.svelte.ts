@@ -112,6 +112,8 @@ export class Viewer {
   /** While the crop panel is open: pages show uncropped, with these margins (on-screen orientation, points) shaded. */
   cropPreview = $state.raw<{ ids: ReadonlySet<string>; margins: Margins } | null>(null);
   notice = $state<{ text: string; id: number; error: boolean } | null>(null);
+  /** Read out by screen readers (a visually hidden live region), e.g. "Image deleted". */
+  announcement = $state('');
   /** Redaction also removes the document's properties (title, author…). */
   redactRemoveInfo = $state(true);
 
@@ -289,6 +291,13 @@ export class Viewer {
   }
 
   // --- Feedback ---------------------------------------------------------
+
+  /** Tell screen-reader users what just happened, without anything on screen. */
+  announce(text: string) {
+    // Cleared first, so the same words twice in a row are read again.
+    this.announcement = '';
+    queueMicrotask(() => (this.announcement = text));
+  }
 
   private noticeTimer: ReturnType<typeof setTimeout> | undefined;
 
