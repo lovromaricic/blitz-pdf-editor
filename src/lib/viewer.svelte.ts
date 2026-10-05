@@ -2,7 +2,8 @@
 import { getContext, setContext, tick } from 'svelte';
 import type { EditorDocument, PageRef } from './document.svelte';
 import type { Margins } from './page-ops';
-import { HIGHLIGHT_COLORS, INK_COLORS, NOTE_COLORS, STAMPS, type Annotation, type FontFamily, type Rgb, type ShapeKind } from './annotations';
+import { HIGHLIGHT_COLORS, INK_COLORS, NOTE_COLORS, STAMPS, type Annotation, type FontFamily, type Rgb, type ShapeKind, type TextAlign } from './annotations';
+import { DEFAULT_LINE_SPACING } from './text-format';
 import { lastTextStyle, loadFonts } from './fonts';
 import { decorationResolver } from './pdf/pdf-writer';
 import { computeLayout, indexAtY, pagesPerRow, rowAtY, rowStartOf, type ViewMode } from './layout';
@@ -57,7 +58,19 @@ export interface ToolProps {
   highlight: { color: Rgb; opacity: number; wholeLine: boolean };
   draw: { color: Rgb; width: number; opacity: number };
   shapes: { shape: ShapeKind; color: Rgb; fill: Rgb | null; width: number; opacity: number };
-  text: { font: FontFamily; bold: boolean; italic: boolean; size: number; color: Rgb; opacity: number };
+  text: {
+    font: FontFamily;
+    bold: boolean;
+    italic: boolean;
+    underline: boolean;
+    strike: boolean;
+    align: TextAlign;
+    lineSpacing: number;
+    background: Rgb | null;
+    size: number;
+    color: Rgb;
+    opacity: number;
+  };
   stamp: { label: string; color: Rgb };
   comment: { color: Rgb };
 }
@@ -88,7 +101,17 @@ export class Viewer {
     draw: { color: INK_COLORS[0].rgb, width: 2, opacity: 1 },
     shapes: { shape: 'rect', color: INK_COLORS[1].rgb, fill: null, width: 2, opacity: 1 },
     // The last font used in this session (memory only).
-    text: { ...lastTextStyle, size: 12, color: INK_COLORS[0].rgb, opacity: 1 },
+    text: {
+      ...lastTextStyle,
+      underline: false,
+      strike: false,
+      align: 'left',
+      lineSpacing: DEFAULT_LINE_SPACING,
+      background: null,
+      size: 12,
+      color: INK_COLORS[0].rgb,
+      opacity: 1,
+    },
     stamp: { label: STAMPS[0].label, color: STAMPS[0].color },
     comment: { color: NOTE_COLORS[0].rgb },
   });

@@ -1,12 +1,38 @@
 <script lang="ts">
+  // Text formatting for the selected text box (or, with none, for new ones):
+  // font and B / I / U / S, size, alignment, line spacing, color, background,
+  // opacity. Formatting applies to whole boxes. Written for a list of boxes so
+  // a mixed selection shows "Mixed"; the editor selects one at a time for now.
   import Bold from '@lucide/svelte/icons/bold';
   import Italic from '@lucide/svelte/icons/italic';
-  import { INK_COLORS, type TextAnnotation } from '../../lib/annotations';
+  import Underline from '@lucide/svelte/icons/underline';
+  import Strikethrough from '@lucide/svelte/icons/strikethrough';
+  import AlignLeft from '@lucide/svelte/icons/text-align-start';
+  import AlignCenter from '@lucide/svelte/icons/text-align-center';
+  import AlignRight from '@lucide/svelte/icons/text-align-end';
+  import AlignJustify from '@lucide/svelte/icons/text-align-justify';
+  import Minus from '@lucide/svelte/icons/minus';
+  import Plus from '@lucide/svelte/icons/plus';
+  import type { Component } from 'svelte';
+  import { BACKGROUND_COLORS, INK_COLORS, type TextAlign, type TextAnnotation } from '../../lib/annotations';
   import { useActions } from '../../lib/actions.svelte';
-  import { FALLBACK_FONT, hasBold, hasItalic } from '../../lib/font-catalog';
+  import { FALLBACK_FONT } from '../../lib/font-catalog';
   import { ensureFont, lastTextStyle, loadFonts } from '../../lib/fonts';
   import { layoutText } from '../../lib/text-layout';
   import { useViewer } from '../../lib/viewer.svelte';
+  import {
+    ALIGNS,
+    LINE_SPACINGS,
+    MAX_TEXT_SIZE,
+    MIN_TEXT_SIZE,
+    isMixed,
+    nextToggle,
+    parseTextSize,
+    pressed,
+    stepTextSize,
+    textFormatState,
+  } from '../../lib/text-format';
+  import { TEXT_SHORTCUTS } from '../../lib/text-shortcuts';
   import FontPicker from '../../components/FontPicker.svelte';
   import LocalFontsDialog from '../../components/LocalFontsDialog.svelte';
   import { localFontsSupported } from '../../lib/local-fonts.svelte';
@@ -17,114 +43,317 @@
   const viewer = useViewer();
   const actions = useActions();
 
-  const sel = $derived.by(() => {
+  /** The text boxes being formatted (with their pages). */
+  const targets = $derived.by(() => {
     const s = actions.selectedAnnot;
-    return s && s.annot.type === 'text' ? { page: s.page, annot: s.annot as TextAnnotation } : null;
+    return s && s.annot.type === 'text' ? [{ page: s.page, annot: s.annot as TextAnnotation }] : [];
   });
-  const props = $derived(sel?.annot ?? viewer.toolProps.text);
-  const SIZES = [8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 32, 36, 48, 60, 72];
-  /** These change the line wrapping. */
-  const RELAYOUT = new Set(['font', 'size', 'bold', 'italic']);
+  /** With nothing selected, the panel sets the style for new text boxes. */
+  const items = $derived<TextAnnotation[]>(targets.length ? targets.map((t) => t.annot) : [viewer.toolProps.text as unknown as TextAnnotation]);
+  const fmt = $derived(textFormatState(items));
 
-  type Key = 'font' | 'bold' | 'italic' | 'size' | 'color' | 'opacity';
+  /** These change the line wrapping (and so the box height). */
+  const RELAYOUT = new Set<keyof TextAnnotation>(['font', 'size', 'bold', 'italic', 'lineSpacing']);
 
-  async function set<K extends Key>(key: K, value: TextAnnotation[K], label: string) {
-    value = $state.snapshot(value) as TextAnnotation[K];
-    (viewer.toolProps.text as Record<string, unknown>)[key] = value;
-    if (key === 'font' || key === 'bold' || key === 'italic') (lastTextStyle as Record<string, unknown>)[key] = value;
-    if (!sel) return;
-    let next: TextAnnotation = { ...sel.annot, [key]: value };
-    if (RELAYOUT.has(key)) {
-      await Promise.all([loadFonts(), ensureFont(next.font)]);
-      next = layoutText(next);
-    }
-    actions.updateAnnotation(sel.page.id, next, `Change ${label}`, `${key}:${sel.annot.id}`);
+  /** Apply a change to every target as one undo step (and remember it for new boxes). */
+  async function apply(changes: Partial<TextAnnotation>, label: string, coalesceKey?: string) {
+    changes = $state.snapshot(changes) as Partial<TextAnnotation>;
+    Object.assign(viewer.toolProps.text, changes);
+    for (const k of ['font', 'bold', 'italic'] as const) if (k in changes) (lastTextStyle as Record<string, unknown>)[k] = changes[k];
+    const list = targets;
+    if (list.length === 0) return;
+    const relayout = Object.keys(changes).some((k) => RELAYOUT.has(k as keyof TextAnnotation));
+    if (relayout) await Promise.all([loadFonts(), ...list.map((t) => ensureFont(changes.font ?? t.annot.font))]);
+    actions.updateAnnotations(
+      list.map((t) => {
+        const next = { ...t.annot, ...changes };
+        // The width stays as the user set it; the height follows the text.
+        return { pageId: t.page.id, annot: relayout ? layoutText(next) : next };
+      }),
+      label,
+      coalesceKey,
+    );
   }
 
   /** Load the font first; if it can't be loaded, say so calmly and use Sans serif. */
   async function chooseFont(font: string) {
-    if (await ensureFont(font)) return set('font', font, 'font');
+    if (await ensureFont(font)) return apply({ font }, 'Font');
     viewer.notify("Couldn't load this font. Using Sans serif instead.");
-    return set('font', FALLBACK_FONT, 'font');
+    return apply({ font: FALLBACK_FONT }, 'Font');
   }
 
   /** Shown only where the browser can list installed fonts (Chrome and Edge on desktop). */
   const canUseLocalFonts = localFontsSupported();
   let localOpen = $state(false);
 
-  const canBold = $derived(hasBold(props.font));
-  const canItalic = $derived(hasItalic(props.font));
+  // --- B / I / U / S ----------------------------------------------------------------
+
+  const toggles = $derived<{ key: 'bold' | 'italic' | 'underline' | 'strike'; label: string; icon: Component; available: boolean; missing?: string }[]>([
+    { key: 'bold', label: 'Bold', icon: Bold, available: fmt.canBold, missing: 'This font has no bold' },
+    { key: 'italic', label: 'Italic', icon: Italic, available: fmt.canItalic, missing: 'This font has no italic' },
+    { key: 'underline', label: 'Underline', icon: Underline, available: true },
+    { key: 'strike', label: 'Strikethrough', icon: Strikethrough, available: true },
+  ]);
+
+  function tooltip(t: (typeof toggles)[number]) {
+    if (!t.available) return t.missing!;
+    const keys = TEXT_SHORTCUTS[t.key];
+    return keys ? `${t.label} (${keys})` : t.label;
+  }
+
+  // --- Size: − [field] + --------------------------------------------------------------
+
+  let sizeText = $state('');
+  let sizeFocused = $state(false);
+  let sizeError = $state('');
+  const currentSize = $derived(isMixed(fmt.size) ? null : fmt.size);
+  $effect(() => {
+    if (!sizeFocused) sizeText = currentSize === null ? '' : String(currentSize);
+  });
+
+  /** One stepper press (or a whole held press, sharing `key`) is one undo step. */
+  let heldSize: number | null = null;
+  function step(delta: number, key: string) {
+    const from = heldSize ?? currentSize ?? (items[0]?.size ?? 12);
+    heldSize = stepTextSize(from, delta);
+    sizeText = String(heldSize);
+    sizeError = '';
+    void apply({ size: heldSize }, 'Font size', key);
+  }
+
+  let repeat: ReturnType<typeof setTimeout> | undefined;
+  function stopHold() {
+    clearTimeout(repeat);
+    clearInterval(repeat);
+    repeat = undefined;
+    heldSize = null;
+    window.removeEventListener('pointerup', stopHold);
+    window.removeEventListener('pointercancel', stopHold);
+  }
+  /** Press and hold: one step now, then repeating after a short delay. */
+  function startHold(e: PointerEvent, delta: number) {
+    if (e.button !== 0) return;
+    stopHold();
+    const key = `size-hold:${Date.now()}`;
+    step(delta, key);
+    repeat = setTimeout(() => (repeat = setInterval(() => step(delta, key), 80)), 400);
+    window.addEventListener('pointerup', stopHold);
+    window.addEventListener('pointercancel', stopHold);
+  }
+  /** Keyboard (Enter / Space) presses the stepper buttons with a click of detail 0. */
+  function keyStep(e: MouseEvent, delta: number) {
+    if (e.detail !== 0) return; // pointer presses are handled on pointerdown
+    step(delta, `size-key:${Date.now()}`);
+    heldSize = null;
+  }
+
+  let arrowKey = '';
+  function onSizeKey(e: KeyboardEvent) {
+    if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+      e.preventDefault();
+      // A run of arrow presses in the field is one undo step.
+      arrowKey ||= `size-arrows:${Date.now()}`;
+      step((e.key === 'ArrowUp' ? 1 : -1) * (e.shiftKey ? 10 : 1), arrowKey);
+      heldSize = null;
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      commitSize();
+    }
+  }
+
+  function commitSize() {
+    const n = parseTextSize(sizeText);
+    if (n === null) {
+      // Rejected: say why and put the previous value back.
+      sizeError = `Use a whole number from ${MIN_TEXT_SIZE} to ${MAX_TEXT_SIZE}.`;
+      sizeText = currentSize === null ? '' : String(currentSize);
+      return;
+    }
+    sizeError = '';
+    if (n !== currentSize) void apply({ size: n }, 'Font size');
+  }
+
+  // --- Alignment: a radiogroup ----------------------------------------------------------
+
+  const ALIGN_UI: Record<TextAlign, { label: string; icon: Component }> = {
+    left: { label: 'Align left', icon: AlignLeft },
+    center: { label: 'Align center', icon: AlignCenter },
+    right: { label: 'Align right', icon: AlignRight },
+    justify: { label: 'Justify', icon: AlignJustify },
+  };
+
+  function onAlignKey(e: KeyboardEvent, i: number) {
+    const delta = e.key === 'ArrowRight' || e.key === 'ArrowDown' ? 1 : e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? -1 : 0;
+    if (!delta) return;
+    e.preventDefault();
+    const next = (i + delta + ALIGNS.length) % ALIGNS.length;
+    void setAlign(ALIGNS[next]);
+    ((e.currentTarget as HTMLElement).parentElement?.children[next] as HTMLElement | undefined)?.focus();
+  }
+
+  function setAlign(align: TextAlign) {
+    return apply({ align }, ALIGN_UI[align].label);
+  }
+
+  const formatSpacing = (v: number) => (Number.isInteger(v) ? v.toFixed(1) : String(v));
 </script>
 
-<PanelHeader title="Text" onClose={sel ? () => viewer.selectAnnot(null) : () => viewer.setTool('select')} />
+<PanelHeader title="Text" onClose={targets.length ? () => viewer.selectAnnot(null) : () => viewer.setTool('select')} />
 
-<div class="panel-form">
-  {#if !sel}
+<div class="panel-form text-panel" class:selected={targets.length > 0}>
+  {#if !targets.length}
     <p class="hint">Click on the page to type. Click an existing text box to change it.</p>
   {/if}
-  <div class="field">
+
+  <div class="field font">
     <label for="tx-font">Font</label>
-    <div class="font-row">
-      <div class="picker">
-        <FontPicker id="tx-font" value={props.font} onChange={chooseFont}>
-          {#snippet extra(close)}
-            {#if canUseLocalFonts}
-              <button
-                type="button"
-                class="local-btn"
-                onclick={() => {
-                  close();
-                  localOpen = true;
-                }}>My computer's fonts…</button
-              >
-            {/if}
-          {/snippet}
-        </FontPicker>
-      </div>
-      <div class="styles" role="group" aria-label="Text style">
+    <FontPicker id="tx-font" value={isMixed(fmt.font) ? items[0].font : fmt.font} onChange={chooseFont}>
+      {#snippet extra(close)}
+        {#if canUseLocalFonts}
+          <button
+            type="button"
+            class="local-btn"
+            onclick={() => {
+              close();
+              localOpen = true;
+            }}>My computer's fonts…</button
+          >
+        {/if}
+      {/snippet}
+    </FontPicker>
+  </div>
+
+  <div class="styles" role="group" aria-label="Text style">
+    {#each toggles as t (t.key)}
+      {@const value = fmt[t.key]}
+      <button
+        type="button"
+        class="toggle"
+        aria-label={t.label}
+        title={tooltip(t)}
+        aria-pressed={pressed(value, t.available)}
+        disabled={!t.available}
+        onclick={() => apply({ [t.key]: nextToggle(value) }, t.label)}
+      >
+        <t.icon size={18} strokeWidth={2} aria-hidden="true" />
+      </button>
+    {/each}
+  </div>
+
+  <div class="field size">
+    <label for="tx-size">Size (pt)</label>
+    <div class="stepper">
+      <button
+        type="button"
+        class="step"
+        aria-label="Smaller"
+        title="Smaller"
+        disabled={currentSize !== null && currentSize <= MIN_TEXT_SIZE}
+        onpointerdown={(e) => startHold(e, -1)}
+        onclick={(e) => keyStep(e, -1)}><Minus size={18} strokeWidth={2} aria-hidden="true" /></button
+      >
+      <input
+        id="tx-size"
+        type="text"
+        inputmode="numeric"
+        autocomplete="off"
+        placeholder={currentSize === null ? 'Mixed' : undefined}
+        bind:value={sizeText}
+        aria-invalid={sizeError ? 'true' : undefined}
+        aria-describedby={sizeError ? 'tx-size-error' : undefined}
+        onfocus={() => ((sizeFocused = true), (arrowKey = ''))}
+        onblur={() => {
+          sizeFocused = false;
+          commitSize();
+        }}
+        onkeydown={onSizeKey}
+      />
+      <button
+        type="button"
+        class="step"
+        aria-label="Larger"
+        title="Larger"
+        disabled={currentSize !== null && currentSize >= MAX_TEXT_SIZE}
+        onpointerdown={(e) => startHold(e, 1)}
+        onclick={(e) => keyStep(e, 1)}><Plus size={18} strokeWidth={2} aria-hidden="true" /></button
+      >
+    </div>
+    {#if sizeError}<span class="error" id="tx-size-error" role="alert">{sizeError}</span>{/if}
+  </div>
+
+  <div class="field align">
+    <span class="label" id="tx-align-label">Alignment</span>
+    <div class="aligns" role="radiogroup" aria-labelledby="tx-align-label">
+      {#each ALIGNS as a, i (a)}
+        {@const checked = fmt.align === a}
+        {@const Icon = ALIGN_UI[a].icon}
         <button
           type="button"
-          class="style-btn"
-          aria-label="Bold"
-          title={canBold ? 'Bold' : 'This font has no bold'}
-          aria-pressed={!!props.bold && canBold}
-          disabled={!canBold}
-          onclick={() => set('bold', !props.bold, 'bold')}><Bold size={18} strokeWidth={2} aria-hidden="true" /></button
+          role="radio"
+          class="align-btn"
+          aria-checked={checked}
+          aria-label={ALIGN_UI[a].label}
+          title={ALIGN_UI[a].label}
+          tabindex={checked || (isMixed(fmt.align) && i === 0) ? 0 : -1}
+          onclick={() => setAlign(a)}
+          onkeydown={(e) => onAlignKey(e, i)}><Icon size={18} strokeWidth={2} aria-hidden="true" /></button
         >
-        <button
-          type="button"
-          class="style-btn"
-          aria-label="Italic"
-          title={canItalic ? 'Italic' : 'This font has no italic'}
-          aria-pressed={!!props.italic && canItalic}
-          disabled={!canItalic}
-          onclick={() => set('italic', !props.italic, 'italic')}><Italic size={18} strokeWidth={2} aria-hidden="true" /></button
-        >
-      </div>
+      {/each}
     </div>
   </div>
+
   <div class="field">
-    <label for="tx-size">Size (pt)</label>
-    <select id="tx-size" value={props.size} onchange={(e) => set('size', +e.currentTarget.value, 'size')}>
-      {#each SIZES.includes(props.size) ? SIZES : [...SIZES, props.size].sort((a, b) => a - b) as s (s)}
-        <option value={s}>{s}</option>
+    <label for="tx-spacing">Line spacing</label>
+    <select id="tx-spacing" value={isMixed(fmt.lineSpacing) ? '' : String(fmt.lineSpacing)} onchange={(e) => apply({ lineSpacing: +e.currentTarget.value }, 'Line spacing')}>
+      {#if isMixed(fmt.lineSpacing)}<option value="" disabled>Mixed</option>{/if}
+      {#each LINE_SPACINGS as v (v)}
+        <option value={String(v)}>{formatSpacing(v)}</option>
       {/each}
     </select>
   </div>
+
   <div class="field">
     <span class="label">Color</span>
-    <Swatches label="Text color" colors={INK_COLORS} value={props.color} onChange={(c) => c && set('color', c, 'color')} />
+    <Swatches
+      label="Text color"
+      colors={INK_COLORS}
+      value={isMixed(fmt.color) ? null : fmt.color}
+      mixed={isMixed(fmt.color)}
+      onChange={(c) => c && apply({ color: c }, 'Text color')}
+    />
   </div>
+
   <div class="field">
-    <label for="tx-opacity">Opacity <span class="value">{Math.round(props.opacity * 100)}%</span></label>
-    <Range id="tx-opacity" min={0.1} max={1} step={0.05} value={props.opacity} onInput={(v) => set('opacity', v, 'opacity')} />
+    <span class="label">Background</span>
+    <Swatches
+      label="Background"
+      colors={BACKGROUND_COLORS}
+      allowNone
+      value={isMixed(fmt.background) ? null : fmt.background}
+      mixed={isMixed(fmt.background)}
+      onChange={(c) => apply({ background: c }, 'Background')}
+    />
   </div>
+
+  <div class="field">
+    <label for="tx-opacity">Opacity <span class="value">{isMixed(fmt.opacity) ? 'Mixed' : `${Math.round(fmt.opacity * 100)}%`}</span></label>
+    <Range
+      id="tx-opacity"
+      min={0.1}
+      max={1}
+      step={0.05}
+      value={isMixed(fmt.opacity) ? 1 : fmt.opacity}
+      valueText={isMixed(fmt.opacity) ? 'Mixed' : `${Math.round(fmt.opacity * 100)}%`}
+      onInput={(v) => apply({ opacity: v }, 'Opacity', `opacity:${targets.map((t) => t.annot.id).join(',')}`)}
+    />
+  </div>
+
   {#if canUseLocalFonts}
-    <LocalFontsDialog open={localOpen} onClose={() => (localOpen = false)} onChoose={(font) => set('font', font, 'font')} />
+    <LocalFontsDialog open={localOpen} onClose={() => (localOpen = false)} onChoose={(font) => apply({ font }, 'Font')} />
   {/if}
-  {#if sel}
-    <div class="actions">
-      <button type="button" class="btn btn-danger" onclick={() => actions.deleteAnnotation(sel.page.id, sel.annot.id)}>Delete</button>
+  {#if targets.length}
+    <div class="actions delete">
+      <button type="button" class="btn btn-danger" onclick={() => targets.forEach((t) => actions.deleteAnnotation(t.page.id, t.annot.id))}>Delete</button>
     </div>
     <p class="hint">Double-click (or press Enter) to edit the text. Drag a corner to change the width.</p>
   {/if}
@@ -139,19 +368,18 @@
     font-weight: 400;
     color: var(--muted);
   }
-  .font-row {
+  .styles,
+  .aligns {
     display: flex;
     gap: var(--space-2);
   }
-  .picker {
-    flex: 1;
-    min-width: 0;
+  /* Font, then the style toggles right under it. */
+  .font {
+    margin-bottom: calc(-1 * var(--space-3));
   }
-  .styles {
-    display: flex;
-    gap: var(--space-1);
-  }
-  .style-btn {
+  .toggle,
+  .step,
+  .align-btn {
     display: grid;
     place-items: center;
     width: 38px;
@@ -162,23 +390,55 @@
     background: var(--surface);
     color: var(--text);
   }
-  .style-btn:hover:not(:disabled) {
+  .toggle:hover:not(:disabled),
+  .step:hover:not(:disabled),
+  .align-btn:hover {
     background: var(--surface-2);
   }
-  .style-btn[aria-pressed='true'] {
+  .toggle[aria-pressed='true'],
+  .align-btn[aria-checked='true'] {
     background: var(--accent-soft);
     border-color: var(--accent-soft);
-    color: var(--accent-strong);
+    color: var(--accent);
   }
-  .style-btn:disabled {
+  /* Mixed: a dashed outline, neither on nor off. */
+  .toggle[aria-pressed='mixed'] {
+    border-style: dashed;
+    color: var(--accent);
+  }
+  .toggle:disabled,
+  .step:disabled {
     opacity: 0.4;
     cursor: default;
   }
-  @media (max-width: 720px), (pointer: coarse) {
-    .style-btn {
-      width: var(--touch-target);
-      height: var(--touch-target);
-    }
+  /* Alignment: four joined buttons. */
+  .aligns {
+    gap: 0;
+  }
+  .align-btn {
+    flex: 1;
+    width: auto;
+    border-radius: 0;
+    margin-left: calc(-1 * var(--border-width));
+  }
+  .align-btn:first-child {
+    margin-left: 0;
+    border-radius: var(--radius-md) 0 0 var(--radius-md);
+  }
+  .align-btn:last-child {
+    border-radius: 0 var(--radius-md) var(--radius-md) 0;
+  }
+  .align-btn:focus-visible {
+    position: relative;
+    z-index: 1;
+  }
+  .stepper {
+    display: flex;
+    gap: var(--space-2);
+  }
+  .stepper input {
+    width: 4.5rem;
+    text-align: center;
   }
   .local-btn {
     min-height: 36px;
@@ -194,15 +454,55 @@
   .local-btn:hover {
     background: var(--surface-2);
   }
-  @media (max-width: 720px), (pointer: coarse) {
-    .local-btn {
-      min-height: var(--touch-target);
-    }
-  }
   select {
     min-height: 36px;
     border: var(--border-width) solid var(--border);
     border-radius: var(--radius-sm);
     background: var(--surface);
+  }
+
+  @media (max-width: 720px), (pointer: coarse) {
+    .toggle,
+    .step,
+    .align-btn {
+      width: var(--touch-target);
+      height: var(--touch-target);
+    }
+    .align-btn {
+      width: auto;
+    }
+    .local-btn {
+      min-height: var(--touch-target);
+    }
+  }
+
+  /* Phones (bottom sheet): Font on its own row, then the toggles, then Size and
+     Alignment side by side; Delete stays in reach at the bottom of the sheet. */
+  @media (max-width: 720px) {
+    .text-panel {
+      grid-template-columns: auto 1fr;
+      column-gap: var(--space-3);
+    }
+    .text-panel > :global(*) {
+      grid-column: 1 / -1;
+    }
+    .text-panel > .size {
+      grid-column: 1;
+    }
+    .text-panel > .align {
+      grid-column: 2;
+    }
+    .stepper input {
+      width: 3.25rem;
+    }
+    .font {
+      margin-bottom: 0;
+    }
+    .delete {
+      position: sticky;
+      bottom: 0;
+      padding: var(--space-2) 0;
+      background: var(--surface);
+    }
   }
 </style>

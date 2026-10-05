@@ -55,14 +55,30 @@ interface Boxed extends Base {
   rotate: number;
 }
 
+export type TextAlign = 'left' | 'center' | 'right' | 'justify';
+
 export interface TextAnnotation extends Boxed {
   type: 'text';
   text: string;
   /** Line breaks as laid out in the editor; screen, print and PDF all use these. */
   lines: string[];
+  /**
+   * Per line: does it end a paragraph (a manual line break or the end of the
+   * text)? Justified text leaves those lines unstretched. Missing on text from
+   * before alignment existed (it is never justified).
+   */
+  ends?: boolean[];
   font: FontFamily;
   bold?: boolean;
   italic?: boolean;
+  underline?: boolean;
+  strike?: boolean;
+  /** Default left. */
+  align?: TextAlign;
+  /** Line height as a multiple of the size. Default 1.25 (what text boxes always had). */
+  lineSpacing?: number;
+  /** Fill behind the whole box (padding included), or none. */
+  background?: Rgb | null;
   /** Points. */
   size: number;
 }
@@ -173,6 +189,14 @@ function hex(h: string): Rgb {
   const n = parseInt(h.slice(1), 16);
   return [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255].map((v) => Math.round(v * 1000) / 1000) as Rgb;
 }
+
+/** Text box backgrounds: white and light tints (content colours, saved in the PDF). */
+export const BACKGROUND_COLORS: { name: string; rgb: Rgb }[] = [
+  { name: 'White', rgb: [1, 1, 1] },
+  { name: 'Light yellow', rgb: hex('#FFF3B0') },
+  { name: 'Light blue', rgb: hex('#D6E6FF') },
+  { name: 'Light green', rgb: hex('#D5F2DD') },
+];
 
 export const INK_COLORS: { name: string; rgb: Rgb }[] = [
   { name: 'Black', rgb: [0, 0, 0] },

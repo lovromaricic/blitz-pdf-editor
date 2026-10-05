@@ -15,6 +15,7 @@
     onChange,
     allowNone = false,
     custom = true,
+    mixed = false,
   }: {
     label: string;
     colors: { name: string; rgb: Rgb }[];
@@ -23,12 +24,14 @@
     allowNone?: boolean;
     /** Offer the custom color picker. */
     custom?: boolean;
+    /** Several objects with different colors are selected: none is shown as chosen. */
+    mixed?: boolean;
   } = $props();
 
   const options = $derived<{ name: string; rgb: Rgb | null }[]>(allowNone ? [{ name: 'None', rgb: null }, ...colors] : colors);
   /** The current color isn't one of the presets. */
-  const isCustom = $derived(value !== null && !options.some((o) => sameRgb(o.rgb, value)));
-  const anyChecked = $derived(options.some((o) => sameRgb(o.rgb, value)));
+  const isCustom = $derived(!mixed && value !== null && !options.some((o) => sameRgb(o.rgb, value)));
+  const anyChecked = $derived(!mixed && options.some((o) => sameRgb(o.rgb, value)));
 
   function onKey(e: KeyboardEvent, i: number) {
     const delta = e.key === 'ArrowRight' || e.key === 'ArrowDown' ? 1 : e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? -1 : 0;
@@ -106,7 +109,7 @@
   <div class="swatches">
     <div class="presets" role="radiogroup" aria-label={label}>
       {#each options as c, i (c.name)}
-        {@const checked = sameRgb(c.rgb, value)}
+        {@const checked = !mixed && sameRgb(c.rgb, value)}
         <button
           type="button"
           role="radio"

@@ -705,6 +705,18 @@ export class Actions {
     this.editAnnots(pageId, `Add ${describe(annot).toLowerCase()}`, (list) => [...list, annot]);
   }
 
+  /** Replace several annotations (on any pages) as one undo step. */
+  updateAnnotations(changed: readonly { pageId: string; annot: Annotation }[], label: string, coalesceKey?: string) {
+    if (changed.length === 0) return;
+    const byPage = new Map<string, Map<string, Annotation>>();
+    for (const c of changed) byPage.set(c.pageId, (byPage.get(c.pageId) ?? new Map()).set(c.annot.id, c.annot));
+    const next = this.doc.pages.map((p) => {
+      const repl = byPage.get(p.id);
+      return repl ? { ...p, annots: (p.annots ?? []).map((a) => repl.get(a.id) ?? a) } : p;
+    });
+    this.doc.edit(label, next, coalesceKey);
+  }
+
   /** Replace an annotation. Pass `coalesceKey` for continuous edits (sliders, nudges). */
   updateAnnotation(pageId: string, annot: Annotation, label = `Edit ${describe(annot).toLowerCase()}`, coalesceKey?: string) {
     this.editAnnots(pageId, label, (list) => list.map((a) => (a.id === annot.id ? annot : a)), coalesceKey);
