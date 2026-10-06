@@ -70,6 +70,18 @@
       ],
     },
     {
+      menu: 'Editing the PDF’s own text and images',
+      rows: [
+        { label: 'Edit content (the tool)', keys: ['E'] },
+        { label: 'Edit text, select an image (with the Select tool)', keys: ['double-click', 'double-tap'] },
+        { label: 'Next / previous text block or image, in reading order', keys: ['Tab', 'Shift+Tab'] },
+        { label: 'Select several', keys: ['Shift+click'] },
+        { label: 'Edit the selected text', keys: ['Enter', 'double-click'] },
+        { label: 'Delete from the PDF', keys: ['Delete', 'Backspace'] },
+        { label: 'Back to the tool before (after a double-click)', keys: ['Esc', 'click an empty spot'] },
+      ],
+    },
+    {
       menu: 'Cropping an image',
       rows: [
         { label: 'Start cropping the selected image', keys: ['double-click', 'Crop button', 'right-click › Crop…'] },
@@ -118,6 +130,7 @@
           <li><strong>Pages:</strong> use the thumbnails on the left. Drag to reorder, right-click for rotate, delete and extract. The <em>Page</em> menu has the same actions.</li>
           <li><strong>New PDF:</strong> <em>File › New blank PDF</em> starts a document from empty pages (A4, US Letter, A5, Legal or your own size). It opens as "Untitled.pdf".</li>
           <li><strong>Images:</strong> <em>Page › Insert image</em> puts a picture on the current page; you can also drag an image file onto a page or paste one with {mod}+V. Drag it, its corners and its round handle to move, resize and rotate; the panel on the right has exact sizes, flip, opacity and order.</li>
+          <li><strong>Editing the PDF’s own text and images:</strong> double-click text or an image on the page (or pick <em>Edit content</em> in the toolbar, E). Text becomes a text box you can change (set in Arimo, Tinos or Cousine, the closest match to the original font); Delete removes text or an image from the PDF itself, not just from view, together with hidden copies such as its accessibility text. Undo brings back the original exactly. Turned or vertical text, superscripts and some mixed text can only be deleted; lines and shapes can't be edited yet. Saving writes the whole file again, so earlier versions kept inside it are gone too.</li>
           <li><strong>Cropping images:</strong> double-click an image (or use <em>Crop</em> in its panel, or right-click › <em>Crop…</em>). Drag the frame's handles, drag the image to choose what shows, pick a ratio in the panel, then press Enter or click outside it. Nothing is lost until you save: crop again to bring back what you cut off, or use <em>Reset crop</em>. The saved PDF keeps only the cropped part.</li>
           <li><strong>Text:</strong> pick the Text tool and click on the page. Select words to make them bold, bigger or another colour with the panel on the right; with no words selected, the panel sets how the next words look.</li>
           <li><strong>Lists:</strong> type "- " or "1. " at the start of a line, or use the List buttons in the panel. Tab and Shift+Tab change an item's level (up to three); Enter on an empty item ends the list.</li>

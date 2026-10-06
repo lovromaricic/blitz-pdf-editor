@@ -6,8 +6,10 @@
   import { rgbToCss } from '../../lib/annotations';
   import { CONTENT_STRINGS as S } from '../../lib/strings';
   import PanelHeader from './PanelHeader.svelte';
+  import { MediaQuery } from 'svelte/reactivity';
 
   const viewer = useViewer();
+  const coarse = new MediaQuery('(pointer: coarse)');
   const actions = useActions();
 
   const items = $derived.by(() => {
@@ -24,7 +26,14 @@
   const hex = (c: [number, number, number]) => '#' + c.map((v) => Math.round(Math.min(1, Math.max(0, v)) * 255).toString(16).padStart(2, '0')).join('');
 </script>
 
-<PanelHeader {title} onClose={() => viewer.selectContent(null)} />
+{#if items.length}
+  <PanelHeader {title} onClose={() => viewer.selectContent(null)} />
+{:else}
+  <PanelHeader title={S.tool} />
+  <div class="panel-form">
+    <p>{coarse.current ? S.panelHintTouch : S.panelHint}</p>
+  </div>
+{/if}
 
 {#if items.length}
   <div class="panel-form">

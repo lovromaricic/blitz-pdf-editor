@@ -15,8 +15,8 @@ import type { Tool } from '../lib/viewer.svelte';
 
 export const MARKUP_TOOLS: { id: Tool; label: string; icon: Component; tip?: string; desktopOnly?: boolean }[] = [
   { id: 'select', label: 'Select', icon: MousePointer2 },
-  // The PDF's own text and images (desktop and tablet; phones get it later).
-  { id: 'content', label: 'Edit content', tip: 'Edit text and images', icon: FilePenLine, desktopOnly: true },
+  // The PDF's own text and images.
+  { id: 'content', label: 'Edit content', tip: 'Edit text and images', icon: FilePenLine },
   { id: 'text', label: 'Text', icon: Type },
   { id: 'highlight', label: 'Highlight', icon: Highlighter },
   { id: 'draw', label: 'Draw', icon: Pen },

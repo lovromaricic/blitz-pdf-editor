@@ -89,3 +89,10 @@ Measured by deleting the visible span that carries /ActualText in `tagged-actual
 - **Text that is clipped out of view**: not offered for selection.
 
 STOP: waiting for "go" before Phase 1.
+
+## Outcome (phases 1 to 3)
+
+- Approach A as recommended: `src/lib/pdf/content/` (tokenizer, fonts, interpreter, blocks, rewriter, edit), run in `src/lib/pdf/content-worker.ts`. Each deletion or conversion writes a new version of the source file; pages point to it in one undo step, and undo returns to the untouched original.
+- Size: main-thread code +7.8 KB gzipped; the content worker is 360 KB gzipped, almost all of it its own copy of pdf-lib, downloaded the first time Edit content is used. Merging it into the existing PDF worker would share that copy (a possible follow-up).
+- 100-page file (Chrome, about 1,700 text operations a page), in the browser: a page 50 analysis in about 0.2 s, a delete in about 0.55 s, a conversion in about 0.55 s, each including the full rewrite and reload.
+- Fidelity of converting text into a text box (rendered by PDF.js before and after): lines, baselines and starts within 0.75 pt everywhere. The share of ink more than a pixel off is at most 0.2%, except serif text at 8.5%: our layout doesn't kern, and Times-style fonts kern a lot.

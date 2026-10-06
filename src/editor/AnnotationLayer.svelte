@@ -1055,17 +1055,14 @@
     // Double-click (or double-tap) on the PDF's own content: Edit content at that point.
     // Our objects handle their own double-click (a text box edits, an image crops).
     const own = (t: Element) => !!t.closest(OWN_TARGETS);
-    let lastOpen = 0;
+    // A double-tap the browser also reports as a dblclick opens once: the dblclick right after it is skipped.
+    let tapOpened = -Infinity;
     const openAt = (x: number, y: number) => {
-      // A double-tap can also be reported as a dblclick: one opening per double.
-      const now = performance.now();
-      if (now - lastOpen < 600) return;
-      lastOpen = now;
       window.getSelection()?.removeAllRanges();
       void actions.enterContentEditing({ pageId: page.id, point: clientToPdf(x, y), caret: [x, y], edit: true, byDoubleClick: true });
     };
     const onDbl = (e: MouseEvent) => {
-      if (e.button !== 0 || own(e.target as Element)) return;
+      if (e.button !== 0 || own(e.target as Element) || performance.now() - tapOpened < 500) return;
       openAt(e.clientX, e.clientY);
     };
     let lastTap: { t: number; x: number; y: number } | null = null;
@@ -1074,6 +1071,7 @@
       const now = performance.now();
       if (lastTap && now - lastTap.t < 350 && Math.hypot(e.clientX - lastTap.x, e.clientY - lastTap.y) < 24) {
         lastTap = null;
+        tapOpened = now;
         openAt(e.clientX, e.clientY);
       } else lastTap = { t: now, x: e.clientX, y: e.clientY };
     };

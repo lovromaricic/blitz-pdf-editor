@@ -139,7 +139,8 @@ function model(doc: PDFDocument, pageIndex: number): Model {
       kind: 'text',
       quad: b.quad,
       order: b.order,
-      seq: Math.max(...b.runs.map((i) => content.text[i].seq)),
+      // Where it starts in the drawing (reading order among images and text).
+      seq: Math.min(...b.runs.map((i) => content.text[i].seq)),
       text: b.text,
       font: fontLabel(first.font.name === b.font ? first.font : (content.text.find((r) => r.font.name === b.font)?.font ?? first.font)),
       size: Math.round(b.size * 10) / 10,

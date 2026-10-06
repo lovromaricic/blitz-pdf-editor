@@ -103,6 +103,8 @@
     <FormPanel {commands} />
   {:else if viewer.selection.size > 0}
     <PagesPanel {commands} />
+  {:else if viewer.tool === 'content'}
+    <ContentPanel />
   {:else}
     <PanelHeader title="Document" />
     <dl>

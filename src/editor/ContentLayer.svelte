@@ -29,14 +29,32 @@
 
   const analysis = $derived(active && source ? viewer.content.get(source, page.sourceIndex) : undefined);
   const locked = $derived(!!source && viewer.content.locked.get(source.id) === true);
-  /** Images first (drawn below), then text blocks in reading order. */
+  /** In reading order (the order the page draws them: Tab follows it). Text sits above images for the pointer (z-index). */
   const items = $derived.by((): ContentItem[] => {
     if (!analysis || typeof analysis !== 'object' || analysis.status !== 'ok' || locked) return [];
-    return [...analysis.items].sort((a, b) => (a.kind === b.kind ? a.order - b.order : a.kind === 'image' ? -1 : 1));
+    return [...analysis.items].sort((a, b) => a.seq - b.seq);
+  });
+
+  /** Reached with the keyboard: "Text block, 3 of 8". */
+  function announce(e: FocusEvent, item: ContentItem) {
+    if (!(e.currentTarget as HTMLElement).matches(':focus-visible')) return;
+    viewer.announce(`${item.kind === 'text' ? S.textBlock : S.image}, ${items.indexOf(item) + 1} of ${items.length}`);
+  }
+
+  // "Reading the page…" only when it takes a while.
+  let slow = $state(false);
+  $effect(() => {
+    if (analysis !== 'pending') {
+      slow = false;
+      return;
+    }
+    const t = setTimeout(() => (slow = true), 600);
+    return () => clearTimeout(t);
   });
   const note = $derived.by(() => {
     if (!active) return null;
     if (locked) return S.restricted;
+    if (analysis === 'pending') return slow ? S.reading : null;
     if (analysis === 'failed' || (typeof analysis === 'object' && analysis.status === 'unreadable')) return S.unreadable;
     if (typeof analysis !== 'object') return null;
     if (analysis.scan) return S.scan;
@@ -57,11 +75,52 @@
     };
   }
 
+  /** Half a touch target (44px): how far beside a block a finger still means it. */
+  const REACH = 22;
+
+  /** The block nearest a touch on an empty spot, if one is within reach. */
+  function nearest(e: PointerEvent): ContentItem | null {
+    const layer = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const px = e.clientX - layer.left;
+    const py = e.clientY - layer.top;
+    let best: ContentItem | null = null;
+    let bestD = REACH;
+    for (const item of items) {
+      const b = box(item);
+      // The point in the block's own (turned) frame, from its top-left corner.
+      const t = (-b.angle * Math.PI) / 180;
+      const dx = px - b.left;
+      const dy = py - b.top;
+      const lx = dx * Math.cos(t) - dy * Math.sin(t);
+      const ly = dx * Math.sin(t) + dy * Math.cos(t);
+      const d = Math.hypot(Math.max(0, -lx, lx - b.width), Math.max(0, -ly, ly - b.height));
+      if (d <= bestD) {
+        best = item;
+        bestD = d;
+      }
+    }
+    return best;
+  }
+
   const describe = (item: ContentItem) => (item.kind === 'text' ? S.hitText(item.text ?? '') : S.hitImage(item.width ?? 0, item.height ?? 0));
 
   function select(item: ContentItem, add: boolean) {
     const ids = add && selected.length ? (selected.includes(item.id) ? selected.filter((id) => id !== item.id) : [...selected, item.id]) : [item.id];
     viewer.selectContent(ids.length ? { pageId: page.id, ids } : null);
+  }
+
+  // A double-tap on a text block edits it (where the browser doesn't report it as a dblclick).
+  let lastTap: { id: string; t: number } | null = null;
+  /** When a double-tap opened a block (the dblclick the browser may add right after is skipped). */
+  let tapOpened = -Infinity;
+  function onUp(e: PointerEvent, item: ContentItem) {
+    if (e.pointerType !== 'touch' || item.kind !== 'text') return;
+    const now = performance.now();
+    if (lastTap?.id === item.id && now - lastTap.t < 350) {
+      lastTap = null;
+      tapOpened = now;
+      void actions.enterContentEditing({ pageId: page.id, itemId: item.id, caret: [e.clientX, e.clientY], edit: true });
+    } else lastTap = { id: item.id, t: now };
   }
 
   function onDown(e: PointerEvent, item: ContentItem) {
@@ -124,8 +183,17 @@
   <div
     class="content-layer"
     onpointerdown={(e) => {
+      if (e.button !== 0 || e.target !== e.currentTarget) return;
+      // A finger just beside a small block (a table cell, a number) means that block: 44px targets
+      // without the blocks' own areas growing into each other.
+      const near = e.pointerType === 'touch' ? nearest(e) : null;
+      if (near) {
+        select(near, false);
+        document.querySelector<HTMLElement>(`[data-content-id="${CSS.escape(near.id)}"]`)?.focus({ preventScroll: true });
+        return;
+      }
       // Entered by a double-click: an empty spot goes back to the tool before. Else it clears the selection.
-      if (e.button === 0 && e.target === e.currentTarget && !viewer.leaveContentTool()) viewer.selectContent(null);
+      if (!viewer.leaveContentTool()) viewer.selectContent(null);
     }}
   >
     {#each items as item (item.id)}
@@ -147,14 +215,18 @@
         style:height="{b.height}px"
         style:transform="rotate({b.angle}deg)"
         onpointerdown={(e) => onDown(e, item)}
+        onpointerup={(e) => onUp(e, item)}
         onpointerenter={() => enter(item)}
         onpointerleave={() => leave(item)}
         oncontextmenu={(e) => onMenu(e, item)}
         onkeydown={(e) => onKey(e, item)}
         ondblclick={(e) => {
-          if (item.kind === 'text') void actions.enterContentEditing({ pageId: page.id, itemId: item.id, caret: [e.clientX, e.clientY], edit: true });
+          if (item.kind === 'text' && performance.now() - tapOpened >= 500) void actions.enterContentEditing({ pageId: page.id, itemId: item.id, caret: [e.clientX, e.clientY], edit: true });
         }}
-        onfocus={() => !selected.includes(item.id) && select(item, false)}
+        onfocus={(e) => {
+          if (!selected.includes(item.id)) select(item, false);
+          announce(e, item);
+        }}
       ></div>
     {/each}
     <span class="visually-hidden" id="content-hint-{page.id}">{S.hitHint}</span>
@@ -176,11 +248,15 @@
   }
   .content-hit {
     position: absolute;
+    z-index: 2;
     box-sizing: border-box;
     transform-origin: 0 0;
     border-radius: 2px;
     cursor: pointer;
     outline: none;
+  }
+  .content-hit[data-kind='image'] {
+    z-index: 1;
   }
   .content-hit.hovered {
     outline: 1px dashed var(--accent);

@@ -120,6 +120,8 @@ export const CONTENT_STRINGS = {
   shapes: 'Shapes and lines from the original PDF can’t be edited yet.',
   entered: 'Editing content. Escape to go back',
   tip: 'Double-click text or an image to edit it',
+  panelHint: 'Click text or an image on the page to select it, Shift+click to add more. Double-click text, or press Enter, to edit it; Delete removes what’s selected from the PDF.',
+  panelHintTouch: 'Tap text or an image on the page to select it. Double-tap text to edit it.',
   restored: 'Nothing changed: the original text is back',
   describe: (texts: number, images: number) =>
     texts + images === 1 ? (texts ? 'text block' : 'image') : `${texts + images} items`,
