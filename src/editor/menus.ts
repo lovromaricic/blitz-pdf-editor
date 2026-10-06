@@ -18,7 +18,7 @@ export const MENUS: Menu[] = [
       '-',
       'file.save',
       'file.saveCopy',
-      { label: 'Export as', items: ['tools.compress', 'file.exportImages', 'file.exportText', 'file.exportWord'] },
+      { label: 'Export as', items: ['tools.compress', 'file.exportImages', 'file.exportText'] },
       '-',
       'file.print',
       '-',

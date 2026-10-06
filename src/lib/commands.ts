@@ -6,8 +6,6 @@ export interface CommandMeta {
   label: string;
   /** Key combos, e.g. 'mod+shift+z'. The first one is shown in menus. */
   keys?: string[];
-  /** Not in version 1: always disabled, marked "Later" in menus. */
-  later?: boolean;
   /** Let the browser handle this shortcut while typing in a text field. */
   nativeInFields?: boolean;
   /** Acts on the text box being typed in, so running it doesn't finish the editing first. */
@@ -33,7 +31,6 @@ export const COMMANDS = {
   'file.saveCopy': { label: 'Save a copy…', keys: ['mod+shift+s'] },
   'file.exportImages': { label: 'Images (JPG / PNG)…' },
   'file.exportText': { label: 'Plain text' },
-  'file.exportWord': { label: 'Word', later: true },
   'file.print': { label: 'Print…', keys: ['mod+p'] },
   // No shortcut: Ctrl/Cmd+W closes the browser tab in every browser and never reaches the page.
   'file.close': { label: 'Close' },
@@ -149,13 +146,13 @@ export class CommandRegistry {
 
   /** Has an implementation (it may still be disabled right now). */
   isBuilt(id: CommandId): boolean {
-    return !!this.impls[id] && !(COMMANDS[id] as CommandMeta).later;
+    return !!this.impls[id];
   }
 
   /** Built and currently usable. Commands with no implementation yet are disabled. */
   isEnabled(id: CommandId): boolean {
     const impl = this.impls[id];
-    if (!impl || (COMMANDS[id] as CommandMeta).later) return false;
+    if (!impl) return false;
     return impl.enabled ? impl.enabled() : true;
   }
 

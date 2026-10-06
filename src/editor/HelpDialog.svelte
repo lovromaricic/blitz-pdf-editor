@@ -32,7 +32,7 @@
       entries.flatMap((e) => (e === '-' ? [] : typeof e === 'string' ? [e] : flat(e.items)));
     const rows = flat(menu.items)
       .map((id) => COMMANDS[id] as CommandMeta)
-      .filter((m) => m.keys && !m.later)
+      .filter((m) => m.keys)
       .map((m) => ({ label: m.label.replace('…', ''), keys: m.keys!.map(formatKeys) }));
     return { menu: menu.label, rows };
   }).filter((g) => g.rows.length > 0);

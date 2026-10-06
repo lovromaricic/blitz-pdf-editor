@@ -3,11 +3,11 @@ import { COMMANDS, CommandRegistry } from '../src/lib/commands';
 import { MENUS, type MenuEntry } from '../src/editor/menus';
 
 describe('CommandRegistry', () => {
-  it('disables commands without an implementation and "later" commands', () => {
-    const reg = new CommandRegistry({ 'file.open': { run: () => {} }, 'file.exportWord': { run: () => {} } });
+  it('disables commands without an implementation', () => {
+    const reg = new CommandRegistry({ 'file.open': { run: () => {} } });
     expect(reg.isEnabled('file.open')).toBe(true);
+    expect(reg.isBuilt('file.save')).toBe(false);
     expect(reg.isEnabled('file.save')).toBe(false);
-    expect(reg.isEnabled('file.exportWord')).toBe(false);
   });
 
   it('runs only enabled commands', () => {

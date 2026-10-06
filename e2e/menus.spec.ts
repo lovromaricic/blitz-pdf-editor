@@ -127,3 +127,10 @@ test('clicking the parent item opens the submenu and keeps it open', async ({ pa
   await page.waitForTimeout(500);
   await expect(page.getByRole('menu', { name: 'Export as' })).toBeVisible();
 });
+
+test('File › Export as lists only what works: Compress, Images, Plain text', async ({ page }) => {
+  await hoverExportAs(page);
+  const items = page.getByRole('menu', { name: 'Export as' }).getByRole('menuitem');
+  await expect(items).toHaveText(['Compress PDF…', 'Images (JPG / PNG)…', 'Plain text']);
+  for (const item of await items.all()) await expect(item).not.toHaveAttribute('aria-disabled', 'true');
+});

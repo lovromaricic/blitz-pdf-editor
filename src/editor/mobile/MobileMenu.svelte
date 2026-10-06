@@ -76,7 +76,6 @@
                   >
                     <span class="check" aria-hidden="true">{checked ? '✓' : ''}</span>
                     <span>{commands.label(row.id)}</span>
-                    {#if commands.meta(row.id).later}<span class="later">Later</span>{/if}
                   </button>
                 </li>
               {/if}
@@ -186,16 +185,6 @@
   .disabled {
     color: var(--muted);
     opacity: 0.6;
-  }
-  .later {
-    margin-left: auto;
-    padding: 0 var(--space-2);
-    border-radius: var(--radius-pill);
-    background: var(--surface-2);
-    font-size: var(--font-size-label);
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: var(--tracking-label);
   }
   .heading {
     padding: var(--space-2) var(--space-4) 0 calc(var(--space-4) + 1.25rem + var(--space-2));

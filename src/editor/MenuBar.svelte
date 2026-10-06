@@ -230,17 +230,13 @@
             aria-checked={checked}
             aria-disabled={!enabled}
             class:disabled={!enabled}
-            title={commands.isBuilt(entry) ? undefined : meta.later ? 'Planned for a later version' : 'Not available yet'}
+            title={commands.isBuilt(entry) ? undefined : 'Not available yet'}
             tabindex="-1"
             onclick={() => activate(entry)}
           >
             <span class="check" aria-hidden="true">{checked ? '✓' : ''}</span>
             <span class="label">{commands.label(entry)}</span>
-            {#if meta.later}
-              <span class="later">Later</span>
-            {:else}
-              <span class="keys">{shortcut(entry)}</span>
-            {/if}
+            <span class="keys">{shortcut(entry)}</span>
           </button>
         </li>
       {/if}
@@ -398,20 +394,9 @@
     color: var(--accent);
   }
 
-  .keys,
-  .later {
+  .keys {
     color: var(--muted);
     font-size: var(--font-size-xs);
-  }
-
-  .later {
-    padding: 0 var(--space-2);
-    border-radius: var(--radius-pill);
-    background: var(--surface-2);
-    font-size: var(--font-size-label);
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: var(--tracking-label);
   }
 
   .sep {
