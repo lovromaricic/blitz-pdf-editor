@@ -176,6 +176,73 @@
     for (let i = start; i <= end; i++) out.push(i);
     return out;
   });
+
+  // --- The gray background around and between the pages -----------------------------
+  // A click there is a click on an empty spot (as on a page): no objects selected, or
+  // Edit content's own rule. A mouse drag draws a marquee on the nearest page. A tap
+  // deselects; scrolling and pinching don't. Pages handle presses on themselves; the
+  // floating pills and the panels aren't in here; the scrollbars are skipped.
+
+  /** On the background itself (not a page, nor anything on one), and not on a scrollbar. */
+  function onBackground(e: PointerEvent) {
+    if (e.target !== scroller && e.target !== pagesEl) return false;
+    const r = scroller.getBoundingClientRect();
+    const x = e.clientX - r.left - scroller.clientLeft;
+    const y = e.clientY - r.top - scroller.clientTop;
+    return x >= 0 && y >= 0 && x < scroller.clientWidth && y < scroller.clientHeight;
+  }
+
+  /** The page shown nearest a point (the one whose marquee a drag there draws). */
+  function nearestPage(e: PointerEvent): string | null {
+    const r = pagesEl.getBoundingClientRect();
+    const px = e.clientX - r.left;
+    const py = e.clientY - r.top;
+    let best: string | null = null;
+    let bestD = Infinity;
+    for (const i of visible) {
+      const b = viewer.layout.boxes[i];
+      const id = doc.pages[i]?.id;
+      if (!b || !id || !viewer.marquees.has(id)) continue;
+      const d = Math.hypot(Math.max(0, b.left - px, px - (b.left + b.width)), Math.max(0, b.top - py, py - (b.top + b.height)));
+      if (d < bestD) {
+        bestD = d;
+        best = id;
+      }
+    }
+    return best;
+  }
+
+  function onBackgroundDown(e: PointerEvent) {
+    if (e.button !== 0 || !onBackground(e)) return;
+    if (e.pointerType === 'touch') return watchTap(e);
+    if (!e.shiftKey) viewer.clickEmpty();
+    // A drag from here selects with a marquee (Select tool), like a drag on a page.
+    if (viewer.tool === 'select') {
+      const id = nearestPage(e);
+      if (id) viewer.marquees.get(id)!(e, e.shiftKey);
+    }
+  }
+
+  /** A finger: only a tap (one finger, hardly moving) deselects; a scroll or a pinch doesn't. */
+  function watchTap(e: PointerEvent) {
+    const start = { x: e.clientX, y: e.clientY, t: performance.now() };
+    let other = false;
+    const down = (ev: PointerEvent) => ev.pointerId !== e.pointerId && (other = true);
+    const done = () => {
+      window.removeEventListener('pointerdown', down, true);
+      window.removeEventListener('pointerup', up, true);
+      window.removeEventListener('pointercancel', done, true);
+    };
+    const up = (ev: PointerEvent) => {
+      if (ev.pointerId !== e.pointerId) return;
+      done();
+      if (!other && Math.hypot(ev.clientX - start.x, ev.clientY - start.y) < 10 && performance.now() - start.t < 600) viewer.clickEmpty();
+    };
+    window.addEventListener('pointerdown', down, true);
+    window.addEventListener('pointerup', up, true);
+    // The browser took the gesture over (a scroll): not a tap.
+    window.addEventListener('pointercancel', done, true);
+  }
 </script>
 
 <div class="canvas-column" class:floating>
@@ -186,11 +253,7 @@
     bind:this={scroller}
     onscroll={() => viewer.updateCurrentFromScroll()}
     onkeydown={onKeyDown}
-    onclick={(e) => {
-      // Clicking the gray background (not a page) clears the page selection.
-      // A pointer convenience only: Escape in the thumbnail rail does the same.
-      if (e.target === e.currentTarget || (e.target as HTMLElement).classList.contains('pages')) viewer.clearSelection();
-    }}
+    onpointerdown={onBackgroundDown}
     id="document-view"
     {@attach tabRing}
     tabindex="0"

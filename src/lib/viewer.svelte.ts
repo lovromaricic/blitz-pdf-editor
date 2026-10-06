@@ -279,6 +279,25 @@ export class Viewer {
     window.getSelection()?.removeAllRanges();
   }
 
+  /**
+   * Per page shown, its marquee (drag on an empty spot to select what it touches),
+   * so a drag on the gray background can start one on the nearest page.
+   */
+  readonly marquees = new Map<string, (e: PointerEvent, add: boolean) => void>();
+
+  /**
+   * A click on an empty spot of the canvas (a page's or the gray background):
+   * with Edit content, back to the tool before it (entered by a double-click) or
+   * nothing selected; else no objects selected. The page selection stays.
+   */
+  clickEmpty() {
+    if (this.tool === 'content') {
+      if (!this.leaveContentTool()) this.selectContent(null);
+    } else if (this.objectSelection) {
+      this.selectObjects(null);
+    }
+  }
+
   /** Leave Edit content for the tool it was entered from (by a double-click). False when it stays. */
   leaveContentTool(): boolean {
     if (this.tool !== 'content') return false;

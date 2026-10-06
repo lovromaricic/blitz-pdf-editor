@@ -1080,12 +1080,15 @@
       const t = e.target as Element;
       if (suppressWordSelection({ detail: e.detail, button: e.button, tool: viewer.tool, onOriginalText: !!t.closest('.textLayer'), onOwnObject: own(t) })) e.preventDefault();
     };
+    // A drag that starts on the gray background next to this page draws the marquee here.
+    viewer.marquees.set(page.id, (e, add) => startMarquee(e, add));
     host.addEventListener('pointerdown', onDown);
     host.addEventListener('contextmenu', onMenu);
     host.addEventListener('dblclick', onDbl);
     host.addEventListener('pointerup', onTapUp);
     host.addEventListener('mousedown', onMouseDown);
     return () => {
+      viewer.marquees.delete(page.id);
       host.removeEventListener('pointerdown', onDown);
       host.removeEventListener('contextmenu', onMenu);
       host.removeEventListener('dblclick', onDbl);
