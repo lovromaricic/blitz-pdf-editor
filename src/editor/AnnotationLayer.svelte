@@ -7,6 +7,7 @@
   import { candidates, marginPoints, snapBox, snapEdge, type Candidates, type Guide, type MarginLines } from '../lib/snapping';
   import { addUnits, describeUnits, isGroupId, membersOf, toggleUnit, unionBounds, unitOf, unitsTouching } from '../lib/object-selection';
   import { isMac } from '../lib/commands';
+  import { suppressWordSelection } from '../lib/content-route';
   import { OBJECT_STRINGS } from '../lib/strings';
   import { ensureTextFont, metricsState } from '../lib/font-metrics-store.svelte';
   import { alignOf, lineSpacingOf, styleAvailable } from '../lib/text-format';
@@ -1051,13 +1052,52 @@
       e.preventDefault();
       openMenu(e.clientX, e.clientY, null);
     };
+    // Double-click (or double-tap) on the PDF's own content: Edit content at that point.
+    // Our objects handle their own double-click (a text box edits, an image crops).
+    const own = (t: Element) => !!t.closest(OWN_TARGETS);
+    let lastOpen = 0;
+    const openAt = (x: number, y: number) => {
+      // A double-tap can also be reported as a dblclick: one opening per double.
+      const now = performance.now();
+      if (now - lastOpen < 600) return;
+      lastOpen = now;
+      window.getSelection()?.removeAllRanges();
+      void actions.enterContentEditing({ pageId: page.id, point: clientToPdf(x, y), caret: [x, y], edit: true, byDoubleClick: true });
+    };
+    const onDbl = (e: MouseEvent) => {
+      if (e.button !== 0 || own(e.target as Element)) return;
+      openAt(e.clientX, e.clientY);
+    };
+    let lastTap: { t: number; x: number; y: number } | null = null;
+    const onTapUp = (e: PointerEvent) => {
+      if (e.pointerType !== 'touch' || own(e.target as Element)) return;
+      const now = performance.now();
+      if (lastTap && now - lastTap.t < 350 && Math.hypot(e.clientX - lastTap.x, e.clientY - lastTap.y) < 24) {
+        lastTap = null;
+        openAt(e.clientX, e.clientY);
+      } else lastTap = { t: now, x: e.clientX, y: e.clientY };
+    };
+    // The second press of a double-click on the PDF's text would select a word first: not here.
+    const onMouseDown = (e: MouseEvent) => {
+      const t = e.target as Element;
+      if (suppressWordSelection({ detail: e.detail, button: e.button, tool: viewer.tool, onOriginalText: !!t.closest('.textLayer'), onOwnObject: own(t) })) e.preventDefault();
+    };
     host.addEventListener('pointerdown', onDown);
     host.addEventListener('contextmenu', onMenu);
+    host.addEventListener('dblclick', onDbl);
+    host.addEventListener('pointerup', onTapUp);
+    host.addEventListener('mousedown', onMouseDown);
     return () => {
       host.removeEventListener('pointerdown', onDown);
       host.removeEventListener('contextmenu', onMenu);
+      host.removeEventListener('dblclick', onDbl);
+      host.removeEventListener('pointerup', onTapUp);
+      host.removeEventListener('mousedown', onMouseDown);
     };
   });
+
+  /** Our own objects and their editing surfaces: double-clicks there are theirs. */
+  const OWN_TARGETS = '.annot, .handle, .rich-editor, .crop-mode, .content-layer, input, textarea, select, button, [contenteditable]';
 
   // --- Marquee: drag on an empty spot to select every object it touches -----------------
 

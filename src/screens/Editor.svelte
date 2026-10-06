@@ -236,7 +236,7 @@
 
     // Tool shortcuts (same tools as the toolbar).
     ...Object.fromEntries(
-      MARKUP_TOOLS.map((t) => [`tool.${t.id}`, { run: () => viewer.setTool(t.id), checked: () => viewer.tool === t.id }]),
+      MARKUP_TOOLS.map((t) => [`tool.${t.id}`, { run: () => (t.id === 'content' ? void actions.enterContentEditing() : viewer.setTool(t.id)), checked: () => viewer.tool === t.id }]),
     ),
   }, (id) => {
     // Opening a menu keeps the text box being typed in; any command but a text one finishes it first.
@@ -262,7 +262,13 @@
     const pasteKeys = formatKeys('mod+v');
     const cropRef = viewer.selectedAnnot && actions.canCrop(viewer.selectedAnnot) ? viewer.selectedAnnot : null;
     // The PDF's own content (Edit content tool).
-    if (m.contentId) return [{ label: CONTENT_STRINGS.delete, run: () => commands.run('edit.delete'), disabled: !actions.canDeleteContent(), keys: formatKeys('delete') }];
+    if (m.contentId) {
+      const id = m.contentId;
+      return [
+        { label: CONTENT_STRINGS.edit, run: () => void actions.enterContentEditing({ pageId: m.pageId, itemId: id, edit: true }), disabled: !actions.canEditContent(), keys: formatKeys('enter') },
+        { label: CONTENT_STRINGS.delete, run: () => commands.run('edit.delete'), disabled: !actions.canDeleteContent(), keys: formatKeys('delete') },
+      ];
+    }
     if (!m.objectId) {
       return [{ label: 'Paste here', run: () => actions.pasteAnnotation({ pageId: m.pageId, point: m.point! }), disabled: !actions.canPaste() }];
     }
@@ -555,7 +561,9 @@
     if (e.key === 'Escape' && !e.defaultPrevented && !document.querySelector('dialog[open]')) {
       const target = e.target as HTMLElement;
       if (target.closest('input, textarea, [role="menu"]')) return;
-      if (viewer.objectSelection || viewer.contentSelection) {
+      // Edit content entered by a double-click: back to the tool before.
+      if (viewer.leaveContentTool()) viewer.announce('Edit content closed');
+      else if (viewer.objectSelection || viewer.contentSelection) {
         viewer.selectObjects(null);
         viewer.selectContent(null);
         viewer.announce('Selection cleared');

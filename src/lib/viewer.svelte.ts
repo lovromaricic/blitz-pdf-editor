@@ -4,6 +4,7 @@ import { limitRect, type LimitKind } from './page-bounds';
 import { marginPoints } from './snapping';
 import type { CropSession } from './image-crop';
 import { ContentEditing } from './content-editing.svelte';
+import { ContentModeReturn } from './content-route';
 import { getContext, setContext, tick } from 'svelte';
 import type { EditorDocument, PageRef } from './document.svelte';
 import type { Margins } from './page-ops';
@@ -141,6 +142,8 @@ export class Viewer {
   readonly content = new ContentEditing();
   /** Open the text editor on a text box (and put the caret at a point on screen). Taken by its page's layer. */
   editRequest = $state.raw<{ pageId: string; id: string; caret?: [number, number] } | null>(null);
+  /** Where Edit content goes back to when it was entered by a double-click. */
+  readonly contentReturn = new ContentModeReturn();
   /** Original content selected with the Edit content tool: items on one page (ids from its analysis). */
   contentSelection = $state.raw<{ pageId: string; ids: string[] } | null>(null);
   /** Crop mode for one inserted image (see actions.startCrop), or null. */
@@ -271,8 +274,18 @@ export class Viewer {
     this.tool = tool;
     this.objectSelection = null;
     this.contentSelection = null;
+    this.contentReturn.reset();
     this.panel = null;
     window.getSelection()?.removeAllRanges();
+  }
+
+  /** Leave Edit content for the tool it was entered from (by a double-click). False when it stays. */
+  leaveContentTool(): boolean {
+    if (this.tool !== 'content') return false;
+    const back = this.contentReturn.leave();
+    if (!back) return false;
+    this.setTool(back);
+    return true;
   }
 
   /** Select original content (Edit content tool) on one page, or nothing. Clears other selections. */

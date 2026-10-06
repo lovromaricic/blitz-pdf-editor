@@ -117,6 +117,9 @@ export const CONTENT_STRINGS = {
     `Original font isn’t available for editing, so this text uses ${family}. You can change the font.` +
     (unmatched.length ? ` No close match was found for ${unmatched.map((f) => `“${f}”`).join(', ')}.` : ''),
   converted: 'Text box ready to edit',
+  shapes: 'Shapes and lines from the original PDF can’t be edited yet.',
+  entered: 'Editing content. Escape to go back',
+  tip: 'Double-click text or an image to edit it',
   restored: 'Nothing changed: the original text is back',
   describe: (texts: number, images: number) =>
     texts + images === 1 ? (texts ? 'text block' : 'image') : `${texts + images} items`,

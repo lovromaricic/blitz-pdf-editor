@@ -68,6 +68,8 @@ export interface TextRun {
   tfs: number;
   th: number;
   marked: MarkedContent[];
+  /** Drawing order on the page (later is on top). */
+  seq: number;
 }
 
 export interface ImageItem {
@@ -84,6 +86,7 @@ export interface ImageItem {
   /** Stencil masks, SMasks, alternates…: things that complicate removal. */
   notes: string[];
   marked: MarkedContent[];
+  seq: number;
 }
 
 export interface PageContent {
@@ -91,6 +94,8 @@ export interface PageContent {
   images: ImageItem[];
   /** Path-painting operations (count, and their joint bounding box in page space). */
   paths: { count: number; box: [number, number, number, number] | null };
+  /** Each visible painted path's box in page space, with its drawing order (white fills, which look like nothing, left out). */
+  shapes: { box: [number, number, number, number]; seq: number }[];
   /** Form XObjects used, with how often (a form used more than once must be copied before it's edited). */
   forms: Map<string, number>;
   /** Operations of each stream, by form path ("" for the page). */
@@ -114,6 +119,8 @@ interface GState {
 }
 
 const MAX_FORM_DEPTH = 12;
+/** Path boxes kept per page (for telling what a double-click hit); a page with more is mostly drawing anyway. */
+const MAX_SHAPES = 5000;
 
 export function pageResources(page: PDFPage): PDFDict | undefined {
   let node: PDFDict | undefined = page.node;
@@ -153,7 +160,8 @@ export function pageContentBytes(page: PDFPage): Uint8Array {
 
 export function interpretPage(page: PDFPage): PageContent {
   const ctx = page.node.context;
-  const result: PageContent = { text: [], images: [], paths: { count: 0, box: null }, forms: new Map(), streams: new Map(), problems: [] };
+  const result: PageContent = { text: [], images: [], paths: { count: 0, box: null }, shapes: [], forms: new Map(), streams: new Map(), problems: [] };
+  let seq = 0;
   const fontCache = new Map<string, FontInfo>();
   const resources = pageResources(page);
   run(pageContentBytes(page), resources, IDENTITY, [], 0);
@@ -274,6 +282,7 @@ export function interpretPage(page: PDFPage): PageContent {
         tfs: g.tfs,
         th: g.th,
         marked: [...marked],
+        seq: seq++,
       });
     };
 
@@ -426,6 +435,9 @@ export function interpretPage(page: PDFPage): PageContent {
           if (pathBox) {
             const b = result.paths.box;
             result.paths.box = b ? [Math.min(b[0], pathBox[0]), Math.min(b[1], pathBox[1]), Math.max(b[2], pathBox[2]), Math.max(b[3], pathBox[3])] : pathBox;
+            const fillOnly = op.op === 'f' || op.op === 'F' || op.op === 'f*';
+            const white = !!g.fill && g.fill.every((v) => v > 0.98);
+            if (!(fillOnly && white) && result.shapes.length < MAX_SHAPES) result.shapes.push({ box: pathBox, seq: seq++ });
           }
           pathBox = null;
           break;
@@ -443,6 +455,7 @@ export function interpretPage(page: PDFPage): PageContent {
             height: num(d.get('H') ?? d.get('Height')),
             notes: d.get('IM') === true || d.get('ImageMask') === true ? ['stencil mask'] : [],
             marked: [...marked],
+            seq: seq++,
           });
           break;
         }
@@ -471,6 +484,7 @@ export function interpretPage(page: PDFPage): PageContent {
               height: (obj.dict.lookup(PDFName.of('Height')) as PDFNumber | undefined)?.asNumber() ?? 0,
               notes,
               marked: [...marked],
+              seq: seq++,
             });
           } else if (kind === 'Form') {
             const key = raw instanceof PDFRef ? raw.toString() : `inline-form-${index}`;

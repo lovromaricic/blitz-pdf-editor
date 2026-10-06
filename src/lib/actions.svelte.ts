@@ -27,6 +27,7 @@ import { looksDigitallySigned } from './files';
 import { friendlyError } from './friendly-error';
 import type { ContentItem } from './content-editing.svelte';
 import { FAMILY_FOR, FAMILY_LABEL, textBoxFromConversion } from './content-convert';
+import { routeAt } from './content-route';
 import { screenEnv } from './font-metrics-store.svelte';
 import { loadFonts } from './fonts';
 import { canMoveUnits, insertAboveUnit, LAYER_LABELS, moveUnits, type LayerMove } from './z-order';
@@ -1231,6 +1232,45 @@ export class Actions {
     }
     this.pruneSources();
     return true;
+  }
+
+  /**
+   * The one way into Edit content: the toolbar and its shortcut (no target),
+   * a double-click on a page with the Select tool (a point: what's there is
+   * found, analyzing the page if needed), Enter on a block and the context
+   * menu (an item). `edit`: text is turned into a text box right away, the
+   * caret at `caret` (a point on screen).
+   */
+  async enterContentEditing(o: { pageId?: string; point?: Point; itemId?: string; caret?: [number, number]; edit?: boolean; byDoubleClick?: boolean } = {}) {
+    const from = this.viewer.tool;
+    const page = o.pageId ? this.doc.pages.find((p) => p.id === o.pageId) : undefined;
+    if (!page) {
+      if (from !== 'content') this.viewer.setTool('content');
+      return;
+    }
+    const source = this.doc.source(page);
+    let itemId = o.itemId;
+    if (!itemId && o.point) {
+      if (await this.viewer.content.checkLock(source)) return this.viewer.notify(CONTENT_STRINGS.restricted);
+      const a = await this.viewer.content.whenReady(source, page.sourceIndex);
+      const route = routeAt(o.point, false, a === 'failed' ? { status: 'unreadable', items: [], scan: false, shapes: [], page: [0, 0, 0, 0] } : a);
+      if (route.kind === 'shape') return this.viewer.notify(CONTENT_STRINGS.shapes);
+      if (route.kind === 'scan') return this.viewer.notify(CONTENT_STRINGS.scan);
+      if (route.kind === 'unreadable') return this.viewer.notify(CONTENT_STRINGS.unreadable);
+      if (route.kind !== 'text' && route.kind !== 'image') return;
+      itemId = route.id;
+    }
+    if (from !== 'content') {
+      this.viewer.setTool('content');
+      this.viewer.contentReturn.enter(from, !!o.byDoubleClick);
+      if (o.byDoubleClick) this.viewer.announce(CONTENT_STRINGS.entered);
+    }
+    if (!itemId) return;
+    this.viewer.selectContent({ pageId: page.id, ids: [itemId] });
+    const item = this.contentSelected()?.items[0];
+    if (o.edit && item?.kind === 'text' && item.convert) return this.editContent(o.caret);
+    await tick();
+    document.querySelector<HTMLElement>(`[data-content-id="${CSS.escape(itemId)}"]`)?.focus({ preventScroll: true });
   }
 
   /** Can the selected original content be turned into a text box (one text block that converts faithfully)? */

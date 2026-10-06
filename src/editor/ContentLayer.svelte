@@ -81,11 +81,12 @@
 
   function onKey(e: KeyboardEvent, item: ContentItem) {
     if (e.key === 'Enter' && item.kind === 'text') {
-      if (!selected.includes(item.id) || selected.length > 1) select(item, false);
-      void actions.editContent();
+      void actions.enterContentEditing({ pageId: page.id, itemId: item.id, edit: true });
     } else if (e.key === 'Delete' || e.key === 'Backspace') {
       if (!selected.includes(item.id)) select(item, false);
       void actions.deleteContent();
+    } else if (e.key === 'Escape' && viewer.leaveContentTool()) {
+      viewer.announce('Edit content closed');
     } else if (e.key === 'Escape' && selected.length) {
       viewer.selectContent(null);
       viewer.announce('Selection cleared');
@@ -123,7 +124,8 @@
   <div
     class="content-layer"
     onpointerdown={(e) => {
-      if (e.button === 0 && e.target === e.currentTarget) viewer.selectContent(null);
+      // Entered by a double-click: an empty spot goes back to the tool before. Else it clears the selection.
+      if (e.button === 0 && e.target === e.currentTarget && !viewer.leaveContentTool()) viewer.selectContent(null);
     }}
   >
     {#each items as item (item.id)}
@@ -150,9 +152,7 @@
         oncontextmenu={(e) => onMenu(e, item)}
         onkeydown={(e) => onKey(e, item)}
         ondblclick={(e) => {
-          if (item.kind !== 'text') return;
-          select(item, false);
-          void actions.editContent([e.clientX, e.clientY]);
+          if (item.kind === 'text') void actions.enterContentEditing({ pageId: page.id, itemId: item.id, caret: [e.clientX, e.clientY], edit: true });
         }}
         onfocus={() => !selected.includes(item.id) && select(item, false)}
       ></div>

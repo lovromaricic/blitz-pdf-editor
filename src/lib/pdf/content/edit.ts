@@ -22,6 +22,8 @@ export interface ContentItem {
   quad: Quad;
   /** Reading order (text first by its order, images after in drawing order). */
   order: number;
+  /** Drawing order on the page (later is on top). */
+  seq: number;
   /** Text blocks. */
   text?: string;
   font?: string;
@@ -88,6 +90,10 @@ export interface PageAnalysis {
   items: ContentItem[];
   /** One image covering the page and no visible text. */
   scan: boolean;
+  /** Visible vector shapes (lines, rectangles, backgrounds): boxes in page space and drawing order. Not editable. */
+  shapes: { box: [number, number, number, number]; seq: number }[];
+  /** The page's box (for telling backgrounds from shapes). */
+  page: [number, number, number, number];
 }
 
 export const BLOCKED = {
@@ -133,6 +139,7 @@ function model(doc: PDFDocument, pageIndex: number): Model {
       kind: 'text',
       quad: b.quad,
       order: b.order,
+      seq: Math.max(...b.runs.map((i) => content.text[i].seq)),
       text: b.text,
       font: fontLabel(first.font.name === b.font ? first.font : (content.text.find((r) => r.font.name === b.font)?.font ?? first.font)),
       size: Math.round(b.size * 10) / 10,
@@ -159,6 +166,7 @@ function model(doc: PDFDocument, pageIndex: number): Model {
       kind: 'image',
       quad: im.quad,
       order: blocks.length + k,
+      seq: im.seq,
       width: im.width,
       height: im.height,
       coversPage: w > 0 && h > 0 && (w * h) / area > 0.9,
@@ -171,10 +179,12 @@ function model(doc: PDFDocument, pageIndex: number): Model {
 
 export function analyzePage(doc: PDFDocument, pageIndex: number): PageAnalysis {
   const m = model(doc, pageIndex);
-  if (m.content.problems.some((p) => p.startsWith('content can'))) return { status: 'unreadable', items: [], scan: false };
+  const page = doc.getPage(pageIndex).getMediaBox();
+  const box: [number, number, number, number] = [page.x, page.y, page.x + page.width, page.y + page.height];
+  if (m.content.problems.some((p) => p.startsWith('content can'))) return { status: 'unreadable', items: [], scan: false, shapes: [], page: box };
   const visibleText = m.items.some((i) => i.kind === 'text');
   const scan = !visibleText && m.items.filter((i) => i.kind === 'image').length === 1 && !!m.items.find((i) => i.kind === 'image')?.coversPage;
-  return { status: 'ok', items: m.items, scan };
+  return { status: 'ok', items: m.items, scan, shapes: m.content.shapes, page: box };
 }
 
 export class ContentEditError extends Error {}

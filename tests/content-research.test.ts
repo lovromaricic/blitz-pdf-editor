@@ -55,7 +55,7 @@ function pdfjsBlocks(items: { str: string; transform: number[]; width: number; h
       const p = (x: number, y: number): [number, number] => [e + ux * x + vx * y, f + uy * x + vy * y];
       return {
         kind: 'text', at: { forms: [], index: 0 }, op: 'Tj', font: { descent: -0.2, ascent: 0.8, name: '?' } as never, fontKey: '', size,
-        angle: (Math.atan2(b, a) * 180) / Math.PI, color: null, invisible: false, advance: 0, tfs: 1, th: 1, marked: [],
+        angle: (Math.atan2(b, a) * 180) / Math.PI, color: null, invisible: false, advance: 0, tfs: 1, th: 1, marked: [], seq: 0,
         glyphs: [{ code: 0, text: it.str, quad: [p(0, -0.2 * size), p(it.width, -0.2 * size), p(it.width, 0.8 * size), p(0, 0.8 * size)] }],
       };
     });

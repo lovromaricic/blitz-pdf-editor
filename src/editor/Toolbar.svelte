@@ -100,7 +100,8 @@
         tabindex={active ? 0 : -1}
         onclick={() => {
           hideTip();
-          viewer.setTool(t.id);
+          // The same command as the shortcut (Edit content enters through its one function).
+          commands.run(`tool.${t.id}` as CommandId);
         }}
         onpointerenter={(e) => showTip(e.currentTarget, 400)}
         onpointerleave={hideTip}

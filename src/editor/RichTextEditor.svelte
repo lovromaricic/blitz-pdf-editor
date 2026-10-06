@@ -246,6 +246,8 @@
   const card = $derived(linkForm || composing ? null : (hovered ?? (focused ? caretLink : null)));
   /** Bumped on scroll and resize: the popovers follow the text. */
   let moved = $state(0);
+  /** The editor view is gone (a late blur must not touch it). */
+  let destroyed = false;
   /** The next change after an automatic link starts a new undo step (so undo takes back only the link). */
   let isolateNext = false;
 
@@ -556,7 +558,15 @@
         compositionstart: () => ((composing = true), onComposing(true), false),
         compositionend: () => ((composing = false), onComposing(false), false),
         focus: (v) => ((focused = true), v.dispatch(v.state.tr.setMeta('focus', true)), false),
-        blur: (v) => ((focused = false), v.dispatch(v.state.tr.setMeta('focus', false)), false),
+        // Also fires when the editor is removed while focused (Svelte removes the DOM before cleanup
+        // runs): the state change waits a moment, so it never lands in the middle of that.
+        blur: (v) => {
+          queueMicrotask(() => {
+            focused = false;
+            if (!destroyed) v.dispatch(v.state.tr.setMeta('focus', false));
+          });
+          return false;
+        },
       },
     });
     update();
@@ -569,6 +579,7 @@
       clearTimeout(leaveTimer);
       window.removeEventListener('scroll', onMove, true);
       window.removeEventListener('resize', onMove);
+      destroyed = true;
       view.destroy();
     };
   });

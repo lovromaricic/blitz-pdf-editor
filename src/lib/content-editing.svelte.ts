@@ -79,7 +79,17 @@ export class ContentEditing {
     const key = `${source.id}:${index}`;
     if (this.analyses.has(key)) return;
     this.analyses.set(key, 'pending');
-    void this.analyze(source, index, key);
+    this.inflight.set(key, this.analyze(source, index, key));
+  }
+
+  private inflight = new Map<string, Promise<void>>();
+
+  /** The analysis of a page, analyzing it now if needed (a double-click on a page nobody looked at with the tool). */
+  async whenReady(source: Source, index: number): Promise<PageAnalysis | 'failed'> {
+    this.request(source, index);
+    await this.inflight.get(`${source.id}:${index}`);
+    const a = this.get(source, index);
+    return a && a !== 'pending' ? a : 'failed';
   }
 
   /** What's on a page (reactive): undefined until requested. */
