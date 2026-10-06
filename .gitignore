@@ -6,3 +6,18 @@ tests/tmp
 
 test-results
 playwright-report
+blob-report/
+coverage/
+
+# Environment files (an example may be shared)
+.env
+.env.*
+!.env.example
+
+# Editors and OS
+.vscode/
+.idea/
+*.swp
+*~
+Thumbs.db
+desktop.ini
