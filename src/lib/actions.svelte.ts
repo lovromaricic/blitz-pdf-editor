@@ -292,6 +292,7 @@ export class Actions {
     const { doc } = await openDocument([{ id: `new-${Date.now()}`, name, size: bytes.length, bytes }], async () => null);
     if (!doc) return false;
     doc.openedAnnouncement = NEW_PDF_STRINGS.created(pages);
+    doc.startWithMargins = true;
     setDocument(doc);
     return true;
   }

@@ -95,6 +95,8 @@ export class EditorDocument {
   createdUnsaved = $state(false);
   /** Read out when the editor opens, instead of "<name> opened, n pages" (e.g. for a new blank PDF). */
   openedAnnouncement: string | null = null;
+  /** Made with New blank PDF: the editor opens with the margin guides shown (in memory only, like any View setting). */
+  startWithMargins = false;
   /** Things worth knowing about the opened files (shown as a dismissible banner). */
   warnings = $state<string[]>([]);
 

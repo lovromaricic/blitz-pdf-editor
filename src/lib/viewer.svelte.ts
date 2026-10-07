@@ -187,6 +187,8 @@ export class Viewer {
 
   constructor(public doc: EditorDocument) {
     this.search = new Search(doc);
+    // A new blank PDF starts with the margins shown (at the default size), so text lines up from the start.
+    if (doc.startWithMargins) this.showMargins = true;
   }
 
   /** Load fonts (once) when something on the pages needs them. */

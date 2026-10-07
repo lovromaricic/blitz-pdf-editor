@@ -45,3 +45,47 @@ test('Escape cancels and Create checks the custom size', async ({ page }) => {
   await expect(dialog).toBeHidden();
   await expect(page).toHaveTitle(/^old\.pdf/);
 });
+
+test('a new blank PDF opens with the margins shown (25 mm); opened files, added pages and PDFs from images don’t', async ({ page }) => {
+  const doc = await PDFDocument.create();
+  doc.addPage([300, 300]);
+  await page.goto('/');
+  await page.locator('input[type=file]').first().setInputFiles({ name: 'old.pdf', mimeType: 'application/pdf', buffer: Buffer.from(await doc.save()) });
+  await expect(page.locator('.page[data-index="0"]')).toBeVisible({ timeout: 15000 });
+  const guide = page.locator('.page[data-index="0"] .margin-guide');
+  // An opened file: no margins, nor after adding a blank page.
+  await expect(guide).toHaveCount(0);
+  await page.evaluate(() => (window as unknown as Record<string, any>).__actions.insertBlank());
+  await expect(page.locator('.page[data-index="1"]')).toBeVisible();
+  await expect(page.locator('.margin-guide')).toHaveCount(0);
+  // (Saved, so the new document doesn't ask about unsaved changes first.)
+  await page.evaluate(() => (window as unknown as Record<string, any>).__doc.markSaved());
+
+  // A new blank PDF: shown, at the default size.
+  await page.getByRole('menuitem', { name: 'File', exact: true }).click();
+  await page.getByRole('menuitem', { name: /^New blank PDF…/ }).click();
+  await page.getByRole('dialog', { name: 'New blank PDF' }).getByRole('button', { name: 'Create' }).click();
+  await expect(page).toHaveTitle(/^Untitled\.pdf/);
+  await expect(guide).toHaveCount(1);
+  await expect(page.locator('.page[data-index="0"] .margin-label')).toHaveText('25 mm');
+  // The View menu shows it and turns it off as usual.
+  const view = async () => page.getByRole('menubar', { name: 'Main menu' }).getByRole('menuitem', { name: 'View' }).click();
+  await view();
+  const item = page.getByRole('menuitemcheckbox', { name: 'Show margins' });
+  await expect(item).toHaveAttribute('aria-checked', 'true');
+  await item.click();
+  await expect(guide).toHaveCount(0);
+
+  // A PDF made from images: no margins.
+  await page.evaluate(async () => {
+    const w = window as unknown as Record<string, any>;
+    w.__doc.markSaved();
+    const c = new OffscreenCanvas(80, 60);
+    c.getContext('2d')!.fillRect(0, 0, 80, 60);
+    const file = new File([await c.convertToBlob({ type: 'image/png' })], 'pic.png', { type: 'image/png' });
+    await w.__actions.createFromImages([file], { pageSize: 'a4', margin: 0 });
+  });
+  await expect(page).toHaveTitle(/pic\.pdf/);
+  await expect(page.locator('.page[data-index="0"]')).toBeVisible();
+  await expect(page.locator('.margin-guide')).toHaveCount(0);
+});
