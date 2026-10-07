@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Rect } from '../src/lib/annotations';
-import { candidates, marginPoints, snapAxis, snapBox, snapEdge, SNAP_PX } from '../src/lib/snapping';
+import { candidates, snapAxis, snapBox, snapEdge, SNAP_PX } from '../src/lib/snapping';
+import { marginPoints } from '../src/lib/margins';
 import { clampMove } from '../src/lib/page-bounds';
 
 const PAGE: Rect = [0, 0, 600, 800];

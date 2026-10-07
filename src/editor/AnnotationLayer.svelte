@@ -4,7 +4,8 @@
   import { focusObject, focusSink } from '../lib/focus';
   import { nextBeneath } from '../lib/z-order';
   import { boxOf, clampMove, growInside, inside, newTextBoxSpan, type LimitKind } from '../lib/page-bounds';
-  import { candidates, marginPoints, snapBox, snapEdge, type Candidates, type Guide, type MarginLines } from '../lib/snapping';
+  import { marginLabel, ptToMm } from '../lib/margins';
+  import { candidates, snapBox, snapEdge, type Candidates, type Guide, type MarginLines } from '../lib/snapping';
   import { addUnits, describeUnits, isGroupId, membersOf, toggleUnit, unionBounds, unitOf, unitsTouching } from '../lib/object-selection';
   import { isMac } from '../lib/commands';
   import { suppressWordSelection } from '../lib/content-route';
@@ -607,11 +608,13 @@
   /** An object's (or block's) box in this layer's px. */
   const screenBoxOf = (r: Rect) => screenBox([toScreen([r[0], r[1]]), toScreen([r[2], r[3]])]);
 
+  /** The margin on this page (points) while the guides show: the margin, or the value being typed in View › Margin size. */
+  const guideMargin = $derived(viewer.guideMarginOn(page));
+
   /** The margin lines on this page (screen px), when shown. */
   const marginLines = $derived.by((): MarginLines | null => {
-    if (!viewer.showMargins) return null;
-    const s = viewer.scale;
-    const m = marginPoints(viewer.marginMm, (pageArea[2] - pageArea[0]) / s, (pageArea[3] - pageArea[1]) / s) * s;
+    if (guideMargin === null) return null;
+    const m = guideMargin * viewer.scale;
     return { left: pageArea[0] + m, right: pageArea[2] - m, top: pageArea[1] + m, bottom: pageArea[3] - m };
   });
 
@@ -1413,8 +1416,8 @@
   {/if}
   {#if marginLines}
     {@const m = marginLines}
-    {@const label = `${viewer.marginMm} mm`}
-    <!-- Margin guides: never saved, printed or exported, and never in the way of the pointer. -->
+    {@const label = marginLabel(ptToMm(guideMargin ?? 0), viewer.marginUnit)}
+    <!-- Margin guides: never saved, printed or exported, and never in the way of the pointer. The label is this page's margin (a small page gets less). -->
     <rect class="margin-guide" class:flash={viewer.marginFlash === page.id} x={m.left} y={m.top} width={m.right - m.left} height={m.bottom - m.top} />
     <text class="margin-label" x={m.left} y={m.top - pageArea[1] >= 14 ? m.top - 4 : m.top + 12}>{label}</text>
   {/if}

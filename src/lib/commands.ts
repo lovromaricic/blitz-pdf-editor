@@ -75,6 +75,8 @@ export const COMMANDS = {
   'view.margin12': { label: '12.7 mm (narrow)', radio: true },
   'view.margin20': { label: '20 mm', radio: true },
   'view.margin25': { label: '25 mm (normal)', radio: true },
+  // Opens a small form; a text box being typed in stays open meanwhile.
+  'view.marginCustom': { label: 'Custom…', radio: true, whileEditing: true },
 
   // Page
   'page.rotateLeft': { label: 'Rotate left' },

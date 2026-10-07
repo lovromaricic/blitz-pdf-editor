@@ -119,11 +119,3 @@ function guidesOf(axis: 'x' | 'y', s: { hits: Candidate[] } | null): Guide[] {
   const seen = new Set<number>();
   return s.hits.filter((h) => !seen.has(Math.round(h.at * 2)) && seen.add(Math.round(h.at * 2))).map((h) => ({ axis, at: h.at, kind: h.kind, label: h.label }));
 }
-
-/**
- * The margin on a page, in points: millimetres converted, limited to a
- * quarter of the page's smaller side so small pages aren't all margin.
- */
-export function marginPoints(mm: number, pageWidthPt: number, pageHeightPt: number) {
-  return Math.min((mm * 72) / 25.4, Math.min(pageWidthPt, pageHeightPt) / 4);
-}

@@ -1,7 +1,8 @@
 // View state for one open document: zoom, page layout, scrolling and navigation.
 import { isGroupId, unitOf, type ObjectSelection } from './object-selection';
-import { limitRect, type LimitKind } from './page-bounds';
-import { marginPoints } from './snapping';
+import { insetRect, limitRect, type LimitKind } from './page-bounds';
+import { DEFAULT_MARGIN_MM, marginLabel, marginPoints, outsideMessage, type MarginUnit } from './margins';
+import { lastNewPdf } from './new-pdf';
 import { OBJECT_STRINGS } from './strings';
 import type { CropSession } from './image-crop';
 import { ContentEditing } from './content-editing.svelte';
@@ -9,7 +10,7 @@ import { ContentModeReturn } from './content-route';
 import { getContext, setContext, tick } from 'svelte';
 import type { EditorDocument, PageRef } from './document.svelte';
 import type { Margins } from './page-ops';
-import { HIGHLIGHT_COLORS, INK_COLORS, NOTE_COLORS, STAMPS, type Annotation, type FontFamily, type Rect, type Rgb, type ShapeKind, type TextAlign } from './annotations';
+import { bounds, HIGHLIGHT_COLORS, INK_COLORS, NOTE_COLORS, STAMPS, type Annotation, type FontFamily, type Rect, type Rgb, type ShapeKind, type TextAlign } from './annotations';
 import { DEFAULT_LINE_SPACING } from './text-format';
 import type { RichEditorApi } from './rich-text/api';
 import { lastTextStyle, loadFonts } from './fonts';
@@ -417,27 +418,78 @@ export class Viewer {
   showMargins = $state(false);
   /** Snap objects to the page center and to each other while dragging. */
   smartGuides = $state(true);
-  /** The margin, in millimetres (limited per page to a quarter of its smaller side). */
-  marginMm = $state(25);
+  /** The margin, in millimetres, for every page (limited per page to a quarter of its smaller side). */
+  marginMm = $state(DEFAULT_MARGIN_MM);
+  /** How margins are shown and typed: the unit last chosen for a custom margin, at first the New blank PDF one. */
+  marginUnit = $state<MarginUnit>(lastNewPdf.unit === 'in' ? 'in' : 'mm');
+  /** While a custom margin is being typed: the value the guides show (nothing else uses it). */
+  marginPreviewMm = $state<number | null>(null);
   /** Show or hide the margins (and their limit). Nothing on the pages moves either way. */
   toggleMargins() {
     this.showMargins = !this.showMargins;
   }
 
-  /** The margin on a page, in points (the same on every side). */
-  marginOn(page: PageRef) {
+  /** The margin on a page, in points (the same on every side). `mm`: another value (the preview). */
+  marginOn(page: PageRef, mm = this.marginMm) {
     const b = this.doc.pageBounds(page);
-    return marginPoints(this.marginMm, b[2] - b[0], b[3] - b[1]);
+    return marginPoints(mm, b[2] - b[0], b[3] - b[1]);
+  }
+
+  /** The guides' margin on a page (points): the value being typed, else the margin; null when they don't show. */
+  guideMarginOn(page: PageRef) {
+    const preview = this.marginPreviewMm;
+    if (!this.showMargins && preview === null) return null;
+    return this.marginOn(page, preview ?? this.marginMm);
+  }
+
+  /** The visible size of every page (points), for the largest margin allowed. */
+  pageSizes() {
+    return this.doc.pages.map((p) => {
+      const b = this.doc.pageBounds(p);
+      return { width: b[2] - b[0], height: b[3] - b[1] };
+    });
+  }
+
+  /**
+   * View › Margin size: one value (mm) for every page. Nothing moves; the
+   * margins show (they were just asked for). Objects already across the new
+   * margin stay put (they can only move inward) and are counted in one message.
+   */
+  setMargin(mm: number) {
+    this.marginPreviewMm = null;
+    this.marginMm = mm;
+    const turnedOn = !this.showMargins;
+    this.showMargins = true;
+    const outside = mm > 0 ? this.objectsOutsideMargins() : 0;
+    const msg = outsideMessage(outside);
+    this.announce(`Margins: ${marginLabel(mm, this.marginUnit)}${turnedOn ? '. Show margins is on.' : '.'}`);
+    // (The message is a status toast: screen readers hear it from there.)
+    if (msg) this.notify(msg);
+  }
+
+  /** Objects that cross the margins (text taken over from the PDF doesn't count: the margins don't hold it). */
+  objectsOutsideMargins() {
+    let n = 0;
+    for (const page of this.doc.pages) {
+      const m = insetRect(this.doc.pageBounds(page), this.marginOn(page));
+      for (const a of page.annots ?? []) {
+        if (a.type === 'text' && a.fromPdf) continue;
+        const b = bounds(a);
+        if (b[0] < m[0] - 0.01 || b[1] < m[1] - 0.01 || b[2] > m[2] + 0.01 || b[3] > m[3] + 0.01) n++;
+      }
+    }
+    return n;
   }
 
   /**
    * Where objects on a page may go (PDF space): the page, or the margin while
    * the margins show (an edge of `box` already past the margin is limited
-   * where it is, so it can only move inward). The page edge always holds.
+   * where it is, so it can only move inward). The page edge always holds, and
+   * a 0 margin is just the page edge.
    * `ignoreMargin`: text taken over from the PDF itself keeps to the page only.
    */
   limitFor(page: PageRef, box?: Rect | null, { ignoreMargin = false } = {}) {
-    const margin = this.showMargins && !ignoreMargin ? this.marginOn(page) : null;
+    const margin = this.showMargins && !ignoreMargin && this.marginMm > 0 ? this.marginOn(page) : null;
     return limitRect(this.doc.pageBounds(page), margin, box);
   }
 

@@ -62,7 +62,7 @@ export const MENUS: Menu[] = [
       '-',
       'view.margins',
       'view.smartGuides',
-      { label: 'Margin size', items: ['view.margin6', 'view.margin12', 'view.margin20', 'view.margin25'] },
+      { label: 'Margin size', items: ['view.margin6', 'view.margin12', 'view.margin20', 'view.margin25', '-', 'view.marginCustom'] },
       '-',
       'view.fullscreen',
     ],

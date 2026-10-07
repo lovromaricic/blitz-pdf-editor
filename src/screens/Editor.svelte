@@ -33,6 +33,8 @@
   import HelpDialog, { type HelpTopic } from '../editor/HelpDialog.svelte';
   import SignatureDialog from '../editor/SignatureDialog.svelte';
   import NewPdfDialog from '../editor/NewPdfDialog.svelte';
+  import MarginPopover from '../editor/MarginPopover.svelte';
+  import { marginLabel, presetFor } from '../lib/margins';
   import MobileMenu from '../editor/mobile/MobileMenu.svelte';
   import MobileTopBar from '../editor/mobile/MobileTopBar.svelte';
   import PagesSheet from '../editor/mobile/PagesSheet.svelte';
@@ -119,6 +121,11 @@
   const sheetVisible = $derived(!!viewer.panel || !!viewer.objectSelection || viewer.tool !== 'select');
   let help = $state<HelpTopic | null>(null);
   let newPdfOpen = $state(false);
+  /** View › Margin size › Custom…: the small form, by the menu it came from (a bottom sheet on phones). */
+  let marginForm = $state<{ anchor: DOMRect | null } | null>(null);
+  /** Where a menu bar menu is, for a form opened from it (none on phones). */
+  const menuAnchor = (label: string) =>
+    [...document.querySelectorAll<HTMLElement>('.menubar [role="menubar"] > li > button')].find((b) => b.textContent?.trim() === label)?.getBoundingClientRect() ?? null;
 
   const commands = new CommandRegistry({
     // File
@@ -201,6 +208,11 @@
     'view.margin12': { run: () => (viewer.marginMm = 12.7), checked: () => viewer.marginMm === 12.7 },
     'view.margin20': { run: () => (viewer.marginMm = 20), checked: () => viewer.marginMm === 20 },
     'view.margin25': { run: () => (viewer.marginMm = 25), checked: () => viewer.marginMm === 25 },
+    'view.marginCustom': {
+      run: () => (marginForm = { anchor: menuAnchor('View') }),
+      checked: () => presetFor(viewer.marginMm) === null,
+      label: () => (presetFor(viewer.marginMm) === null ? `Custom: ${marginLabel(viewer.marginMm, viewer.marginUnit)}` : 'Custom…'),
+    },
 
     // Page (selection, or the current page when nothing is selected)
     'page.rotateLeft': { run: () => actions.rotate(-90) },
@@ -662,6 +674,9 @@
   {/if}
   {#if compareFile}<CompareView {doc} file={compareFile} onClose={() => (compareFile = null)} />{/if}
   <SignatureDialog />
+  {#if marginForm}
+    <MarginPopover anchor={marginForm.anchor} phone={phone.current} onClose={() => (marginForm = null)} />
+  {/if}
   <NewPdfDialog
     open={newPdfOpen}
     onCancel={() => (newPdfOpen = false)}
