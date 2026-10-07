@@ -13,6 +13,7 @@
   import { carriesFiles, IDLE, isOver, nextDrag, type DragState } from '../lib/landing/drag-state';
   import type { PaperScene } from '../lib/landing/paper-scene';
   import { ABSORB } from '../lib/landing/absorb-timeline';
+  import { openingSequence, WHITE } from '../lib/landing/opening-sequence.svelte';
 
   let input: HTMLInputElement;
   let canvas: HTMLCanvasElement;
@@ -25,7 +26,7 @@
   const charged = $derived(isOver(drag) && looksValid);
   let message = $state('');
   let rejected = $state<RejectedFile[]>([]);
-  let sceneState = $state<'waiting' | 'ready' | 'fallback'>('waiting');
+  let sceneState = $state<'waiting' | 'ready' | 'fallback' | 'gone'>('waiting');
   let scene: PaperScene | null = null;
   const busy = $derived(opening.busy);
 
@@ -37,29 +38,42 @@
     scene?.setCharged(on);
   });
 
+  let disposed = false;
+
+  /** Create the 3D scene (after first paint, and again if it was put away for an opening that then failed). */
+  async function loadScene() {
+    try {
+      const { createPaperScene } = await import('../lib/landing/paper-scene');
+      if (disposed) return;
+      scene = createPaperScene(canvas, { reducedMotion, onReady: () => (sceneState = 'ready') });
+      if (!scene) sceneState = 'fallback';
+      else scene.setCharged(charged);
+      if (import.meta.env.DEV) Object.assign(window, { __paperScene: scene });
+    } catch {
+      if (!disposed) sceneState = 'fallback';
+    }
+  }
+
+  /** Fully white: the scene goes (canvas hidden, loop stopped, everything it holds released). */
+  function putSceneAway() {
+    sceneState = 'gone';
+    scene?.dispose();
+    scene = null;
+  }
+
   onMount(() => {
-    let disposed = false;
     const idle = window.requestIdleCallback ?? ((cb: () => void) => setTimeout(cb, 200));
     // After the first paint, when the browser has a moment: never in the way of the button.
     const raf = requestAnimationFrame(() =>
-      idle(async () => {
+      idle(() => {
         void import('../lib/landing/heic-probe').then(({ heicDecodes }) => heicDecodes()).then((ok) => !disposed && (heic = ok));
-        try {
-          const { createPaperScene } = await import('../lib/landing/paper-scene');
-          if (disposed) return;
-          scene = createPaperScene(canvas, { reducedMotion, onReady: () => (sceneState = 'ready') });
-          if (!scene) sceneState = 'fallback';
-          else scene.setCharged(charged);
-          if (import.meta.env.DEV) Object.assign(window, { __paperScene: scene });
-        } catch {
-          if (!disposed) sceneState = 'fallback';
-        }
+        void loadScene();
       }),
     );
     return () => {
       disposed = true;
       cancelAnimationFrame(raf);
-      clearTimeout(fillTimer);
+      clearTimeout(coverTimer);
       scene?.dispose();
       scene = null;
       app.landingHold = false;
@@ -68,23 +82,30 @@
 
   /** The opening transition is playing: the panel has faded and takes no input. */
   let absorbing = $state(false);
-  /** The top page fills the window (shown with "Opening…" if the file isn't ready yet). */
-  let filled = $state(false);
-  let fillTimer: ReturnType<typeof setTimeout> | undefined;
-  /** A document opened from here: this screen is on its way out (fading). */
+  let coverTimer: ReturnType<typeof setTimeout> | undefined;
+  /** A document opened from here: this screen is on its way out. */
   let handedOver = $state(false);
 
-  // The document was closed while this screen was still fading out: Svelte brings
+  /** Back to the landing screen as it was (opening failed, or the document was closed right away). */
+  function backToIdle() {
+    clearTimeout(coverTimer);
+    openingSequence.cancel();
+    app.landingHold = false;
+    absorbing = false;
+    if (scene) scene.reset();
+    else if (sceneState === 'gone') {
+      sceneState = 'waiting';
+      void loadScene();
+    }
+  }
+
+  // The document was closed while this screen was still on its way out: Svelte brings
   // the same screen back, so return it to idle. (It kept "absorbing" and ignored
   // every file chosen or dropped afterwards.)
   $effect(() => {
     if (app.doc || !handedOver) return;
     handedOver = false;
-    clearTimeout(fillTimer);
-    app.landingHold = false;
-    scene?.reset();
-    absorbing = false;
-    filled = false;
+    backToIdle();
   });
 
   async function intake(list: File[]) {
@@ -97,22 +118,21 @@
       message = T.unsupported;
       return;
     }
-    // The absorb plays while the files load; Home stays on top until the page fills the
-    // window, with the editor mounting underneath as soon as it's ready.
+    // The absorb plays while the files load; Home stays on top (the editor mounting underneath
+    // as soon as the file is ready) until the window has gone white, then the white fades
+    // out over the editor (opening-sequence.svelte.ts).
     const animate = !!scene && !reducedMotion;
     if (animate) {
       absorbing = true;
-      filled = false;
       app.landingHold = true;
-      const markFilled = () => {
-        clearTimeout(fillTimer);
-        if (filled) return;
-        filled = true;
-        app.landingHold = false;
+      openingSequence.start({ onWhite: putSceneAway, onReveal: () => (app.landingHold = false) });
+      const covered = () => {
+        clearTimeout(coverTimer);
+        openingSequence.covered();
       };
-      scene!.absorb(markFilled);
+      scene!.absorb(covered, WHITE.coverAt);
       // Never let the animation hold the editor back (e.g. frames paused in a background tab).
-      fillTimer = setTimeout(markFilled, (ABSORB.doneAt + 0.3) * 1000);
+      coverTimer = setTimeout(covered, (ABSORB.doneAt + 0.3) * 1000);
     }
     // Start reading at once, in parallel with the animation.
     const problems = await openFiles(accepted);
@@ -121,14 +141,11 @@
       // Opened: anything skipped is listed in the editor's notice.
       if (skipped.length) app.openWarnings = [...app.openWarnings, ...skipped];
       handedOver = true;
+      if (animate) openingSequence.fileReady();
       return;
     }
     // Not opened (damaged, cancelled…): back to the landing screen as it was.
-    clearTimeout(fillTimer);
-    app.landingHold = false;
-    if (animate) scene?.reset();
-    absorbing = false;
-    filled = false;
+    backToIdle();
     rejected = [...skipped, ...problems];
   }
 
@@ -177,7 +194,7 @@
 
 <div class="landing" class:charged>
   <!-- Transparent until the 3D scene has drawn, then fades in: no layout shift. -->
-  <canvas bind:this={canvas} class="scene" class:ready={sceneState === 'ready'} aria-hidden="true"></canvas>
+  <canvas bind:this={canvas} class="scene" class:ready={sceneState === 'ready'} class:gone={sceneState === 'gone'} aria-hidden="true"></canvas>
   {#if sceneState === 'fallback'}
     <div class="fallback" aria-hidden="true">
       <i style:left="6%" style:top="12%" style:--turn="-12deg"></i>
@@ -226,9 +243,9 @@
       {/if}
     </div>
   </main>
-  {#if filled && busy}
-    <!-- The page fills the window but the file is still loading. -->
-    <p class="waiting" role="status">{T.opening}</p>
+  {#if openingSequence.waiting}
+    <!-- White, the file still loading: for screen readers (App draws it on the white). -->
+    <p class="visually-hidden" role="status">{T.opening}</p>
   {/if}
   <p class="visually-hidden" aria-live="polite">{charged ? T.chargedAnnouncement : ''}</p>
 </div>
@@ -252,6 +269,11 @@
   }
   .scene.ready {
     opacity: 1;
+  }
+  /* Put away under the white of the opening transition. */
+  .scene.gone {
+    visibility: hidden;
+    transition: none;
   }
   /* No WebGL: a few still, faded pages at the sides. */
   .fallback {
@@ -299,19 +321,6 @@
     transition:
       opacity 300ms ease,
       transform 300ms ease;
-  }
-  .waiting {
-    position: absolute;
-    left: 50%;
-    bottom: var(--space-7);
-    margin: 0;
-    padding: var(--space-2) var(--space-4);
-    transform: translateX(-50%);
-    border: var(--border-width) solid var(--border);
-    border-radius: var(--radius-pill);
-    background: var(--surface);
-    color: var(--muted);
-    font-size: var(--font-size-sm);
   }
   .wordmark {
     display: flex;

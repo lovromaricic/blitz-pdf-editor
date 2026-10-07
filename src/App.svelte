@@ -7,6 +7,9 @@
   import { appError, installGlobalErrorHandlers } from './lib/errors.svelte';
   import X from '@lucide/svelte/icons/x';
   import { fade } from 'svelte/transition';
+  import { cubicOut, quadIn } from 'svelte/easing';
+  import { openingSequence, WHITE } from './lib/landing/opening-sequence.svelte';
+  import { HOME_STRINGS } from './lib/strings';
   import { tick } from 'svelte';
   import { focusEditorLandmark } from './lib/focus-editor';
 
@@ -49,13 +52,28 @@
 {/if}
 {#if !app.doc || app.landingHold}
   <!-- Home stays on top while its opening transition plays (the editor mounts underneath
-       as soon as the file is ready), then crossfades to the editor. -->
+       as soon as the file is ready). It goes at once under the white of the transition;
+       without the transition (no 3D scene) it crossfades to the editor. -->
   <div
     class="home-layer"
-    out:fade={{ duration: reducedMotion ? 0 : 150 }}
+    out:fade={{ duration: reducedMotion || openingSequence.overlay ? 0 : 150 }}
     onoutrostart={(e) => ((e.currentTarget as HTMLElement).style.pointerEvents = 'none')}
   >
     <Home />
+  </div>
+{/if}
+
+{#if openingSequence.opaque}
+  <!-- The end of the opening transition: plain white over the growing page, then faded out
+       over the editor. Not focusable, nothing to read (the landing screen has the status). -->
+  <div
+    class="whiteout"
+    aria-hidden="true"
+    in:fade={{ duration: WHITE.inMs, easing: quadIn }}
+    out:fade={{ duration: WHITE.outMs, easing: cubicOut }}
+    onintroend={() => openingSequence.whiteShown()}
+  >
+    {#if openingSequence.waiting}<p class="waiting">{HOME_STRINGS.opening}</p>{/if}
   </div>
 {/if}
 
@@ -77,6 +95,25 @@
   .home-layer {
     position: relative;
     z-index: 50;
+  }
+  /* Above the landing screen and the editor; dialogs (password, large file) are above it. */
+  .whiteout {
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+    display: grid;
+    place-items: center;
+    background: var(--page);
+    pointer-events: none;
+  }
+  .waiting {
+    margin: 0;
+    padding: var(--space-2) var(--space-4);
+    border: var(--border-width) solid var(--border);
+    border-radius: var(--radius-pill);
+    background: var(--surface);
+    color: var(--muted);
+    font-size: var(--font-size-sm);
   }
   .load-failed {
     max-width: 40rem;

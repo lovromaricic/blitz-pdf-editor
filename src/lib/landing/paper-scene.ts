@@ -25,13 +25,14 @@ export interface PaperScene {
   setCharged(on: boolean): void;
   /**
    * Files were chosen: sheets rush into one stack and the top page grows to fill
-   * the window. `onFilled` is called once, when the page fills the window.
+   * the window. `onCovered` is called once, when the growing top page spans
+   * `coverAt` of the window's height.
    */
-  absorb(onFilled: () => void): void;
+  absorb(onCovered: () => void, coverAt: number): void;
   /** Back to falling (only when opening failed or was cancelled). */
   reset(): void;
   dispose(): void;
-  stats(): { frameMs: number; absorbFps: number; absorbSeconds: number; finished: boolean; sheets: number; pixelRatio: number };
+  stats(): { frameMs: number; absorbFps: number; absorbSeconds: number; finished: boolean; sheets: number; pixelRatio: number; covered: number };
 }
 
 export interface SceneOptions {
@@ -223,6 +224,10 @@ export function createPaperScene(canvas: HTMLCanvasElement, opts: SceneOptions):
   let py = 0;
   let mode: 'fall' | 'absorb' = 'fall';
   let timeline: AbsorbTimeline | null = null;
+  /** The absorb's caller, told once when the top page covers this much of the window. */
+  let cover: { at: number; done: boolean; notify: () => void } | null = null;
+  /** How much of the window's height the growing top page spans, last frame. */
+  let covered = 0;
 
   function ringPos(k: number) {
     const a = (k / N) * Math.PI * 2 + T * 0.12;
@@ -273,6 +278,11 @@ export function createPaperScene(canvas: HTMLCanvasElement, opts: SceneOptions):
         sh.m.position.x *= 1 - heroP;
         sh.m.position.y *= 1 - heroP;
         sh.m.rotation.z = lerp(sh.jit, 0, heroP);
+        // How much of the window's height it spans (at its distance from the camera), once it
+        // grows: its lines get thicker with it, the same on any window shape. (Not its width:
+        // in a narrow window the sheet spans much of it before growing at all.)
+        const visible = 2 * Math.tan((22.5 * Math.PI) / 180) * (camera.position.z - sh.m.position.z);
+        covered = heroP > 0 ? (1.414 * sc) / visible : 0;
       } else if (fade > 0) {
         material.transparent = true;
         material.opacity = 1 - fade;
@@ -283,6 +293,10 @@ export function createPaperScene(canvas: HTMLCanvasElement, opts: SceneOptions):
     camera.position.y *= 0.9;
     camera.lookAt(0, 0, 0);
     renderer.render(scene, camera);
+    if (cover && !cover.done && covered >= cover.at) {
+      cover.done = true;
+      cover.notify();
+    }
   }
 
   function step(dt: number) {
@@ -415,14 +429,16 @@ export function createPaperScene(canvas: HTMLCanvasElement, opts: SceneOptions):
       // Reduced motion: no ring, the text change is the whole charged state.
       if (!reduced && mode === 'fall') target = on ? 1 : 0;
     },
-    absorb(onFilled) {
+    absorb(onCovered, coverAt) {
       if (mode === 'absorb' || reduced) return;
       target = 0;
       mode = 'absorb';
       absorbFrames = 0;
       absorbTime = 0;
+      covered = 0;
+      cover = { at: coverAt, done: false, notify: onCovered };
       // The page fills the window: the loop stops by itself after this frame (nothing moves now).
-      timeline = new AbsorbTimeline(onFilled);
+      timeline = new AbsorbTimeline(() => {});
       for (const sh of sheets) {
         sh.sp = [sh.m.position.x, sh.m.position.y, sh.m.position.z];
         sh.sr = [sh.m.rotation.x, sh.m.rotation.y, sh.m.rotation.z];
@@ -432,6 +448,7 @@ export function createPaperScene(canvas: HTMLCanvasElement, opts: SceneOptions):
     reset() {
       mode = 'fall';
       timeline = null;
+      cover = null;
       charge = target = 0;
       for (const sh of sheets) {
         const material = sh.m.material as MeshLambertMaterial;
@@ -451,6 +468,7 @@ export function createPaperScene(canvas: HTMLCanvasElement, opts: SceneOptions):
       finished: !!timeline?.finished,
       sheets: sheets.filter((s) => s.m.visible).length,
       pixelRatio,
+      covered: Math.round(covered * 1000) / 1000,
     }),
     dispose() {
       disposed = true;
