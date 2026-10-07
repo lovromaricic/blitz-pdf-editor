@@ -70,7 +70,6 @@ export const COMMANDS = {
   'view.fullscreen': { label: 'Full screen' },
   // Guides: editor-only, no shortcuts.
   'view.margins': { label: 'Show margins' },
-  'view.keepInMargins': { label: 'Keep objects inside margins' },
   'view.smartGuides': { label: 'Smart guides' },
   'view.margin6': { label: '6.35 mm (printer-safe minimum)', radio: true },
   'view.margin12': { label: '12.7 mm (narrow)', radio: true },

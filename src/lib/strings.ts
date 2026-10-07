@@ -177,6 +177,9 @@ export const OBJECT_STRINGS = {
   ungroup: 'Ungroup',
   onePage: 'You can only select objects on one page at a time.',
   ungroupToEdit: 'This text box is in a group. Ungroup it to edit its text.',
-  textFull: (at: 'page' | 'margin') => `This text box is full: the ${at} ends here.`,
+  textFull: (at: 'page' | 'margin') =>
+    at === 'margin' ? 'This text box is full: it reached the bottom margin. Turn off Show margins in the View menu to go further.' : 'This text box is full: the page ends here.',
+  marginStop: 'Stopped at the margin',
+  marginHint: 'Stopped at the margin. Turn off Show margins in the View menu to go further.',
   movedBack: (n: number) => `${n === 1 ? 'An object was' : `${n} objects were`} moved back onto the page.`,
 };

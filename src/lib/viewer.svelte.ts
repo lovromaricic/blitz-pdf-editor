@@ -2,6 +2,7 @@
 import { isGroupId, unitOf, type ObjectSelection } from './object-selection';
 import { limitRect, type LimitKind } from './page-bounds';
 import { marginPoints } from './snapping';
+import { OBJECT_STRINGS } from './strings';
 import type { CropSession } from './image-crop';
 import { ContentEditing } from './content-editing.svelte';
 import { ContentModeReturn } from './content-route';
@@ -17,6 +18,9 @@ import { computeLayout, indexAtY, pagesPerRow, rowAtY, rowStartOf, type ViewMode
 import { CSS_UNITS } from './pdf/pdfjs';
 import { Search } from './search.svelte';
 import { friendlyError } from './friendly-error';
+
+/** How many times a document shows the "stopped at the margin" hint. */
+export const MARGIN_HINTS = 2;
 
 export const ZOOM_STEPS = [0.1, 0.25, 0.33, 0.5, 0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3, 4, 5];
 export const MIN_ZOOM = ZOOM_STEPS[0];
@@ -406,19 +410,18 @@ export class Viewer {
   // --- Feedback ---------------------------------------------------------
 
   // Guides (View menu): editor-only, in memory for this tab, for every page; never saved anywhere.
-  /** Show the margin guides (they also pull objects when shown). */
+  /**
+   * Show the margins: drawn on the pages, they pull dragged objects (snapping)
+   * and are a hard limit for objects moved, resized, added or typed into.
+   */
   showMargins = $state(false);
   /** Snap objects to the page center and to each other while dragging. */
   smartGuides = $state(true);
   /** The margin, in millimetres (limited per page to a quarter of its smaller side). */
   marginMm = $state(25);
-  /** The margins (only while shown) are a hard limit for objects moved, resized, added or typed into. */
-  keepInMargins = $state(false);
-
-  /** Show or hide the margins; hiding them also ends "Keep objects inside margins". */
+  /** Show or hide the margins (and their limit). Nothing on the pages moves either way. */
   toggleMargins() {
     this.showMargins = !this.showMargins;
-    if (!this.showMargins) this.keepInMargins = false;
   }
 
   /** The margin on a page, in points (the same on every side). */
@@ -428,19 +431,31 @@ export class Viewer {
   }
 
   /**
-   * Where objects on a page may go (PDF space): the page, or the margin when
-   * "Keep objects inside margins" is on (an edge of `box` already past the
-   * margin is limited where it is). The page edge always holds.
+   * Where objects on a page may go (PDF space): the page, or the margin while
+   * the margins show (an edge of `box` already past the margin is limited
+   * where it is, so it can only move inward). The page edge always holds.
+   * `ignoreMargin`: text taken over from the PDF itself keeps to the page only.
    */
-  limitFor(page: PageRef, box?: Rect | null) {
-    const margin = this.showMargins && this.keepInMargins ? this.marginOn(page) : null;
+  limitFor(page: PageRef, box?: Rect | null, { ignoreMargin = false } = {}) {
+    const margin = this.showMargins && !ignoreMargin ? this.marginOn(page) : null;
     return limitRect(this.doc.pageBounds(page), margin, box);
   }
 
-  /** Something stopped at a limit: the page edge, or the margin. */
+  /** How often this document has shown the margin hint (at most twice; memory only). */
+  private marginHints = 0;
+
+  /**
+   * Something stopped at a limit: the page edge, or the margin. At the margin
+   * its line flashes, and the first two times a short hint says how to go
+   * further (one at a time); after that only the flash and the announcement.
+   */
   limitHit(pageId: string, kind: LimitKind) {
     if (kind === 'page') return this.edgeHit(pageId);
-    this.flash('margin', pageId, 'Stopped at the margin');
+    this.flash('margin', pageId, OBJECT_STRINGS.marginStop);
+    if (this.marginHints < MARGIN_HINTS && this.notice?.text !== OBJECT_STRINGS.marginHint) {
+      this.marginHints++;
+      this.notify(OBJECT_STRINGS.marginHint, { timeout: 4000 });
+    }
   }
 
   /** The page whose margin an object just stopped at (its margin line flashes). */
@@ -484,10 +499,10 @@ export class Viewer {
   private noticeTimer: ReturnType<typeof setTimeout> | undefined;
 
   /** Show a short message. Errors stay until dismissed. */
-  notify(text: string, { error = false } = {}) {
+  notify(text: string, { error = false, timeout = 6000 } = {}) {
     clearTimeout(this.noticeTimer);
     this.notice = { text, id: Date.now(), error };
-    if (!error) this.noticeTimer = setTimeout(() => (this.notice = null), 6000);
+    if (!error) this.noticeTimer = setTimeout(() => (this.notice = null), timeout);
   }
 
   /**

@@ -196,7 +196,6 @@
     'view.fullscreen': { run: toggleFullscreen, checked: () => isFullscreen },
     'view.margins': { run: () => viewer.toggleMargins(), checked: () => viewer.showMargins },
     // Only while the margins show (hiding them turns it off too); turning it on moves nothing.
-    'view.keepInMargins': { run: () => (viewer.keepInMargins = !viewer.keepInMargins), checked: () => viewer.keepInMargins, enabled: () => viewer.showMargins },
     'view.smartGuides': { run: () => (viewer.smartGuides = !viewer.smartGuides), checked: () => viewer.smartGuides },
     'view.margin6': { run: () => (viewer.marginMm = 6.35), checked: () => viewer.marginMm === 6.35 },
     'view.margin12': { run: () => (viewer.marginMm = 12.7), checked: () => viewer.marginMm === 12.7 },

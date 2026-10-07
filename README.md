@@ -43,7 +43,7 @@ Blitz is a PDF editor that runs in your browser and never uploads your files.
 **Arranging**
 
 - Select several objects, group them and change their order (bring to front, send back)
-- Copy, paste and duplicate; smart guides and margin guides help you line things up
+- Copy, paste and duplicate; smart guides help you line things up, and **View › Show margins** keeps objects inside the page margins
 
 **The PDF's own content**
 

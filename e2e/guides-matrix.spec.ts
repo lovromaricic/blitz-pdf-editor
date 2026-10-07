@@ -85,10 +85,9 @@ for (const c of CASES) {
     });
     expect(inside).toBe(true);
 
-    // Keep objects inside margins: dragged far to the top left, it stops on the margin line.
+    // Shown, the margins are the limit: dragged far to the top left, it stops on the margin line.
     await page.evaluate(async () => {
       const w = window as unknown as W;
-      w.__viewer.keepInMargins = true;
       // Back to the middle of the page, in view.
       const { bounds, translate } = await import(/* @vite-ignore */ '/src/lib/annotations.ts' as string);
       const a = w.__doc.pages[0].annots[0];

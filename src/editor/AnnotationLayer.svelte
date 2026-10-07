@@ -332,7 +332,8 @@
   function growOnPage(a: TextAnnotation): { annot: TextAnnotation; fits: boolean } {
     const b = bounds(a);
     // The limit (page, or margin) from where the box was when typing started.
-    const lim = viewer.limitFor(page, editing ? bounds(editing.base) : null);
+    // (Text taken over from the PDF keeps to the page only: it was placed by the PDF, not inside our margins.)
+    const lim = viewer.limitFor(page, editing ? bounds(editing.base) : null, { ignoreMargin: !!(editing?.base as TextAnnotation | undefined)?.fromPdf });
     fullAt = lim.kind;
     const g = growInside(screenBoxOf(b), screenBoxOf(lim.rect));
     if (!g.dy) return { annot: a, fits: g.fits };
@@ -686,7 +687,14 @@
     }
     const p0 = toPdf(0, 0);
     const p1 = toPdf(r.dx, r.dy);
-    const m = clampMove(boxPdf, limit, dxPdf + p1[0] - p0[0], dyPdf + p1[1] - p0[1]);
+    const want = [dxPdf + p1[0] - p0[0], dyPdf + p1[1] - p0[1]];
+    const m = clampMove(boxPdf, limit, want[0], want[1]);
+    // Snapped onto the limit itself (a margin line), rounding may overshoot it by a hair: that's still the snap.
+    const hair = 0.5 / viewer.scale;
+    if (m.limited && Math.abs(m.dx - want[0]) <= hair && Math.abs(m.dy - want[1]) <= hair) {
+      showGuides(r.guides, [b[0] + sx + r.dx, b[1] + sy + r.dy, b[2] + sx + r.dx, b[3] + sy + r.dy]);
+      return { ...m, limited: false };
+    }
     if (m.limited) {
       showGuides([]);
       return plain;

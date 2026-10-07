@@ -130,6 +130,8 @@ export interface TextAnnotation extends Boxed {
   background?: Rgb | null;
   /** Points. */
   size: number;
+  /** Made from the PDF's own text (Edit content): it keeps its place, so the margins don't limit its typing. */
+  fromPdf?: boolean;
 }
 
 export interface StampAnnotation extends Boxed {

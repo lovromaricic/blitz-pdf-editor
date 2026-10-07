@@ -94,7 +94,7 @@ export function newTextBoxSpan(x: number, defaultWidth: number, pageLeft: number
   return { x: Math.max(pageLeft, pageRight - width), width };
 }
 
-// --- The limit: the page, or the margin ("Keep objects inside margins") -----------------------
+// --- The limit: the page, or the margin (while View › Show margins is on) ---------------------
 
 export type LimitKind = 'page' | 'margin';
 

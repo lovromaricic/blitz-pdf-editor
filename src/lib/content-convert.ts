@@ -65,6 +65,7 @@ export function textBoxFromConversion(c: Conversion, page: Rect, env: RichEnv): 
     align: c.align,
     lineSpacing,
     background: null,
+    fromPdf: true,
   };
   const layout = (a: TextAnnotation, paragraphs: TextParagraph[]) => layoutTextAnnotation({ ...a, paragraphs, text: plainText(paragraphs) }, env);
   const want = c.lines.map((l) => flat(l.runs.map((r) => r.text).join('')));

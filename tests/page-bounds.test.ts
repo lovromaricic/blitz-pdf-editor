@@ -6,6 +6,7 @@ import { boxOf, clampMove, fitIntoPage, growInside, inside, intoPage, limitRect,
 import { EditorDocument, Source, type PageRef } from '../src/lib/document.svelte';
 import { Viewer } from '../src/lib/viewer.svelte';
 import { Actions } from '../src/lib/actions.svelte';
+import { OBJECT_STRINGS } from '../src/lib/strings';
 
 const PAGE: Rect = [0, 0, 612, 792];
 const BOX: Rect = [100, 100, 200, 150];
@@ -164,18 +165,110 @@ describe('the View settings for margins', () => {
 
   it('default: margins hidden, 25 mm, not a limit; smart guides on', () => {
     const { viewer, doc } = viewerOf();
-    expect([viewer.showMargins, viewer.keepInMargins, viewer.smartGuides, viewer.marginMm]).toEqual([false, false, true, 25]);
+    expect([viewer.showMargins, viewer.smartGuides, viewer.marginMm]).toEqual([false, true, 25]);
     expect(viewer.marginOn(doc.pages[0])).toBeCloseTo((25 * 72) / 25.4, 6);
     expect(viewer.limitFor(doc.pages[0]).kind).toBe('page');
   });
 
-  it('Keep inside margins only applies while the margins show; hiding them turns it off', () => {
+  it('Show margins is the limit too: on, the margin; off, the page', () => {
     const { viewer, doc } = viewerOf();
-    viewer.keepInMargins = true;
-    expect(viewer.limitFor(doc.pages[0]).kind).toBe('page'); // margins hidden: no margin limit
     viewer.toggleMargins();
     expect(viewer.limitFor(doc.pages[0])).toMatchObject({ kind: 'margin', rect: [70.87, 70.87, 541.13, 721.13].map((v) => expect.closeTo(v, 1)) });
     viewer.toggleMargins();
-    expect(viewer.keepInMargins).toBe(false);
+    expect(viewer.limitFor(doc.pages[0]).kind).toBe('page');
+  });
+
+  it('turning the margins on or off never moves anything', () => {
+    const { viewer, doc } = viewerOf();
+    const outside: Annotation = { id: 'a', type: 'stamp', label: 'A', color: [0, 0, 0], opacity: 1, rotate: 0, rect: [10, 10, 100, 40] };
+    doc.pages = [{ ...doc.pages[0], annots: [outside] }];
+    const before = doc.pages;
+    viewer.toggleMargins();
+    viewer.toggleMargins();
+    viewer.toggleMargins();
+    expect(doc.pages).toBe(before);
+    expect(doc.history.canUndo).toBe(false);
+  });
+
+  it('text taken over from the PDF keeps to the page only', () => {
+    const { viewer, doc } = viewerOf();
+    viewer.showMargins = true;
+    expect(viewer.limitFor(doc.pages[0], null, { ignoreMargin: true }).kind).toBe('page');
+  });
+
+  it('the hint shows at most twice per document, one at a time; the announcement at most once a second', () => {
+    const { viewer } = viewerOf();
+    const announced: string[] = [];
+    viewer.announce = (t: string) => void announced.push(t);
+    // (Read through a function: TypeScript would narrow it after the assignments below.)
+    const shown = () => viewer.notice?.text ?? null;
+    let now = 1_000_000;
+    const realNow = Date.now;
+    Date.now = () => now;
+    try {
+      viewer.limitHit('p0', 'margin');
+      expect(shown()).toBe(OBJECT_STRINGS.marginHint);
+      // Still showing: not shown (or counted) again.
+      viewer.limitHit('p0', 'margin');
+      viewer.notice = null;
+      now += 1500;
+      viewer.limitHit('p0', 'margin');
+      expect(shown()).toBe(OBJECT_STRINGS.marginHint);
+      viewer.notice = null;
+      now += 1500;
+      viewer.limitHit('p0', 'margin');
+      expect(shown()).toBeNull();
+      // Announced each time a second had passed (three times), not on the repeat in the same second.
+      expect(announced).toEqual([OBJECT_STRINGS.marginStop, OBJECT_STRINGS.marginStop, OBJECT_STRINGS.marginStop]);
+    } finally {
+      Date.now = realNow;
+    }
+  });
+});
+
+describe('the margin as a limit', () => {
+  const page: Rect = [0, 0, 612, 792];
+  const M = (25 * 72) / 25.4;
+  const margin = limitRect(page, M).rect;
+  const box: Rect = [200, 300, 300, 340];
+
+  it('each side stops exactly at the margin line', () => {
+    expect(clampMove(box, margin, -1000, 0).dx).toBeCloseTo(M - 200, 6);
+    expect(clampMove(box, margin, 1000, 0).dx).toBeCloseTo(612 - M - 300, 6);
+    expect(clampMove(box, margin, 0, -1000).dy).toBeCloseTo(M - 300, 6);
+    expect(clampMove(box, margin, 0, 1000).dy).toBeCloseTo(792 - M - 340, 6);
+    expect(clampMove(box, margin, 10, 10)).toMatchObject({ dx: 10, dy: 10, limited: false });
+  });
+
+  it('a turned image is limited by its real (turned) extent', () => {
+    const img: Annotation = { id: 'i', type: 'image', role: 'image', dataUrl: '', color: [0, 0, 0], opacity: 1, rotate: 0, angle: 45, rect: [200, 300, 300, 400] };
+    const b = bounds(img);
+    expect(b[0]).toBeLessThan(200);
+    const m = clampMove(b, margin, -1000, 0);
+    expect(b[0] + m.dx).toBeCloseTo(M, 6);
+  });
+
+  it('a group or several objects are clamped as one block', () => {
+    const a: Annotation = { id: 'a', type: 'stamp', label: 'A', color: [0, 0, 0], opacity: 1, rotate: 0, rect: [200, 300, 260, 330] };
+    const b: Annotation = { id: 'b', type: 'stamp', label: 'B', color: [0, 0, 0], opacity: 1, rotate: 0, rect: [320, 380, 400, 420] };
+    const block = boxOf([a, b])!;
+    const m = clampMove(block, margin, 2000, 0);
+    // The block's right edge (b's) stops at the margin; a moves by the same amount.
+    expect(block[2] + m.dx).toBeCloseTo(612 - M, 6);
+  });
+
+  it('an edge already past the margin stays where it is (it can only move inward)', () => {
+    const out: Rect = [20, 300, 120, 340];
+    const lim = limitRect(page, M, out).rect;
+    expect(lim[0]).toBe(20);
+    expect(clampMove(out, lim, -50, 0).dx).toBe(0);
+    expect(clampMove(out, lim, 30, 0).dx).toBe(30);
+  });
+
+  it('a text box growing past the bottom margin moves up, then is full', () => {
+    // Screen space, y down: the margin's bottom at 792 - M.
+    const screen: Rect = [M, M, 612 - M, 792 - M];
+    expect(growInside([100, 600, 300, 792 - M + 20], screen)).toEqual({ dy: -20, fits: true });
+    expect(growInside([100, M, 300, 792 - M + 20], screen).fits).toBe(false);
   });
 });
