@@ -2,7 +2,8 @@
   // Properties of the active markup tool, or of the selected annotation.
   // Changing a selected annotation also becomes the tool's default for the next one.
   import OrderControls from './OrderControls.svelte';
-  import { describe, HIGHLIGHT_COLORS, INK_COLORS, type Annotation, type Rgb, type ShapeKind } from '../../lib/annotations';
+  import { describe, HIGHLIGHT_COLORS, INK_COLORS, type Annotation, type Rgb, type ShapeAnnotation, type ShapeKind } from '../../lib/annotations';
+  import { NEEDS_FILL_OR_OUTLINE, withFill, withOutline } from '../../lib/shape-style';
   import { useActions } from '../../lib/actions.svelte';
   import { useViewer } from '../../lib/viewer.svelte';
   import Swatches from '../../components/Swatches.svelte';
@@ -35,7 +36,7 @@
     if (kind === 'highlight') return viewer.toolProps.highlight;
     if (kind === 'draw') return viewer.toolProps.draw;
     return viewer.toolProps.shapes;
-  }) as { color: Rgb; opacity: number; width?: number; fill?: Rgb | null; shape?: ShapeKind };
+  }) as { color: Rgb; opacity: number; width?: number; fill?: Rgb | null; shape?: ShapeKind; noOutline?: boolean };
 
   const titles = { highlight: 'Highlight', draw: 'Draw', shapes: 'Shapes' };
 
@@ -46,6 +47,36 @@
       actions.updateAnnotation(sel.page.id, next, `Change ${label}`, `${key}:${sel.annot.id}`);
     }
     if (kind) (viewer.toolProps[kind] as Record<string, unknown>)[key] = value;
+  }
+
+  /**
+   * Outline or fill of a closed shape (the selected one, or the tool's next one):
+   * a color or none, one undo step each, never both none.
+   */
+  function setStyle(which: 'outline' | 'fill', value: Rgb | null) {
+    value = $state.snapshot(value);
+    const style = sel ? (sel.annot as ShapeAnnotation) : viewer.toolProps.shapes;
+    const next = which === 'outline' ? withOutline(style, value) : withFill(style, value);
+    if (next === 'invisible') return refuse();
+    if (sel) {
+      const label = which === 'outline' ? (value ? 'Change outline' : 'No outline') : value ? 'Change fill' : 'No fill';
+      actions.updateAnnotation(sel.page.id, next as ShapeAnnotation, label);
+    }
+    // The tool's next shape gets the same (lines and arrows ignore "no outline").
+    const t = viewer.toolProps.shapes;
+    t.color = next.color;
+    t.fill = next.fill;
+    t.noOutline = next.noOutline;
+  }
+
+  /** "A shape needs a fill or an outline": next to the rows, and read out; it goes after a few seconds. */
+  let refused = $state(false);
+  let refusedTimer: ReturnType<typeof setTimeout> | undefined;
+  function refuse() {
+    refused = true;
+    viewer.announce(NEEDS_FILL_OR_OUTLINE);
+    clearTimeout(refusedTimer);
+    refusedTimer = setTimeout(() => (refused = false), 4000);
   }
 
   const shapeKinds: { id: ShapeKind; label: string; icon: Component }[] = [
@@ -65,6 +96,8 @@
     ((e.currentTarget as HTMLElement).parentElement?.children[next] as HTMLElement | undefined)?.focus();
   }
   const hasFill = $derived(kind === 'shapes' && (props.shape === 'rect' || props.shape === 'ellipse'));
+  /** A closed shape without its outline: the thickness waits for it to come back. */
+  const outlineOff = $derived(hasFill && !!props.noOutline);
 </script>
 
 {#if kind}
@@ -111,25 +144,43 @@
 
     <div class="field">
       <span class="label">{kind === 'shapes' ? 'Outline' : 'Color'}</span>
-      <Swatches
-        label={kind === 'shapes' ? 'Outline color' : 'Color'}
-        colors={kind === 'highlight' ? HIGHLIGHT_COLORS : INK_COLORS}
-        value={props.color}
-        onChange={(c) => c && set('color', c, 'color')}
-      />
+      {#if hasFill}
+        <!-- Closed shapes: "No outline" first, like "No fill" below. -->
+        <Swatches label="Outline color" colors={INK_COLORS} value={outlineOff ? null : props.color} allowNone noneLabel="No outline" onChange={(c) => setStyle('outline', c)} />
+      {:else}
+        <Swatches
+          label={kind === 'shapes' ? 'Outline color' : 'Color'}
+          colors={kind === 'highlight' ? HIGHLIGHT_COLORS : INK_COLORS}
+          value={props.color}
+          onChange={(c) => c && set('color', c, 'color')}
+        />
+      {/if}
     </div>
 
     {#if hasFill}
       <div class="field">
         <span class="label">Fill</span>
-        <Swatches label="Fill color" colors={INK_COLORS} value={props.fill ?? null} allowNone onChange={(c) => set('fill', c, 'fill')} />
+        <Swatches label="Fill color" colors={INK_COLORS} value={props.fill ?? null} allowNone onChange={(c) => setStyle('fill', c)} />
       </div>
+      {#if refused}
+        <p class="error" role="status">{NEEDS_FILL_OR_OUTLINE}</p>
+      {/if}
     {/if}
 
     {#if kind !== 'highlight'}
-      <div class="field">
-        <label for="mk-width">Thickness <span class="value">{props.width} pt</span></label>
-        <Range id="mk-width" min={0.5} max={20} step={0.5} value={props.width ?? 2} onInput={(v) => set('width', v, 'thickness')} />
+      <div class="field" class:off={outlineOff}>
+        <label for="mk-width">Thickness <span class="value">{outlineOff ? 'No outline' : `${props.width} pt`}</span></label>
+        <Range
+          id="mk-width"
+          min={0.5}
+          max={20}
+          step={0.5}
+          value={props.width ?? 2}
+          disabled={outlineOff}
+          title={outlineOff ? 'No outline' : undefined}
+          valueText={outlineOff ? 'No outline' : undefined}
+          onInput={(v) => set('width', v, 'thickness')}
+        />
       </div>
     {/if}
 
@@ -163,6 +214,10 @@
 {/if}
 
 <style>
+  /* No outline: the thickness is kept, dimmed, for when it comes back. */
+  .off label {
+    color: var(--muted);
+  }
   .label {
     font-weight: 600;
   }

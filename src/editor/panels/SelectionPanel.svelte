@@ -5,7 +5,8 @@
   // objects)", order and Delete only (ungroup to change its objects).
   import { useActions } from '../../lib/actions.svelte';
   import { useViewer } from '../../lib/viewer.svelte';
-  import { HIGHLIGHT_COLORS, INK_COLORS, NOTE_COLORS, sameRgb, STAMP_COLORS, type Annotation, type Rgb } from '../../lib/annotations';
+  import { HIGHLIGHT_COLORS, INK_COLORS, NOTE_COLORS, sameRgb, STAMP_COLORS, type Annotation, type Rgb, type ShapeAnnotation } from '../../lib/annotations';
+  import { isClosed, NEEDS_FILL_OR_OUTLINE, outlineOf, withOutline } from '../../lib/shape-style';
   import { groupSize, isGroupId } from '../../lib/object-selection';
   import Swatches from '../../components/Swatches.svelte';
   import Range from '../../components/Range.svelte';
@@ -24,6 +25,28 @@
   const palette = $derived(kind ? PALETTES[kind] : undefined);
   const color = $derived(sel && sel.members.every((a) => sameRgb(a.color, sel.members[0].color)) ? sel.members[0].color : null);
   const opacity = $derived(sel && sel.members.every((a) => a.opacity === sel.members[0].opacity) ? sel.members[0].opacity : null);
+  /** All rectangles and ellipses: their outline can be off ("No outline"), mixed when only some have one. */
+  const closed = $derived(sel && sel.members.every((a) => a.type === 'shape' && isClosed(a)) ? (sel.members as ShapeAnnotation[]) : null);
+  const outline = $derived(closed ? outlineOf(closed) : null);
+
+  /** Outline color or none for all of them, one undo step; refused when any would end up with neither fill nor outline. */
+  function setOutline(c: Rgb | null) {
+    if (!closed) return;
+    const next = closed.map((a) => withOutline(a, c));
+    if (next.includes('invisible')) {
+      refused = true;
+      viewer.announce(NEEDS_FILL_OR_OUTLINE);
+      clearTimeout(refusedTimer);
+      refusedTimer = setTimeout(() => (refused = false), 4000);
+      return;
+    }
+    actions.updateAnnotations(
+      (next as ShapeAnnotation[]).map((a) => ({ pageId: sel!.page.id, annot: a })),
+      c ? 'Change outline' : 'No outline',
+    );
+  }
+  let refused = $state(false);
+  let refusedTimer: ReturnType<typeof setTimeout> | undefined;
 
   /** One change to every selected object: one undo step (a slider drag too). */
   function apply(change: (a: Annotation) => Annotation, label: string, coalesceKey?: string) {
@@ -42,7 +65,13 @@
 {#if sel}
   <div class="panel-form">
     {#if !group}
-      {#if palette}
+      {#if closed && outline}
+        <div class="field">
+          <span class="label">Outline</span>
+          <Swatches label="Outline color" colors={INK_COLORS} value={outline.value} mixed={outline.mixed} allowNone noneLabel="No outline" onChange={setOutline} />
+          {#if refused}<p class="error" role="status">{NEEDS_FILL_OR_OUTLINE}</p>{/if}
+        </div>
+      {:else if palette}
         <div class="field">
           <span class="label">Color</span>
           <Swatches label="Color" colors={palette} value={color} mixed={!color} onChange={(c) => c && apply((a) => ({ ...a, color: c }), 'Color')} />

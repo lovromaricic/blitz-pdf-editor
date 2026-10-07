@@ -46,6 +46,8 @@ export interface ShapeAnnotation extends Base {
   width: number;
   /** Fill for rect/ellipse, or null for none. */
   fill: Rgb | null;
+  /** rect/ellipse: no outline (color and width are kept for when it comes back). Never together with no fill. */
+  noOutline?: boolean;
 }
 
 /** A font id from font-catalog.ts, or one of the built-in 'sans' | 'serif' | 'mono'. */
@@ -304,7 +306,8 @@ export function bounds(a: Annotation): Rect {
       const r = normRect(a.from, a.to);
       // Arrowheads stick out beyond the line's end.
       const extra = a.shape === 'arrow' ? arrowSize(a.width) : 0;
-      return pad(r, a.width / 2 + extra);
+      // Without an outline the shape ends at its own edge.
+      return pad(r, a.noOutline ? 0 : a.width / 2 + extra);
     }
     case 'image':
       return a.angle ? turnedBounds(a) : a.rect;

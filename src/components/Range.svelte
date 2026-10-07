@@ -9,6 +9,8 @@
     onInput,
     label,
     valueText,
+    disabled = false,
+    title,
   }: {
     id: string;
     min: number;
@@ -19,6 +21,8 @@
     label?: string;
     /** Read out instead of the raw number, e.g. "70%". */
     valueText?: string;
+    disabled?: boolean;
+    title?: string;
   } = $props();
 
   const fill = $derived(`${((value - min) / (max - min || 1)) * 100}%`);
@@ -34,11 +38,17 @@
   {value}
   aria-label={label}
   aria-valuetext={valueText}
+  {disabled}
+  {title}
   style:--fill={fill}
   oninput={(e) => onInput(+e.currentTarget.value)}
 />
 
 <style>
+  .range:disabled {
+    opacity: 0.45;
+    cursor: default;
+  }
   .range {
     width: 100%;
     height: 24px;

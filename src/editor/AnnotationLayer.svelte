@@ -144,7 +144,9 @@
       return;
     }
     capturePointer(e.currentTarget as Element, e.pointerId);
-    const half = (viewer.tool === 'draw' ? viewer.toolProps.draw.width : viewer.toolProps.shapes.width) / 2;
+    const shapeT = viewer.toolProps.shapes;
+    const closedNoOutline = shapeT.noOutline && (shapeT.shape === 'rect' || shapeT.shape === 'ellipse');
+    const half = viewer.tool === 'draw' ? viewer.toolProps.draw.width / 2 : closedNoOutline ? 0 : shapeT.width / 2;
     const start = onPage(clientToPdf(e.clientX, e.clientY), half);
     drawing = { pointerId: e.pointerId, start, raw: [start] };
     viewer.selectAnnot(null);
@@ -155,6 +157,8 @@
     } else {
       const t = $state.snapshot(viewer.toolProps.shapes);
       draft = { id: newAnnotationId(), type: 'shape', shape: t.shape, color: t.color, fill: t.fill, width: t.width, opacity: t.opacity, from: start, to: start };
+      // Lines and arrows always have their outline; closed shapes take the tool's "no outline".
+      if (closedNoOutline) draft = { ...draft, noOutline: true };
     }
   }
 
@@ -166,7 +170,7 @@
       for (const ev of events.length ? events : [e]) drawing.raw.push(onPage(clientToPdf(ev.clientX, ev.clientY), draft.width / 2));
       draft = { ...draft, paths: [simplifyPath(drawing.raw, 0.6 / viewer.zoom)] };
     } else if (draft.type === 'shape') {
-      draft = { ...draft, to: onPage(constrain(draft.shape, drawing.start, clientToPdf(e.clientX, e.clientY), e.shiftKey), draft.width / 2) };
+      draft = { ...draft, to: onPage(constrain(draft.shape, drawing.start, clientToPdf(e.clientX, e.clientY), e.shiftKey), draft.noOutline ? 0 : draft.width / 2) };
     }
   }
 
@@ -1319,7 +1323,7 @@
         <polyline points={pointsAttr(p.points)} fill="none" stroke={p.stroke} stroke-width={p.width} stroke-opacity={p.opacity} stroke-linecap="round" stroke-linejoin="round" />
       {:else}
         <ellipse class="hit" cx={p.cx} cy={p.cy} rx={p.rx} ry={p.ry} stroke-width={Math.max(p.width, 12)} fill={p.fill ? 'transparent' : 'none'} />
-        <ellipse cx={p.cx} cy={p.cy} rx={p.rx} ry={p.ry} fill={p.fill ?? 'none'} fill-opacity={p.opacity} stroke={p.stroke} stroke-width={p.width} stroke-opacity={p.opacity} />
+        <ellipse cx={p.cx} cy={p.cy} rx={p.rx} ry={p.ry} fill={p.fill ?? 'none'} fill-opacity={p.opacity} stroke={p.stroke ?? 'none'} stroke-width={p.width} stroke-opacity={p.opacity} />
       {/if}
     {/each}
   </g>

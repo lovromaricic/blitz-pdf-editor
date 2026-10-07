@@ -396,11 +396,20 @@ function shapeAppearance(a: Extract<Annotation, { type: 'shape' }>): Appearance 
   }
 
   const r = normRect(a.from, a.to);
-  const fill = a.fill ? ` ${rgb(a.fill)} rg` : '';
-  const paint = a.fill ? 'B' : 'S';
   const path = a.shape === 'rect' ? `${n(r[0])} ${n(r[1])} ${n(r[2] - r[0])} ${n(r[3] - r[1])} re` : ellipsePath(r);
   const entries: Record<string, unknown> = { Subtype: a.shape === 'rect' ? 'Square' : 'Circle', BS: { W: a.width } };
   if (a.fill) entries.IC = a.fill;
+  if (a.noOutline) {
+    // No outline: the fill alone, with no stroke at all; a border of width 0 and no border color
+    // tell viewers that redraw the shape themselves to draw none either. (Neither fill nor
+    // outline only comes from an older file: nothing is drawn.)
+    entries.BS = { W: 0 };
+    entries.C = [];
+    entries.RD = [0, 0, 0, 0];
+    return { content: a.fill ? `/GS0 gs ${rgb(a.fill)} rg\n${path} f` : '/GS0 gs', entries };
+  }
+  const fill = a.fill ? ` ${rgb(a.fill)} rg` : '';
+  const paint = a.fill ? 'B' : 'S';
   // The outline is centered on the shape's edge; RD tells viewers how far inside Rect it sits.
   entries.RD = [a.width / 2, a.width / 2, a.width / 2, a.width / 2];
   return { content: `${stroke}${fill}\n${path} ${paint}`, entries };

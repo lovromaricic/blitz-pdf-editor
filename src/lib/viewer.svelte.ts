@@ -68,7 +68,7 @@ export type Tool = 'select' | 'content' | 'text' | 'highlight' | 'draw' | 'shape
 export interface ToolProps {
   highlight: { color: Rgb; opacity: number; wholeLine: boolean };
   draw: { color: Rgb; width: number; opacity: number };
-  shapes: { shape: ShapeKind; color: Rgb; fill: Rgb | null; width: number; opacity: number };
+  shapes: { shape: ShapeKind; color: Rgb; fill: Rgb | null; width: number; opacity: number; noOutline?: boolean };
   text: {
     font: FontFamily;
     bold: boolean;

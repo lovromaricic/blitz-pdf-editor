@@ -7,7 +7,7 @@ export type ToScreen = (p: Point) => Point;
 export type Primitive =
   | { kind: 'polygon'; points: Point[]; fill: string; opacity: number; multiply?: boolean }
   | { kind: 'polyline'; points: Point[]; stroke: string; width: number; opacity: number }
-  | { kind: 'ellipse'; cx: number; cy: number; rx: number; ry: number; stroke: string; fill: string | null; width: number; opacity: number };
+  | { kind: 'ellipse'; cx: number; cy: number; rx: number; ry: number; stroke: string | null; fill: string | null; width: number; opacity: number };
 
 /** `scale` is CSS px per point, for stroke widths. */
 export function toPrimitives(a: Annotation, toScreen: ToScreen, scale: number): Primitive[] {
@@ -37,12 +37,14 @@ export function toPrimitives(a: Annotation, toScreen: ToScreen, scale: number): 
         return out;
       }
       const r = normRect(a.from, a.to);
+      // Neither fill nor outline (only from an older file): nothing to see, but still there to click.
+      if (a.noOutline && !a.fill) return [{ kind: 'polygon', points: corners(r), fill: 'transparent', opacity: 0 }];
       if (a.shape === 'rect') {
         const pts = corners(r);
         const fill = a.fill ? rgbToCss(a.fill) : null;
         const prims: Primitive[] = [];
         if (fill) prims.push({ kind: 'polygon', points: pts, fill, opacity: a.opacity });
-        prims.push({ kind: 'polyline', points: [...pts, pts[0]], stroke, width, opacity: a.opacity });
+        if (!a.noOutline) prims.push({ kind: 'polyline', points: [...pts, pts[0]], stroke, width, opacity: a.opacity });
         return prims;
       }
       const b = screenBox(corners(r));
@@ -53,7 +55,7 @@ export function toPrimitives(a: Annotation, toScreen: ToScreen, scale: number): 
           cy: (b[1] + b[3]) / 2,
           rx: (b[2] - b[0]) / 2,
           ry: (b[3] - b[1]) / 2,
-          stroke,
+          stroke: a.noOutline ? null : stroke,
           fill: a.fill ? rgbToCss(a.fill) : null,
           width,
           opacity: a.opacity,
@@ -88,7 +90,7 @@ export function primitivesToSvg(prims: Primitive[], width: number, height: numbe
       if (p.kind === 'polyline') {
         return `<polyline points="${pointsAttr(p.points)}" fill="none" stroke="${p.stroke}" stroke-width="${p.width}" stroke-opacity="${p.opacity}" stroke-linecap="round" stroke-linejoin="round"/>`;
       }
-      return `<ellipse cx="${p.cx}" cy="${p.cy}" rx="${p.rx}" ry="${p.ry}" fill="${p.fill ?? 'none'}" fill-opacity="${p.opacity}" stroke="${p.stroke}" stroke-width="${p.width}" stroke-opacity="${p.opacity}"/>`;
+      return `<ellipse cx="${p.cx}" cy="${p.cy}" rx="${p.rx}" ry="${p.ry}" fill="${p.fill ?? 'none'}" fill-opacity="${p.opacity}" stroke="${p.stroke ?? 'none'}" stroke-width="${p.width}" stroke-opacity="${p.opacity}"/>`;
     })
     .join('');
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">${body}</svg>`;

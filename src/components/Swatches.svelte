@@ -14,6 +14,7 @@
     value,
     onChange,
     allowNone = false,
+    noneLabel = 'None',
     custom = true,
     mixed = false,
     restoreFocus,
@@ -23,6 +24,8 @@
     value: Rgb | null;
     onChange: (c: Rgb | null) => void;
     allowNone?: boolean;
+    /** The name (and tooltip) of the "none" swatch, e.g. "No outline". */
+    noneLabel?: string;
     /** Offer the custom color picker. */
     custom?: boolean;
     /** Several objects with different colors are selected: none is shown as chosen. */
@@ -31,7 +34,7 @@
     restoreFocus?: () => boolean;
   } = $props();
 
-  const options = $derived<{ name: string; rgb: Rgb | null }[]>(allowNone ? [{ name: 'None', rgb: null }, ...colors] : colors);
+  const options = $derived<{ name: string; rgb: Rgb | null }[]>(allowNone ? [{ name: noneLabel, rgb: null }, ...colors] : colors);
   /** The current color isn't one of the presets. */
   const isCustom = $derived(!mixed && value !== null && !options.some((o) => sameRgb(o.rgb, value)));
   const anyChecked = $derived(!mixed && options.some((o) => sameRgb(o.rgb, value)));
