@@ -98,6 +98,39 @@ See the limitations below.
 - Using fonts installed on your computer works only in Chrome and Edge on a desktop. HEIC photos open only where the browser supports them (Safari).
 - There is no export to Word.
 
+## Run it on your computer
+
+You need [Node.js](https://nodejs.org) 24 (22.12 or newer works) and npm, which comes with it. Check with `node -v`.
+
+1. Get the code and go into its folder:
+
+   ```bash
+   git clone https://github.com/lovromaricic/blitz-pdf-editor.git
+   cd blitz-pdf-editor
+   ```
+
+2. If you use nvm, switch to the right Node version (it reads `.nvmrc`):
+
+   ```bash
+   nvm use
+   ```
+
+3. Install the dependencies (only the first time, and after they change):
+
+   ```bash
+   npm ci
+   ```
+
+4. Start the app:
+
+   ```bash
+   npm run dev
+   ```
+
+5. Open http://localhost:5173 in your browser. Changes to the code show up as you save them. Press **Ctrl+C** in the terminal to stop.
+
+To run the finished build the way it would be served on a website, use `npm run build` and then `npm run preview`, and open the address it prints (http://localhost:4173).
+
 <details>
 <summary><strong>For developers</strong></summary>
 
